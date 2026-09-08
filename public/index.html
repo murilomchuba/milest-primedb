@@ -573,7 +573,7 @@ body.soleitura .avisoleitura{display:flex}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-08.10';
+const VERSAO = '2026-09-08.11';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -3447,10 +3447,13 @@ function idDeOrg(nome) {
 
 async function criarEmpresa(nome, cnpj, emailDono, nomeDono, plano) {
   const id = idDeOrg(nome), email = chaveEmail(emailDono);
+  // a empresa do próprio operador nasce marcada: é a única em que ele pode
+  // se cadastrar, e a marca deixa isso registrado no dado
+  const propria = email === chaveEmail(ST.userEmail);
   try {
     await ST.db.doc(dOrg(id)).set({
       nome: nome, cnpj: cnpj || '', plano: plano || 'Padrão', ativo: true,
-      semDono: true, criadoEm: Date.now(), criadaPor: ST.userEmail,
+      semDono: true, propria: propria, criadoEm: Date.now(), criadaPor: ST.userEmail,
       projetos: 0, usuarios: 1
     });
     await ST.db.doc(dOrg(id) + '/members/' + email).set({
@@ -3573,7 +3576,7 @@ function renderPlataforma() {
       const ativa = o.ativo !== false;
       const l = el('tr');
       const tdN = el('td'); tdN.appendChild(el('b', '', o.nome || o.id));
-      if (o.id === ST.orgId) { const m = el('span', 'pill on', 'minha'); m.style.marginLeft = '7px'; tdN.appendChild(m); }
+      if (o.propria === true || o.id === ST.orgId) { const m = el('span', 'pill on', 'minha'); m.style.marginLeft = '7px'; tdN.appendChild(m); }
       l.appendChild(tdN);
       l.appendChild(el('td', '', o.cnpj || '—'));
       l.appendChild(el('td', '', o.plano || '—'));
@@ -3747,6 +3750,12 @@ function modalEmpresa() {
     const iCnpj = campo('CNPJ (opcional)', '00.000.000/0001-00');
     const iEmail = campo('E-mail do administrador', 'gestor@empresa.com.br', 'email');
     const iDono = campo('Nome do administrador', 'Como aparece na lista');
+    const nota = el('div', 'hint'); nota.style.marginTop = '-4px'; body.appendChild(nota);
+    iEmail.addEventListener('input', () => {
+      nota.textContent = chaveEmail(iEmail.value) === chaveEmail(ST.userEmail)
+        ? 'Este é o seu e-mail: a empresa será criada como a sua própria, e você entra nela como administrador.'
+        : '';
+    });
     const fp = el('div', 'field'); fp.appendChild(el('label', '', 'Plano'));
     const sp = el('select', 'inp');
     for (const v of ['Avaliação', 'Padrão', 'Corporativo']) { const o = el('option', '', v); o.value = v; sp.appendChild(o); }

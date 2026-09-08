@@ -68,13 +68,20 @@ service cloud.firestore {
       match /members/{email} {
         allow get, list: if daOrg(org) || souPlataforma();
 
-        // a plataforma cadastra UM administrador ao criar a empresa, e só
-        // enquanto a empresa ainda não tem dono. Não pode cadastrar a si mesma.
+        // A plataforma cadastra UM administrador ao criar a empresa, e só
+        // enquanto a empresa ainda não tem dono.
+        //
+        // Ela NÃO pode cadastrar a si mesma numa empresa de cliente — é o que
+        // sustenta a promessa de não alcançar os dados de ninguém. A única
+        // exceção é a empresa do próprio operador, que nasce marcada com
+        // `propria: true`: a exceção fica gravada no dado, visível a quem
+        // auditar, em vez de ser um privilégio invisível.
         allow create: if mandaNaOrg(org)
                       || (souPlataforma()
                           && get(docOrg(org)).data.semDono == true
                           && request.resource.data.papel == 'admin'
-                          && email.lower() != eu());
+                          && (email.lower() != eu()
+                              || get(docOrg(org)).data.get('propria', false) == true));
 
         allow update: if mandaNaOrg(org)
                       || (logado() && eu() == email.lower() && mexeuSomenteEm(['ultimoAcesso']));
