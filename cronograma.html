@@ -292,10 +292,15 @@ textarea.inp{font-family:var(--f-mono);font-size:11.5px;min-height:180px;resize:
 .empty{padding:40px 16px;text-align:center;color:var(--ink-3);font-size:12.5px}
 .userchip{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--ink-3);font-family:var(--f-mono);white-space:nowrap}
 .userchip .btn{padding:3px 8px;font-size:11px}
+.userchip .org{
+  font-family:var(--f-display);font-size:11px;font-weight:700;color:var(--ink);
+  max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
 .userchip .papel{
   font-family:var(--f-display);font-size:9.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
   background:var(--accent-soft);color:var(--accent);border-radius:4px;padding:3px 6px;
 }
+body.semorg .projpick,body.semorg .kpis,body.semorg .toolbar{display:none!important}
 body.soleitura .reqedit{display:none!important}
 body.soleitura .panel .inp{background:var(--surface-2);color:var(--ink-2);pointer-events:none}
 body.soleitura .toolbar .btn:disabled{opacity:.35}
@@ -404,7 +409,7 @@ body.soleitura .avisoleitura{display:flex}
     <button class="btn icon" id="btnNewProj" title="Novo projeto">＋</button>
   </div>
   <div class="syncdot" id="syncDot"><i></i><span>—</span></div>
-  <div class="userchip" id="userChip" hidden><span class="papel" id="userRole" hidden></span><span id="userEmail"></span><button class="btn icon" id="btnSignOut" title="Sair da conta">Sair</button></div>
+  <div class="userchip" id="userChip" hidden><span class="org" id="orgChip" hidden></span><span class="papel" id="userRole" hidden></span><span id="userEmail"></span><button class="btn icon" id="btnSignOut" title="Sair da conta">Sair</button></div>
   <div class="tabs" role="tablist">
     <button class="tab" role="tab" data-view="overview" aria-selected="true">Visão geral</button>
     <button class="tab" role="tab" data-view="schedule" aria-selected="false">Cronograma</button>
@@ -413,6 +418,7 @@ body.soleitura .avisoleitura{display:flex}
     <button class="tab" role="tab" data-view="curve" aria-selected="false">Curva S</button>
     <button class="tab" role="tab" data-view="settings" aria-selected="false">Calendário</button>
     <button class="tab" role="tab" data-view="users" aria-selected="false" id="tabUsers" hidden>Usuários</button>
+    <button class="tab" role="tab" data-view="plataforma" aria-selected="false" id="tabPlat" hidden>Plataforma</button>
   </div>
 </div>
 
@@ -474,6 +480,7 @@ body.soleitura .avisoleitura{display:flex}
 <div class="view" id="view-curve"><div class="scrollview" id="curveView"></div></div>
 <div class="view" id="view-settings"><div class="scrollview" id="setView"></div></div>
 <div class="view" id="view-users"><div class="scrollview" id="usView"></div></div>
+<div class="view" id="view-plataforma"><div class="scrollview" id="platView"></div></div>
 
 <div class="gate" id="authGate" hidden>
   <div class="gatewrap">
@@ -564,7 +571,7 @@ body.soleitura .avisoleitura{display:flex}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-08.04';
+const VERSAO = '2026-09-08.06';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -900,7 +907,7 @@ const ST = {
   db: null, mode: 'local', pid: null, projects: [],
   P: { meta: null, tasks: [], resources: [] },
   sch: null, sel: new Set(), zoom: 'week', editing: false, unsub: [], portfolio: null, portfolioEm: 0,
-  userEmail: '', perfil: null, usuarios: null, comLogin: false
+  userEmail: '', perfil: null, usuarios: null, comLogin: false, orgId: null, orgs: null
 };
 const LSKEY = 'cronograma.v1';
 
@@ -940,6 +947,22 @@ function localSave() {
 }
 
 let saveTimer = null, dirty = { meta: false, tasks: new Set(), res: new Set(), delT: new Set(), delR: new Set() };
+/* ============ caminhos no banco ============
+   Cada empresa é a raiz dos próprios dados: orgs/{orgId}/projects/...
+   O isolamento é estrutural, não um campo que alguém pode esquecer de filtrar.
+   Sem login por conta (arquivo solto ou banco do artifact) os caminhos seguem
+   planos, porque ali só existe um dono. */
+const chaveEmail = e => String(e || '').trim().toLowerCase();
+function pre() { return (ST.comLogin && ST.orgId) ? 'orgs/' + ST.orgId + '/' : ''; }
+const cProjetos = () => pre() + 'projects';
+const dProjeto = pid => pre() + 'projects/' + pid;
+const cRecursos = () => pre() + 'resources';
+const dRecurso = id => pre() + 'resources/' + id;
+const cMembros = () => pre() + 'members';
+const dMembro = email => pre() + 'members/' + chaveEmail(email);
+const dIndice = email => 'users/' + chaveEmail(email);
+const dOrg = id => 'orgs/' + id;
+
 /* ============ papéis e permissões ============
    A regra que vale é a do Firestore; o que está aqui só evita que a pessoa
    perca tempo mexendo em algo que o banco vai recusar. */
@@ -974,14 +997,14 @@ function queueSave() { ST.portfolioEm = 0; clearTimeout(saveTimer); saveTimer = 
 async function flushSave() {
   const d = dirty; dirty = { meta: false, tasks: new Set(), res: new Set(), delT: new Set(), delR: new Set() };
   if (ST.mode !== 'db') { localSave(); autoVersao(); return; }
-  const db = ST.db, base = 'projects/' + ST.pid;
+  const db = ST.db, base = dProjeto(ST.pid);
   const jobs = [];
   try {
     if (d.meta) jobs.push(db.doc(base).set(stripMeta(ST.P.meta)));
     for (const id of d.tasks) { const t = ST.P.tasks.find(x => x.id === id); if (t) jobs.push(db.doc(base + '/tasks/' + id).set(stripTask(t))); }
-    for (const id of d.res) { const r = ST.P.resources.find(x => x.id === id); if (r) jobs.push(db.doc('resources/' + id).set(Object.assign({}, r))); }
+    for (const id of d.res) { const r = ST.P.resources.find(x => x.id === id); if (r) jobs.push(db.doc(dRecurso(id)).set(Object.assign({}, r))); }
     for (const id of d.delT) jobs.push(db.doc(base + '/tasks/' + id).delete());
-    for (const id of d.delR) jobs.push(db.doc('resources/' + id).delete());
+    for (const id of d.delR) jobs.push(db.doc(dRecurso(id)).delete());
     await Promise.all(jobs);
     autoVersao();
   } catch (e) { toast('Não foi possível salvar: ' + (e && e.message ? e.message : 'erro')); }
@@ -2496,7 +2519,7 @@ async function carregarPortfolio() {
     let P = null;
     try {
       if (ST.mode === 'db') {
-        const base = 'projects/' + p.id;
+        const base = dProjeto(p.id);
         const [m, t, r] = await Promise.all([
           ST.db.doc(base).get(),
           ST.db.collection(base + '/tasks').get(),
@@ -3114,54 +3137,102 @@ function renderStatusReport() {
   host.appendChild(p2);
 }
 
-/* ============ aba Usuários ============ */
-const docUsuario = email => 'users/' + String(email || '').trim().toLowerCase();
+/* ============ empresas, membros e permissões ============ */
 
-/** Lê o papel de quem entrou. Devolve null quando a conta não tem acesso. */
+/** Descobre em que empresa a conta está e com que papel. Devolve null quando
+ *  a conta não tem acesso a nada. */
 async function carregarPerfil() {
   const email = ST.userEmail;
   const dono = email === DONO;
-  let d = null;
-  try { const s = await ST.db.doc(docUsuario(email)).get(); if (s.exists) d = s.data() || null; } catch (e) { }
-  if (!d && !dono) return null;
-  const papel = dono ? 'admin' : (PAPEIS[d.papel] ? d.papel : 'leitor');
-  if (!dono && d.ativo === false) return { bloqueado: true };
-  const perfil = { email: email, nome: (d && d.nome) || email.split('@')[0], papel: papel, ativo: true };
-  // o dono sempre existe na lista: é assim que o primeiro administrador nasce
-  const patch = (dono && !d)
-    ? { email: email, nome: perfil.nome, papel: 'admin', ativo: true, criadoEm: Date.now(), ultimoAcesso: Date.now() }
-    : { ultimoAcesso: Date.now() };
-  ST.db.doc(docUsuario(email)).set(patch, { merge: true }).catch(() => { });
+  let idx = null;
+  try { const s = await ST.db.doc(dIndice(email)).get(); if (s.exists) idx = s.data() || null; } catch (e) { }
+
+  // o dono da plataforma nasce cadastrado, para o sistema nunca ficar sem gestor
+  if (!idx && dono) {
+    idx = { email: email, plataforma: true, orgId: null };
+    ST.db.doc(dIndice(email)).set({ email: email, plataforma: true, criadoEm: Date.now() }, { merge: true }).catch(() => { });
+  }
+  if (!idx) return null;
+
+  const perfil = { email: email, plataforma: idx.plataforma === true || dono, orgId: idx.orgId || null, papel: null, nomeOrg: '' };
+
+  if (perfil.orgId) {
+    try {
+      const [mSnap, oSnap] = await Promise.all([
+        ST.db.doc(dOrg(perfil.orgId) + '/members/' + chaveEmail(email)).get(),
+        ST.db.doc(dOrg(perfil.orgId)).get()
+      ]);
+      if (!oSnap.exists || (oSnap.data() || {}).ativo === false) return { bloqueado: 'empresa' };
+      if (!mSnap.exists) { perfil.orgId = null; }
+      else {
+        const m = mSnap.data() || {};
+        if (m.ativo === false) return { bloqueado: 'pessoa' };
+        perfil.papel = PAPEIS[m.papel] ? m.papel : 'leitor';
+        perfil.nome = m.nome || email.split('@')[0];
+        perfil.nomeOrg = (oSnap.data() || {}).nome || '';
+        ST.db.doc(dOrg(perfil.orgId) + '/members/' + chaveEmail(email))
+          .set({ ultimoAcesso: Date.now() }, { merge: true }).catch(() => { });
+      }
+    } catch (e) { return { bloqueado: 'erro', erro: e }; }
+  }
+  if (!perfil.orgId && !perfil.plataforma) return null;
   return perfil;
 }
 
 function aplicarPermissoes() {
   const ed = podeEditar(), adm = ehAdmin(), nuvem = ST.comLogin;
-  document.body.classList.toggle('soleitura', !ed);
+  const naOrg = !!ST.orgId;
+  document.body.classList.toggle('soleitura', naOrg && !ed);
+  document.body.classList.toggle('semorg', nuvem && !naOrg);
   for (const sel of ['#btnAdd', '#btnIndent', '#btnOutdent', '#btnUp', '#btnDown', '#btnDel',
     '#btnMilestone', '#btnLink', '#btnBaseline', '#btnImport', '#btnNewProj']) {
     const n = $(sel); if (n) n.disabled = !ed;
   }
   const tu = $('#tabUsers');
   if (tu) {
-    tu.hidden = !(adm && nuvem);
+    tu.hidden = !(adm && nuvem && naOrg);
     if (tu.hidden && VIEW === 'users') setView('overview');
   }
+  const tp = $('#tabPlat');
+  if (tp) {
+    tp.hidden = !(nuvem && ST.perfil && ST.perfil.plataforma);
+    if (tp.hidden && VIEW === 'plataforma') setView('overview');
+  }
+  // sem empresa aberta não há projeto para mostrar: só a plataforma
+  for (const b of document.querySelectorAll('.tab')) {
+    if (['plataforma', 'users'].includes(b.dataset.view)) continue;
+    b.hidden = nuvem && !naOrg;
+  }
   const chip = $('#userRole');
-  if (chip) { chip.hidden = !nuvem; chip.textContent = (PAPEIS[papelAtual()] || PAPEIS.leitor).rot; }
+  if (chip) {
+    chip.hidden = !nuvem;
+    chip.textContent = naOrg ? (PAPEIS[papelAtual()] || PAPEIS.leitor).rot
+      : (ST.perfil && ST.perfil.plataforma ? 'Plataforma' : '—');
+  }
+  const co = $('#orgChip');
+  if (co) {
+    const nome = ST.perfil && ST.perfil.nomeOrg;
+    co.hidden = !(nuvem && nome);
+    co.textContent = nome || '';
+  }
 }
 
+/* ---- membros da empresa (aba Usuários) ---- */
 async function carregarUsuarios() {
-  const snap = await ST.db.collection('users').get();
+  const snap = await ST.db.collection(cMembros()).get();
   const lista = snap.docs.map(d => Object.assign({ id: d.id }, d.data() || {}));
   lista.sort((a, b) => String(a.email || a.id).localeCompare(String(b.email || b.id)));
   return lista;
 }
 
 async function salvarUsuario(email, dados) {
-  const chave = docUsuario(email);
+  const chave = chaveEmail(email);
   try {
-    await ST.db.doc(chave).set(Object.assign({ email: String(email).trim().toLowerCase() }, dados), { merge: true });
+    await ST.db.doc(dMembro(chave)).set(Object.assign({ email: chave }, dados), { merge: true });
+    // o índice é o que permite a pessoa achar a própria empresa ao entrar
+    if (dados.papel || dados.ativo !== undefined) {
+      await ST.db.doc(dIndice(chave)).set({ email: chave, orgId: ST.orgId }, { merge: true }).catch(() => { });
+    }
     return true;
   } catch (e) {
     toast('Não consegui salvar: ' + ((e && e.message) || 'erro'));
@@ -3172,7 +3243,7 @@ async function salvarUsuario(email, dados) {
 function renderUsuarios() {
   const host = $('#usView'); host.textContent = '';
   const p = el('div', 'panel');
-  const cab = el('h3', '', 'Usuários e permissões');
+  const cab = el('h3', '', 'Usuários de ' + ((ST.perfil && ST.perfil.nomeOrg) || 'sua empresa'));
   cab.style.display = 'flex'; cab.style.alignItems = 'center'; cab.style.justifyContent = 'space-between'; cab.style.gap = '12px';
   p.appendChild(cab);
 
@@ -3181,7 +3252,7 @@ function renderUsuarios() {
     host.appendChild(p); return;
   }
   if (!ehAdmin()) {
-    p.appendChild(el('div', 'empty', 'Apenas administradores gerenciam usuários.'));
+    p.appendChild(el('div', 'empty', 'Apenas administradores da empresa gerenciam usuários.'));
     host.appendChild(p); return;
   }
 
@@ -3206,8 +3277,8 @@ function renderUsuarios() {
   explica.appendChild(ul);
   explica.appendChild(el('div', 'tagline',
     'A pessoa entra com a própria conta Google — o e-mail cadastrado aqui precisa ser exatamente o da conta. ' +
-    'Quem não estiver nesta lista não abre o sistema. Suspender mantém o cadastro e corta o acesso na hora. ' +
-    'A regra que vale é a do Firestore: mesmo que alguém contorne a tela, o banco recusa a gravação.'));
+    'Todos os cadastrados aqui enxergam os cronogramas desta empresa, e só desta. Nenhuma outra empresa vê os seus dados, ' +
+    'nem o administrador da plataforma. Suspender mantém o cadastro e corta o acesso na hora.'));
   host.appendChild(explica);
 
   const desenhar = (lista) => {
@@ -3218,9 +3289,11 @@ function renderUsuarios() {
     for (const c of ['E-mail', 'Nome', 'Papel', 'Situação', 'Último acesso', '']) tr.appendChild(el('th', '', c));
     th.appendChild(tr); tb.appendChild(th);
     const tbody = el('tbody');
+    const admins = lista.filter(u => u.papel === 'admin' && u.ativo !== false).length;
     for (const u of lista) {
-      const email = String(u.email || u.id).toLowerCase();
-      const souEu = email === ST.userEmail, ehDono = email === DONO;
+      const email = chaveEmail(u.email || u.id);
+      const souEu = email === ST.userEmail;
+      const unicoAdmin = u.papel === 'admin' && admins <= 1;
       const l = el('tr');
       l.appendChild(el('td', '', email));
       l.appendChild(el('td', '', u.nome || '—'));
@@ -3228,23 +3301,23 @@ function renderUsuarios() {
       const tdP = el('td');
       const selP = el('select', 'inp');
       for (const k of ['admin', 'gerente', 'leitor']) { const o = el('option', '', PAPEIS[k].rot); o.value = k; selP.appendChild(o); }
-      selP.value = ehDono ? 'admin' : (PAPEIS[u.papel] ? u.papel : 'leitor');
-      selP.disabled = ehDono;
-      selP.title = ehDono ? 'A conta dona do sistema é sempre administradora.' : '';
+      selP.value = PAPEIS[u.papel] ? u.papel : 'leitor';
+      selP.disabled = unicoAdmin;
+      selP.title = unicoAdmin ? 'A empresa precisa de pelo menos um administrador.' : '';
       selP.addEventListener('change', async () => {
         if (await salvarUsuario(email, { papel: selP.value })) {
           toast(email + ' agora é ' + PAPEIS[selP.value].rot.toLowerCase() + '.');
           ST.usuarios = null;
           if (souEu) { ST.perfil.papel = selP.value; aplicarPermissoes(); }
+          renderUsuarios();
         }
       });
       tdP.appendChild(selP); l.appendChild(tdP);
 
       const tdS = el('td');
       const ativo = u.ativo !== false;
-      const pill = el('span', 'pill ' + (ativo ? 'on' : 'off'), ativo ? 'Ativo' : 'Suspenso');
-      tdS.appendChild(pill);
-      if (!ehDono && !souEu) {
+      tdS.appendChild(el('span', 'pill ' + (ativo ? 'on' : 'off'), ativo ? 'Ativo' : 'Suspenso'));
+      if (!souEu && !unicoAdmin) {
         const bT = el('button', 'btn', ativo ? 'Suspender' : 'Reativar');
         bT.style.marginLeft = '7px';
         bT.addEventListener('click', async () => {
@@ -3261,7 +3334,7 @@ function renderUsuarios() {
       bEd.style.marginRight = '5px';
       bEd.addEventListener('click', () => modalUsuario(Object.assign({}, u, { email: email })));
       tdA.appendChild(bEd);
-      if (!ehDono && !souEu) {
+      if (!souEu && !unicoAdmin) {
         const bX = el('button', 'btn icon danger', '✕'); bX.title = 'Remover o acesso desta conta';
         bX.addEventListener('click', () => confirmarRemocaoUsuario(email));
         tdA.appendChild(bX);
@@ -3270,12 +3343,12 @@ function renderUsuarios() {
       tbody.appendChild(l);
     }
     tb.appendChild(tbody); corpo.appendChild(tb);
-    corpo.appendChild(el('div', 'tagline', lista.length + ' conta(s) com acesso ao MILEST.'));
+    corpo.appendChild(el('div', 'tagline', lista.length + ' conta(s) nesta empresa.'));
   };
 
   if (ST.usuarios) { desenhar(ST.usuarios); return; }
   corpo.appendChild(el('div', 'empty', 'Carregando…'));
-  carregarUsuarios().then(l => { ST.usuarios = l; if (VIEW === 'users') desenhar(l); })
+  carregarUsuarios().then(l => { ST.usuarios = l; atualizarContadores(l.length); if (VIEW === 'users') desenhar(l); })
     .catch(e => { corpo.textContent = ''; corpo.appendChild(el('div', 'empty', 'Não consegui ler a lista: ' + ((e && e.message) || 'erro'))); });
 }
 
@@ -3284,7 +3357,7 @@ function modalUsuario(atual) {
   modal(editando ? 'Editar usuário' : 'Convidar usuário', (body, close) => {
     body.appendChild(el('div', 'hint', editando
       ? 'O e-mail não muda: ele é a chave da conta Google.'
-      : 'Informe o e-mail exato da conta Google da pessoa. Ela entra pelo botão “Entrar com Google”.'));
+      : 'Informe o e-mail exato da conta Google da pessoa. Ela entra pelo botão “Entrar com Google” e cai direto nos cronogramas desta empresa.'));
     const f1 = el('div', 'field'); f1.appendChild(el('label', '', 'E-mail'));
     const iEm = el('input', 'inp'); iEm.type = 'email'; iEm.placeholder = 'pessoa@empresa.com.br';
     iEm.value = editando ? atual.email : ''; iEm.disabled = editando;
@@ -3296,14 +3369,13 @@ function modalUsuario(atual) {
     const sel = el('select', 'inp');
     for (const k of ['gerente', 'leitor', 'admin']) { const o = el('option', '', PAPEIS[k].rot + ' — ' + PAPEIS[k].desc); o.value = k; sel.appendChild(o); }
     sel.value = (atual && PAPEIS[atual.papel]) ? atual.papel : 'leitor';
-    sel.disabled = editando && atual.email === DONO;
     f3.appendChild(sel); body.appendChild(f3);
 
     const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
     const bC = el('button', 'btn', 'Cancelar'); bC.addEventListener('click', close);
     const bOk = el('button', 'btn primary', editando ? 'Salvar' : 'Convidar');
     bOk.addEventListener('click', async () => {
-      const email = iEm.value.trim().toLowerCase();
+      const email = chaveEmail(iEm.value);
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { toast('E-mail inválido.'); return; }
       close();
       const dados = { nome: iNo.value.trim() || email.split('@')[0], papel: sel.value };
@@ -3320,17 +3392,235 @@ function modalUsuario(atual) {
 
 function confirmarRemocaoUsuario(email) {
   modal('Remover acesso', (body, close) => {
-    body.appendChild(el('div', 'hint', 'A conta ' + email + ' deixa de abrir o MILEST. O cadastro pode ser refeito depois.'));
+    body.appendChild(el('div', 'hint', 'A conta ' + email + ' deixa de abrir os cronogramas desta empresa. O cadastro pode ser refeito depois.'));
     const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
     const bC = el('button', 'btn', 'Cancelar'); bC.addEventListener('click', close);
     const bX = el('button', 'btn primary danger', 'Remover');
     bX.addEventListener('click', async () => {
       close();
-      try { await ST.db.doc(docUsuario(email)).delete(); toast('Acesso removido.'); }
-      catch (e) { toast('Não consegui remover: ' + ((e && e.message) || 'erro')); }
+      try {
+        await ST.db.doc(dMembro(email)).delete();
+        await ST.db.doc(dIndice(email)).delete().catch(() => { });
+        toast('Acesso removido.');
+      } catch (e) { toast('Não consegui remover: ' + ((e && e.message) || 'erro')); }
       ST.usuarios = null; renderUsuarios();
     });
     linha.appendChild(bC); linha.appendChild(bX); body.appendChild(linha);
+  }, []);
+}
+
+/* ============ aba Plataforma ============
+   Painel de quem opera o MILEST. Trabalha só com o cadastro das empresas e
+   com os contadores que cada uma grava. Não existe caminho daqui para os
+   projetos de ninguém — as regras do Firestore ignoram este papel quando o
+   assunto é dado de projeto. */
+async function carregarOrgs() {
+  const snap = await ST.db.collection('orgs').get();
+  const lista = snap.docs.map(d => Object.assign({ id: d.id }, d.data() || {}));
+  lista.sort((a, b) => String(a.nome || a.id).localeCompare(String(b.nome || b.id)));
+  return lista;
+}
+
+function idDeOrg(nome) {
+  const base = slug(nome).slice(0, 28) || 'empresa';
+  return base + '-' + Math.random().toString(36).slice(2, 6);
+}
+
+async function criarEmpresa(nome, cnpj, emailDono, nomeDono, plano) {
+  const id = idDeOrg(nome), email = chaveEmail(emailDono);
+  try {
+    await ST.db.doc(dOrg(id)).set({
+      nome: nome, cnpj: cnpj || '', plano: plano || 'Padrão', ativo: true,
+      semDono: true, criadoEm: Date.now(), criadaPor: ST.userEmail,
+      projetos: 0, usuarios: 1
+    });
+    await ST.db.doc(dOrg(id) + '/members/' + email).set({
+      email: email, nome: nomeDono || email.split('@')[0],
+      papel: 'admin', ativo: true, criadoEm: Date.now()
+    });
+    await ST.db.doc(dIndice(email)).set({ email: email, orgId: id, criadoEm: Date.now() }, { merge: true });
+    // fecha a janela de provisionamento: a partir daqui só a própria empresa
+    // mexe nos próprios usuários, e esta marca não volta atrás
+    await ST.db.doc(dOrg(id)).update({ semDono: false });
+    return id;
+  } catch (e) {
+    toast('Não consegui criar a empresa: ' + ((e && e.message) || 'erro'));
+    return null;
+  }
+}
+
+/** Números que a empresa grava sobre si mesma. É só isso que o painel da
+ *  plataforma enxerga — quantos, nunca quais. */
+async function atualizarContadores(qtdUsuarios) {
+  if (ST.mode !== 'db' || !ST.comLogin || !ST.orgId) return;
+  const campos = { projetos: ST.projects.length, atualizadoEm: Date.now() };
+  if (qtdUsuarios != null) campos.usuarios = qtdUsuarios;
+  try { await ST.db.doc(dOrg(ST.orgId)).set(campos, { merge: true }); } catch (e) { }
+}
+
+/* Traz o que ficou na estrutura antiga (projects/… solto na raiz, de quando o
+   sistema atendia uma empresa só) para dentro de uma empresa. Copia, não move:
+   o original fica onde está até você conferir o resultado. */
+async function migrarEstruturaAntiga(orgId) {
+  const lista = q => q.docs.map(d => Object.assign({}, d.data(), { id: d.id }));
+  const vazio = { docs: [] };
+  const ps = await ST.db.collection('projects').get();
+  if (!ps.docs.length) { toast('Não há nada na estrutura antiga.'); return 0; }
+  let n = 0;
+  for (const d of ps.docs) {
+    const velho = 'projects/' + d.id, novo = dOrg(orgId) + '/projects/' + d.id;
+    const [t, v, vd] = await Promise.all([
+      ST.db.collection(velho + '/tasks').get().catch(() => vazio),
+      ST.db.collection(velho + '/versions').get().catch(() => vazio),
+      ST.db.collection(velho + '/versionsData').get().catch(() => vazio)
+    ]);
+    await ST.db.doc(novo).set(d.data() || {});
+    for (const [sub, q] of [['tasks', t], ['versions', v], ['versionsData', vd]]) {
+      const itens = lista(q);
+      for (let i = 0; i < itens.length; i += 15) {
+        await Promise.all(itens.slice(i, i + 15).map(x => ST.db.doc(novo + '/' + sub + '/' + x.id).set(x)));
+      }
+    }
+    n++;
+  }
+  const rs = lista(await ST.db.collection('resources').get().catch(() => vazio));
+  for (let i = 0; i < rs.length; i += 15) {
+    await Promise.all(rs.slice(i, i + 15).map(r => ST.db.doc(dOrg(orgId) + '/resources/' + r.id).set(r)));
+  }
+  return n;
+}
+
+function modalMigracao(orgs) {
+  modal('Migrar a estrutura antiga', (body, close) => {
+    body.appendChild(el('div', 'hint',
+      'Os cronogramas criados antes da separação por empresa ficaram soltos na raiz do banco. ' +
+      'Esta ação copia todos eles para dentro da empresa escolhida. Os originais permanecem intactos: ' +
+      'confira o resultado antes de removê-los pelo console do Firebase.'));
+    const f = el('div', 'field'); f.appendChild(el('label', '', 'Empresa de destino'));
+    const sel = el('select', 'inp');
+    for (const o of orgs) { const op = el('option', '', o.nome || o.id); op.value = o.id; sel.appendChild(op); }
+    if (ST.orgId) sel.value = ST.orgId;
+    f.appendChild(sel); body.appendChild(f);
+    body.appendChild(el('div', 'hint', 'Você precisa ser administrador da empresa de destino para a cópia ser aceita pelo banco.'));
+    const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
+    const bC = el('button', 'btn', 'Cancelar'); bC.addEventListener('click', close);
+    const bOk = el('button', 'btn primary', 'Copiar agora');
+    bOk.addEventListener('click', async () => {
+      const alvo = sel.value; close(); toast('Copiando…');
+      try {
+        const n = await migrarEstruturaAntiga(alvo);
+        if (n) toast(n + ' projeto(s) copiado(s). Recarregando…'), setTimeout(() => location.reload(), 1500);
+      } catch (e) { toast('Falhou: ' + ((e && e.message) || 'erro')); }
+    });
+    linha.appendChild(bC); linha.appendChild(bOk); body.appendChild(linha);
+  }, []);
+}
+
+function renderPlataforma() {
+  const host = $('#platView'); host.textContent = '';
+  const p = el('div', 'panel');
+  const cab = el('h3', '', 'Empresas na plataforma');
+  cab.style.display = 'flex'; cab.style.alignItems = 'center'; cab.style.justifyContent = 'space-between'; cab.style.gap = '12px';
+  const acoes = el('div'); acoes.style.display = 'flex'; acoes.style.gap = '7px';
+  const bAtu = el('button', 'btn', 'Atualizar');
+  bAtu.addEventListener('click', () => { ST.orgs = null; renderPlataforma(); });
+  const bMig = el('button', 'btn', 'Migrar estrutura antiga');
+  bMig.title = 'Copia os cronogramas soltos na raiz do banco para dentro de uma empresa';
+  bMig.addEventListener('click', () => modalMigracao(ST.orgs || []));
+  const bNova = el('button', 'btn primary', '＋ Nova empresa');
+  bNova.addEventListener('click', () => modalEmpresa());
+  acoes.appendChild(bAtu); acoes.appendChild(bMig); acoes.appendChild(bNova); cab.appendChild(acoes);
+  p.appendChild(cab);
+  const corpo = el('div'); p.appendChild(corpo); host.appendChild(p);
+
+  const nota = el('div', 'panel');
+  nota.appendChild(el('h3', '', 'O que este painel enxerga'));
+  nota.appendChild(el('div', 'tagline',
+    'Só o cadastro das empresas e os números que elas mesmas gravam: quantos projetos, quantos usuários, quando entraram pela última vez. ' +
+    'Nenhum conteúdo de cronograma passa por aqui, e não é uma escolha de tela — as regras do Firestore só liberam projeto para quem é membro da empresa. ' +
+    'Ao criar uma empresa você cadastra o primeiro administrador dela; daí em diante quem gerencia os usuários é a própria empresa, ' +
+    'e essa porta não reabre.'));
+  host.appendChild(nota);
+
+  const desenhar = (lista) => {
+    corpo.textContent = '';
+    if (!lista.length) { corpo.appendChild(el('div', 'empty', 'Nenhuma empresa cadastrada. Use “＋ Nova empresa”.')); return; }
+    const tb = el('table', 'data');
+    const th = el('thead'), tr = el('tr');
+    for (const c of ['Empresa', 'CNPJ', 'Plano', 'Projetos', 'Usuários', 'Criada em', 'Situação', '']) tr.appendChild(el('th', '', c));
+    th.appendChild(tr); tb.appendChild(th);
+    const tbody = el('tbody');
+    for (const o of lista) {
+      const ativa = o.ativo !== false;
+      const l = el('tr');
+      const tdN = el('td'); tdN.appendChild(el('b', '', o.nome || o.id));
+      if (o.id === ST.orgId) { const m = el('span', 'pill on', 'minha'); m.style.marginLeft = '7px'; tdN.appendChild(m); }
+      l.appendChild(tdN);
+      l.appendChild(el('td', '', o.cnpj || '—'));
+      l.appendChild(el('td', '', o.plano || '—'));
+      l.appendChild(el('td', '', o.projetos == null ? '—' : String(o.projetos)));
+      l.appendChild(el('td', '', o.usuarios == null ? '—' : String(o.usuarios)));
+      l.appendChild(el('td', '', o.criadoEm ? fmtBR(new Date(o.criadoEm).toISOString().slice(0, 10)) : '—'));
+      const tdS = el('td');
+      tdS.appendChild(el('span', 'pill ' + (ativa ? 'on' : 'off'), ativa ? 'Ativa' : 'Suspensa'));
+      l.appendChild(tdS);
+      const tdA = el('td'); tdA.style.whiteSpace = 'nowrap';
+      const bT = el('button', 'btn', ativa ? 'Suspender' : 'Reativar');
+      bT.title = ativa ? 'Corta o acesso de todos os usuários desta empresa' : 'Devolve o acesso';
+      bT.addEventListener('click', async () => {
+        try { await ST.db.doc(dOrg(o.id)).update({ ativo: !ativa, atualizadoEm: Date.now() }); ST.orgs = null; renderPlataforma(); }
+        catch (e) { toast('Não consegui alterar: ' + ((e && e.message) || 'erro')); }
+      });
+      tdA.appendChild(bT);
+      l.appendChild(tdA);
+      tbody.appendChild(l);
+    }
+    tb.appendChild(tbody); corpo.appendChild(tb);
+    const ativas = lista.filter(o => o.ativo !== false).length;
+    corpo.appendChild(el('div', 'tagline', lista.length + ' empresa(s) · ' + ativas + ' ativa(s).'));
+  };
+
+  if (ST.orgs) { desenhar(ST.orgs); return; }
+  corpo.appendChild(el('div', 'empty', 'Carregando…'));
+  carregarOrgs().then(l => { ST.orgs = l; if (VIEW === 'plataforma') desenhar(l); })
+    .catch(e => { corpo.textContent = ''; corpo.appendChild(el('div', 'empty', 'Não consegui ler a lista: ' + ((e && e.message) || 'erro'))); });
+}
+
+function modalEmpresa() {
+  modal('Nova empresa', (body, close) => {
+    body.appendChild(el('div', 'hint',
+      'A empresa nasce isolada: os cronogramas dela ficam sob a própria conta e nenhuma outra empresa os enxerga. ' +
+      'Informe o e-mail da conta Google de quem será o administrador — é essa pessoa que passa a gerenciar os demais usuários.'));
+    const campo = (rot, dica, tipo) => {
+      const f = el('div', 'field'); f.appendChild(el('label', '', rot));
+      const i = el('input', 'inp'); i.placeholder = dica || ''; if (tipo) i.type = tipo;
+      f.appendChild(i); body.appendChild(f); return i;
+    };
+    const iNome = campo('Nome da empresa', 'Ex.: Unimed Uberaba');
+    const iCnpj = campo('CNPJ (opcional)', '00.000.000/0001-00');
+    const iEmail = campo('E-mail do administrador', 'gestor@empresa.com.br', 'email');
+    const iDono = campo('Nome do administrador', 'Como aparece na lista');
+    const fp = el('div', 'field'); fp.appendChild(el('label', '', 'Plano'));
+    const sp = el('select', 'inp');
+    for (const v of ['Avaliação', 'Padrão', 'Corporativo']) { const o = el('option', '', v); o.value = v; sp.appendChild(o); }
+    sp.value = 'Padrão'; fp.appendChild(sp); body.appendChild(fp);
+
+    const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
+    const bC = el('button', 'btn', 'Cancelar'); bC.addEventListener('click', close);
+    const bOk = el('button', 'btn primary', 'Criar empresa');
+    bOk.addEventListener('click', async () => {
+      const nome = iNome.value.trim(), email = chaveEmail(iEmail.value);
+      if (!nome) { toast('Informe o nome da empresa.'); return; }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { toast('E-mail do administrador inválido.'); return; }
+      close();
+      const id = await criarEmpresa(nome, iCnpj.value.trim(), email, iDono.value.trim(), sp.value);
+      if (id) {
+        toast(nome + ' criada. ' + email + ' já pode entrar como administrador.');
+        ST.orgs = null; renderPlataforma();
+      }
+    });
+    linha.appendChild(bC); linha.appendChild(bOk); body.appendChild(linha);
+    setTimeout(() => iNome.focus(), 30);
   }, []);
 }
 
@@ -3345,9 +3635,9 @@ async function coletarBackup() {
   if (ST.mode === 'db') {
     const vazio = { docs: [] };
     const lista = d => d.docs.map(x => Object.assign({}, x.data(), { id: x.id }));
-    const ps = await ST.db.collection('projects').get();
+    const ps = await ST.db.collection(cProjetos()).get();
     for (const d of ps.docs) {
-      const base = 'projects/' + d.id;
+      const base = dProjeto(d.id);
       const [t, v, vd] = await Promise.all([
         ST.db.collection(base + '/tasks').get().catch(() => vazio),
         ST.db.collection(base + '/versions').get().catch(() => vazio),
@@ -3355,7 +3645,7 @@ async function coletarBackup() {
       ]);
       saida.projects.push({ id: d.id, meta: d.data() || {}, tasks: lista(t), versions: lista(v), versionsData: lista(vd) });
     }
-    saida.resources = lista(await ST.db.collection('resources').get().catch(() => vazio));
+    saida.resources = lista(await ST.db.collection(cRecursos()).get().catch(() => vazio));
     try { saida.users = lista(await ST.db.collection('users').get()); } catch (e) { }
   } else {
     const all = localLoad() || { projects: {} };
@@ -3392,14 +3682,14 @@ async function aplicarBackup(d) {
   };
   if (ST.mode === 'db') {
     for (const p of d.projects) {
-      const base = 'projects/' + p.id;
+      const base = dProjeto(p.id);
       const meta = Object.assign({}, p.meta); delete meta.id;
       await ST.db.doc(base).set(meta);
       await emLotes(p.tasks || [], t => ST.db.doc(base + '/tasks/' + t.id).set(t));
       await emLotes(p.versions || [], v => ST.db.doc(base + '/versions/' + v.id).set(v));
       await emLotes(p.versionsData || [], v => ST.db.doc(base + '/versionsData/' + v.id).set(v));
     }
-    await emLotes(d.resources || [], r => ST.db.doc('resources/' + r.id).set(r));
+    await emLotes(d.resources || [], r => ST.db.doc(dRecurso(r.id)).set(r));
     if (ehAdmin()) await emLotes(d.users || [], u => ST.db.doc('users/' + u.id).set(u).catch(() => { }));
   } else {
     const all = localLoad() || { projects: {} };
@@ -3553,6 +3843,7 @@ function refresh() {
   else if (VIEW === 'curve') renderCurve();
   else if (VIEW === 'settings') renderSettings();
   else if (VIEW === 'users') renderUsuarios();
+  else if (VIEW === 'plataforma') renderPlataforma();
   aplicarPermissoes();
 }
 function syncHeights() { $('#tlhead').style.overflow = 'hidden'; $('#tlhead').scrollLeft = $('#ganttScroll').scrollLeft; }
@@ -3562,7 +3853,7 @@ function setView(v) {
   document.querySelectorAll('.tab').forEach(b => b.setAttribute('aria-selected', String(b.dataset.view === v)));
   document.querySelectorAll('.view').forEach(x => x.classList.toggle('on', x.id === 'view-' + v));
   $('#toolbar').style.display = v === 'schedule' ? '' : 'none';
-  $('#kpis').style.display = (v === 'overview' || v === 'users') ? 'none' : '';
+  $('#kpis').style.display = (v === 'overview' || v === 'users' || v === 'plataforma') ? 'none' : '';
   refresh();
 }
 
@@ -4101,7 +4392,7 @@ function pacoteAtual() {
    assim abrir a lista não baixa o cronograma inteiro de cada versão. */
 async function versoesListar() {
   if (ST.mode === 'db') {
-    const snap = await ST.db.collection('projects/' + ST.pid + '/versions').get();
+    const snap = await ST.db.collection(dProjeto(ST.pid) + '/versions').get();
     return snap.docs.map(d => Object.assign({ id: d.id }, d.data())).sort((a, b) => (b.at || '').localeCompare(a.at || ''));
   }
   const all = localLoad() || { projects: {} };
@@ -4110,7 +4401,7 @@ async function versoesListar() {
 }
 async function carregarVersao(v) {
   if (v.data) return v.data;
-  const snap = await ST.db.doc('projects/' + ST.pid + '/versionsData/' + v.id).get();
+  const snap = await ST.db.doc(dProjeto(ST.pid) + '/versionsData/' + v.id).get();
   return snap.exists ? (snap.data() || {}).data : null;
 }
 async function criarVersao(rotulo, soSeMudou) {
@@ -4134,7 +4425,7 @@ async function criarVersao(rotulo, soSeMudou) {
   ultimaVersaoEm = Date.now();
   try {
     if (ST.mode === 'db') {
-      const id = 'v' + Date.now().toString(36), base = 'projects/' + ST.pid;
+      const id = 'v' + Date.now().toString(36), base = dProjeto(ST.pid);
       await ST.db.doc(base + '/versionsData/' + id).set({ data: dados });
       await ST.db.doc(base + '/versions/' + id).set(doc);
       const todas = await versoesListar();
@@ -4589,7 +4880,7 @@ async function createProject(name, start, cliente, resumo) {
   dirty.meta = true; for (const t of tasks) dirty.tasks.add(t.id);
   await flushSave();
   if (ST.mode === 'db') subscribeProject(pid);
-  renderProjectList(); ST.sel.clear(); refresh();
+  renderProjectList(); ST.sel.clear(); refresh(); atualizarContadores();
 }
 async function excluirProjeto(pid) {
   if (semPermissao()) return false;
@@ -4598,7 +4889,7 @@ async function excluirProjeto(pid) {
   for (const u of ST.unsub) { try { u(); } catch (e) { } } ST.unsub = [];
   try {
     if (ST.mode === 'db') {
-      const base = 'projects/' + pid;
+      const base = dProjeto(pid);
       for (const sub of ['tasks', 'versions', 'versionsData', 'resources']) {
         let snap; try { snap = await ST.db.collection(base + '/' + sub).get(); } catch (e) { continue; }
         for (let i = 0; i < snap.docs.length; i += 20) {
@@ -4620,7 +4911,7 @@ async function excluirProjeto(pid) {
     if (ST.projects.length) await openProject(ST.projects[0].id);
     else await createProject('Projeto sem título', todayISO(), '');
   } else if (ST.mode === 'db') subscribeProject(ST.pid);
-  renderProjectList(); refresh();
+  renderProjectList(); refresh(); atualizarContadores();
   return true;
 }
 
@@ -4634,7 +4925,7 @@ async function salvarIdentidade(pid, nome, cliente, resumo) {
     } else if (ST.mode === 'db') {
       const campos = { name: nome, client: cliente, updatedAt: Date.now() };
       if (resumo != null) campos.resumo = resumo;
-      await ST.db.doc('projects/' + pid).update(campos);
+      await ST.db.doc(dProjeto(pid)).update(campos);
     } else {
       const all = localLoad() || { projects: {} };
       const pr = all.projects[pid];
@@ -4755,10 +5046,10 @@ function setSync(mode, label) {
   d.querySelector('span').textContent = label;
 }
 async function loadProject(pid) {
-  const db = ST.db, base = 'projects/' + pid;
+  const db = ST.db, base = dProjeto(pid);
   const [mSnap, tSnap, rSnap, antigos] = await Promise.all([
     db.doc(base).get(), db.collection(base + '/tasks').get(),
-    db.collection('resources').get(),
+    db.collection(cRecursos()).get(),
     db.collection(base + '/resources').get()
   ]);
   ST.P.meta = Object.assign(newMeta(), mSnap.exists ? mSnap.data() : {});
@@ -4793,12 +5084,12 @@ async function migrarRecursos(pid, antigos) {
   try {
     if (ST.mode === 'db') {
       await flushSave();
-      for (const velho of antigos) await ST.db.doc('projects/' + pid + '/resources/' + velho.id).delete();
+      for (const velho of antigos) await ST.db.doc(dProjeto(pid) + '/resources/' + velho.id).delete();
     } else { queueSave(); }
   } catch (e) { }
 }
 function subscribeProject(pid) {
-  const db = ST.db, base = 'projects/' + pid;
+  const db = ST.db, base = dProjeto(pid);
   const guard = fn => { if (ST.editing || document.querySelector('.modalwrap')) return; fn(); };
   ST.unsub.push(db.doc(base).onSnapshot(s => {
     if (!s.exists || ST.pid !== pid) return;
@@ -4808,7 +5099,7 @@ function subscribeProject(pid) {
     if (ST.pid !== pid) return;
     guard(() => { ST.P.tasks = sortTasks(s.docs.map(d => Object.assign(newTask(), d.data(), { id: d.id }))); refresh(); });
   }, () => { }));
-  ST.unsub.push(db.collection('resources').onSnapshot(s => {      // cadastro único
+  ST.unsub.push(db.collection(cRecursos()).onSnapshot(s => {      // cadastro único
     guard(() => { ST.P.resources = s.docs.map(d => Object.assign({ capacity: 100, rate: 0 }, d.data(), { id: d.id })); refresh(); });
   }, () => { }));
 }
@@ -4826,7 +5117,7 @@ function gateMsg(txt, isErr) {
 }
 async function adoptSharedDb() {
   const db = ST.db;
-  const snap = await db.collection('projects').get();
+  const snap = await db.collection(cProjetos()).get();
   if (snap.docs.length) {
     ST.projects = snap.docs.map(d => ({ id: d.id, name: (d.data() || {}).name || 'Projeto', client: (d.data() || {}).client || '' }));
     const keep = ST.projects.find(p => p.id === ST.pid);
@@ -4872,7 +5163,7 @@ async function bootFirebase(cfg) {
     for (const u of ST.unsub) { try { u(); } catch (e) { } }
     ST.unsub = [];
     if (!user) {
-      ST.db = null; ST.mode = 'local'; ST.perfil = null; ST.usuarios = null; ST.comLogin = true;
+      ST.db = null; ST.mode = 'local'; ST.perfil = null; ST.usuarios = null; ST.orgId = null; ST.orgs = null; ST.comLogin = true;
       chip.hidden = true; gate.hidden = false;
       $('#btnGateOut').hidden = true;
       gateMsg('O acesso é liberado por e-mail. Entre com a conta Google da sua equipe.');
@@ -4881,9 +5172,9 @@ async function bootFirebase(cfg) {
       return;
     }
     ST.db = fs; ST.mode = 'db'; ST.comLogin = true; ST.userEmail = (user.email || '').toLowerCase();
-    ST.perfil = null; ST.usuarios = null;
+    ST.perfil = null; ST.usuarios = null; ST.orgId = null; ST.orgs = null;
     const recusar = (msg) => {
-      ST.db = null; ST.mode = 'local'; ST.perfil = null; ST.comLogin = true;
+      ST.db = null; ST.mode = 'local'; ST.perfil = null; ST.orgId = null; ST.comLogin = true;
       chip.hidden = true; gate.hidden = false; $('#btnGateOut').hidden = false;
       setSync('local', 'Sem acesso');
       gateMsg(msg, true);
@@ -4893,18 +5184,33 @@ async function bootFirebase(cfg) {
       const perfil = await carregarPerfil();
       if (!perfil) {
         recusar('A conta ' + ST.userEmail + ' ainda não tem acesso ao MILEST. ' +
-          'Peça a quem administra para cadastrar esse e-mail na aba Usuários.');
+          'Peça a quem administra a sua empresa para cadastrar esse e-mail.');
+        return;
+      }
+      if (perfil.bloqueado === 'empresa') {
+        recusar('O acesso da sua empresa ao MILEST está suspenso. Fale com quem contratou a plataforma.');
+        return;
+      }
+      if (perfil.bloqueado === 'pessoa') {
+        recusar('O acesso da conta ' + ST.userEmail + ' está suspenso. Fale com quem administra a sua empresa.');
         return;
       }
       if (perfil.bloqueado) {
-        recusar('O acesso da conta ' + ST.userEmail + ' está suspenso. Fale com quem administra o MILEST.');
+        recusar('Não consegui confirmar seu acesso: ' + ((perfil.erro && perfil.erro.message) || 'erro'));
         return;
       }
-      ST.perfil = perfil;
-      await adoptSharedDb();
+      ST.perfil = perfil; ST.orgId = perfil.orgId;
       $('#userEmail').textContent = user.email || '';
       chip.hidden = false; gate.hidden = true;
-      setSync('live', podeEditar() ? 'Compartilhado' : 'Somente leitura');
+      if (ST.orgId) {
+        await adoptSharedDb();
+        setSync('live', podeEditar() ? perfil.nomeOrg || 'Compartilhado' : 'Somente leitura');
+      } else {
+        // gestor da plataforma sem empresa própria: abre direto o painel
+        ST.projects = []; setSync('live', 'Plataforma');
+        aplicarPermissoes(); setView('plataforma');
+        return;
+      }
       aplicarPermissoes();
     } catch (e) {
       const negado = e && /permission|insufficient/i.test(String(e.code || e.message || ''));

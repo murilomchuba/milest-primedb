@@ -1,67 +1,127 @@
 rules_version = '2';
 
-// MILEST — regras de acesso
-// Quem entra e o que cada um pode fazer sai da coleção `users`, que é
-// gerenciada pela aba Usuários do sistema. Estas regras são a única
-// barreira real: a tela apenas evita que a pessoa perca tempo.
+// MILEST — isolamento entre empresas
+//
+// Cada empresa é a raiz dos próprios dados: orgs/{orgId}/projects/...
+// O acesso a projeto depende de UMA coisa só — ser membro ativo daquela
+// empresa. O gestor da plataforma não entra nessa conta: não é que ele seja
+// barrado, é que não existe caminho. Isso é proposital e é o que sustenta a
+// promessa de que quem opera o MILEST não lê os dados dos clientes.
 //
 // Publicar com:  firebase deploy --only firestore:rules --project cronograma-7c295
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // A conta dona nunca perde o acesso, mesmo que a coleção `users`
-    // esteja vazia ou tenha sido apagada por engano.
-    function dono() {
-      return request.auth != null
-          && request.auth.token.email_verified == true
-          && request.auth.token.email.lower() == 'mmc.chuba@gmail.com';
+    function logado() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+    function eu() { return request.auth.token.email.lower(); }
+
+    // ---- índice: em que empresa cada conta está --------------------------
+    function meuIndice() { return /databases/$(database)/documents/users/$(eu()); }
+    function souPlataforma() {
+      return logado() && exists(meuIndice()) && get(meuIndice()).data.plataforma == true;
     }
 
-    function meuEmail() { return request.auth.token.email.lower(); }
-    function meuDoc()   { return /databases/$(database)/documents/users/$(meuEmail()); }
-    function cadastrado() {
-      return request.auth != null
-          && request.auth.token.email_verified == true
-          && exists(meuDoc())
-          && get(meuDoc()).data.ativo != false;
+    // ---- membros de uma empresa ------------------------------------------
+    function docMembro(org) { return /databases/$(database)/documents/orgs/$(org)/members/$(eu()); }
+    function docOrg(org)    { return /databases/$(database)/documents/orgs/$(org); }
+
+    function orgViva(org) {
+      return exists(docOrg(org)) && get(docOrg(org)).data.ativo != false;
     }
-    function meuPapel() { return get(meuDoc()).data.papel; }
+    function daOrg(org) {
+      return logado() && exists(docMembro(org))
+          && get(docMembro(org)).data.ativo != false
+          && orgViva(org);
+    }
+    function papelNa(org) { return get(docMembro(org)).data.papel; }
+    function editaOrg(org)  { return daOrg(org) && papelNa(org) in ['admin', 'gerente']; }
+    function mandaNaOrg(org) { return daOrg(org) && papelNa(org) == 'admin'; }
 
-    // Lê qualquer coisa: administrador, gerente ou leitor ativo.
-    function entra()      { return dono() || cadastrado(); }
-    // Grava dados de projeto: administrador ou gerente.
-    function edita()      { return dono() || (cadastrado() && meuPapel() in ['admin', 'gerente']); }
-    // Mexe em usuários: só administrador.
-    function administra() { return dono() || (cadastrado() && meuPapel() == 'admin'); }
-
-    // ---- Usuários e permissões -------------------------------------------
-    match /users/{email} {
-      // cada um lê o próprio cadastro (é assim que o sistema descobre o papel)
-      allow get: if request.auth != null && (meuEmail() == email.lower() || administra());
-      allow list: if administra();
-      allow create, delete: if administra();
-      // o administrador altera o que quiser; qualquer um pode carimbar
-      // apenas o próprio último acesso
-      allow update: if administra()
-                    || (request.auth != null && meuEmail() == email.lower()
-                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ultimoAcesso']));
+    function mexeuSomenteEm(campos) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(campos);
     }
 
-    // ---- Cronogramas ------------------------------------------------------
-    match /projects/{projeto} {
-      allow read: if entra();
-      allow write: if edita();
-      match /{documento=**} {
-        allow read: if entra();
-        allow write: if edita();
+    // ---- cadastro das empresas -------------------------------------------
+    match /orgs/{org} {
+      // a empresa lê o próprio cadastro; a plataforma lê todos (é o painel de gestão)
+      allow get: if daOrg(org) || souPlataforma();
+      allow list: if souPlataforma();
+      allow create, delete: if souPlataforma();
+
+      // a plataforma cuida de plano e situação, mas NÃO pode reabrir a janela
+      // de provisionamento depois de fechada — semDono só anda de true para false
+      allow update: if (souPlataforma()
+                        && !(resource.data.semDono == false && request.resource.data.semDono == true))
+                    || (mandaNaOrg(org) && mexeuSomenteEm(['nome', 'cnpj', 'atualizadoEm', 'projetos', 'usuarios']))
+                    || (editaOrg(org)   && mexeuSomenteEm(['projetos', 'usuarios', 'atualizadoEm']));
+
+      // ---- quem pertence à empresa ---------------------------------------
+      match /members/{email} {
+        allow get, list: if daOrg(org) || souPlataforma();
+
+        // a plataforma cadastra UM administrador ao criar a empresa, e só
+        // enquanto a empresa ainda não tem dono. Não pode cadastrar a si mesma.
+        allow create: if mandaNaOrg(org)
+                      || (souPlataforma()
+                          && get(docOrg(org)).data.semDono == true
+                          && request.resource.data.papel == 'admin'
+                          && email.lower() != eu());
+
+        allow update: if mandaNaOrg(org)
+                      || (logado() && eu() == email.lower() && mexeuSomenteEm(['ultimoAcesso']));
+        allow delete: if mandaNaOrg(org);
+      }
+
+      // ---- cronogramas: SÓ membros da empresa ----------------------------
+      // (a plataforma não aparece em nenhuma destas linhas, de propósito)
+      match /projects/{projeto} {
+        allow read: if daOrg(org);
+        allow write: if editaOrg(org);
+        match /{documento=**} {
+          allow read: if daOrg(org);
+          allow write: if editaOrg(org);
+        }
+      }
+
+      // ---- equipe: cadastro único dentro da empresa -----------------------
+      match /resources/{recurso} {
+        allow read: if daOrg(org);
+        allow write: if editaOrg(org);
       }
     }
 
-    // ---- Equipe: cadastro único, compartilhado por todos os cronogramas ----
+    // ---- índice de contas -------------------------------------------------
+    match /users/{email} {
+      allow get: if logado() && (eu() == email.lower() || souPlataforma());
+      allow list: if souPlataforma();
+
+      // o administrador de uma empresa aponta a conta para a própria empresa,
+      // e nunca pode se conceder o papel de plataforma
+      allow create: if souPlataforma()
+                    || (mandaNaOrg(request.resource.data.orgId)
+                        && request.resource.data.get('plataforma', false) == false);
+      allow update: if souPlataforma()
+                    || (logado() && eu() == email.lower() && mexeuSomenteEm(['ultimoAcesso']))
+                    || (mandaNaOrg(request.resource.data.orgId)
+                        && request.resource.data.get('plataforma', false) == false
+                        && resource.data.get('plataforma', false) == false
+                        && resource.data.get('orgId', request.resource.data.orgId) == request.resource.data.orgId);
+      allow delete: if souPlataforma() || mandaNaOrg(resource.data.get('orgId', '—'));
+    }
+
+    // ---- estrutura antiga, anterior à separação por empresa ---------------
+    // Continua legível apenas para a conta dona, o tempo necessário para a
+    // migração. Depois de conferir a cópia, apague estas coleções e este bloco.
+    function contaDona() { return logado() && eu() == 'mmc.chuba@gmail.com'; }
+    match /projects/{projeto} {
+      allow read, write: if contaDona();
+      match /{documento=**} { allow read, write: if contaDona(); }
+    }
     match /resources/{recurso} {
-      allow read: if entra();
-      allow write: if edita();
+      allow read, write: if contaDona();
     }
 
     // Nada mais é acessível.

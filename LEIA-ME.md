@@ -82,40 +82,39 @@ funcionando enquanto o DNS propaga.
 
 ## 4. Usuários e permissões
 
-Quem entra no sistema sai da coleção `users` do Firestore, gerenciada pela aba
-**Usuários** (visível só para administradores).
+Há **dois níveis**: quem opera a plataforma (você) e quem usa dentro de cada
+empresa cliente. A seção 7 detalha o isolamento; aqui ficam os papéis.
 
 | papel | o que faz |
 |---|---|
-| **Administrador** | tudo, mais o cadastro de usuários |
-| **Gerente** | cria e edita cronogramas, recursos e status reports |
+| **Plataforma** | cria e suspende empresas, define planos. Não vê cronograma de ninguém. |
+| **Administrador** (da empresa) | tudo dentro da própria empresa, mais o cadastro de usuários dela |
+| **Gerente** | cria e edita cronogramas, recursos e status reports da empresa |
 | **Leitor** | consulta e baixa os relatórios; não altera nada |
 
-Como funciona na prática:
+Na prática:
 
-1. O administrador clica em **＋ Convidar usuário** e informa o e-mail exato da
-   conta Google da pessoa, o nome e o papel.
-2. A pessoa acessa `app.milest.com.br` e entra pelo botão do Google.
-3. Quem não está na lista vê a mensagem de acesso não liberado e não passa da
-   tela de entrada.
+1. Você, na aba **Plataforma**, cria a empresa e cadastra o primeiro
+   administrador dela (o e-mail da conta Google do contato do cliente).
+2. Esse administrador entra e, na aba **Usuários**, convida o resto do time da
+   empresa dele.
+3. Quem não estiver cadastrado em empresa nenhuma não passa da tela de entrada.
 
-**Suspender** mantém o cadastro e corta o acesso imediatamente — é o caminho
-preferível a remover, porque preserva o histórico de quando a pessoa entrou.
+**Suspender** mantém o cadastro e corta o acesso imediatamente — preferível a
+remover, porque preserva o registro do último acesso. Suspender a *empresa*,
+pelo painel da plataforma, derruba todos os usuários dela de uma vez (é o
+caminho para inadimplência).
 
-A conta `mmc.chuba@gmail.com` é a **dona do sistema**: é sempre administradora,
-mesmo que a coleção `users` fique vazia, e não pode ser rebaixada nem removida
-pela tela. É a garantia de nunca ficar trancado para fora. Para transferir a
-propriedade, troque o e-mail em dois lugares: a constante `DONO` no topo do
-`app.src.html` e a função `dono()` no `firestore.rules`.
+A conta `mmc.chuba@gmail.com` é a **dona da plataforma**: nasce cadastrada
+mesmo com o banco vazio, para você nunca ficar trancado para fora. Para
+transferir, troque o e-mail em dois lugares: a constante `DONO` no topo do
+`app.src.html` e a função `contaDona()` no `firestore.rules`.
 
 ### A regra que vale é a do Firestore
 
 A tela apenas evita que a pessoa perca tempo. A barreira real está no
-`firestore.rules`, que consulta o documento `users/<e-mail>` a cada operação:
-leitura para qualquer cadastrado ativo, escrita só para administrador e gerente,
-e a coleção `users` só para administrador. Por isso **as regras precisam ser
-publicadas** — se você publicar só o hosting, o sistema continua com as regras
-antigas.
+`firestore.rules`. Por isso **as regras precisam ser publicadas** — se você
+publicar só o hosting, o sistema continua com as regras antigas.
 
 ---
 
@@ -135,11 +134,70 @@ Dentro do sistema, cada cronograma também guarda o próprio histórico de vers�
 
 ## 6. Estrutura dos dados
 
+Ver a seção 7 — a estrutura é organizada por empresa.
+
+---
+
+## 7. Isolamento entre empresas (multiempresa)
+
+Cada empresa cliente é a raiz dos próprios dados. O isolamento é **estrutural**,
+não um campo que alguém pode esquecer de filtrar numa consulta:
+
 ```
-users/{e-mail}                  cadastro de acesso: nome, papel, ativo, último acesso
-projects/{id}                   dados do projeto: nome, cliente, resumo, calendário, textos do status
-projects/{id}/tasks/{id}        atividades
-projects/{id}/versions/{id}     histórico de versões (cabeçalho)
-projects/{id}/versionsData/{id} histórico de versões (conteúdo)
-resources/{id}                  equipe — cadastro único, compartilhado por todos os projetos
+orgs/{orgId}                          cadastro da empresa: nome, CNPJ, plano, situação
+orgs/{orgId}/members/{e-mail}         quem é da empresa e com que papel
+orgs/{orgId}/projects/{id}            os cronogramas — dentro da empresa
+orgs/{orgId}/projects/{id}/tasks      atividades
+orgs/{orgId}/resources/{id}           equipe, compartilhada só dentro da empresa
+users/{e-mail}                        índice: em que empresa a conta está
 ```
+
+A regra de projeto verifica **uma coisa só**: ser membro ativo daquela empresa.
+O papel de plataforma não aparece em nenhuma dessas linhas — não é que o gestor
+seja barrado, é que não existe caminho.
+
+### O painel de plataforma
+
+A aba **Plataforma** aparece para quem tem `plataforma: true` no índice. Ali você
+cria empresas, define o plano, suspende e reativa, e vê os contadores que cada
+empresa grava sobre si mesma (quantos projetos, quantos usuários). **Nenhum
+conteúdo de cronograma passa por esse painel.**
+
+Ao criar uma empresa você cadastra o **primeiro administrador** dela. Nesse
+instante a marca `semDono` do documento vira `false`, e as regras impedem que
+ela volte a `true` — o provisionamento acontece uma vez e a porta não reabre.
+Daí em diante quem gerencia os usuários daquela empresa é ela mesma.
+
+### O limite honesto
+
+As regras impedem o acesso pelo aplicativo. Elas **não** impedem o acesso pelo
+console do Firebase nem pelo Admin SDK, que ignoram regras por definição — isso
+vale para qualquer banco gerenciado. A promessa de não acessar os dados dos
+clientes é contratual, e o que a torna fácil de cumprir é: (a) o produto não
+oferece caminho, (b) restringir o IAM do projeto ao mínimo, (c) manter os
+*audit logs* do Google Cloud ligados. Coloque isso no contrato de tratamento de
+dados: a empresa cliente é a **controladora**, você é o **operador**.
+
+### Testar as regras antes de publicar
+
+As regras carregam a promessa inteira, então vale rodá-las contra o emulador:
+
+```bash
+cd ~/Documents/ProjetosIA/Cronograma/regras
+npm install
+npm test
+```
+
+Sobe o emulador do Firestore local, simula cinco contas (plataforma, admin,
+gerente, leitor e alguém de fora) e verifica ~35 situações — inclusive que o
+gestor da plataforma não lê projeto de cliente e que a janela de
+provisionamento não reabre. Nada toca o banco de produção.
+
+### Migrar o que já existe
+
+Os cronogramas criados antes desta mudança ficaram soltos na raiz do banco
+(`projects/...`). Na aba **Plataforma** há o botão **Migrar estrutura antiga**:
+ele copia tudo para dentro da empresa escolhida e **não apaga o original**.
+Depois de conferir o resultado, apague as coleções `projects` e `resources` da
+raiz pelo console do Firebase e remova o bloco "estrutura antiga" do
+`firestore.rules`.
