@@ -1,0 +1,623 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MILEST — Gestão de projetos e marcos</title>
+<meta name="description" content="Plataforma de governança e controle de projetos: cronograma com caminho crítico, curva S de avanço físico e status report pronto para a reunião.">
+<meta name="theme-color" content="#014479">
+<meta property="og:type" content="website">
+<meta property="og:title" content="MILEST — Gestão de projetos e marcos">
+<meta property="og:description" content="Sua plataforma de governança e controle de projetos.">
+<meta property="og:url" content="https://milest.com.br/">
+<link rel="canonical" href="https://milest.com.br/">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Source+Sans+3:wght@400;600&family=IBM+Plex+Mono:wght@500&display=swap">
+<link rel="icon" href="img/favicon.svg">
+<style>
+:root{
+  color-scheme: only light;
+  --navy:#014479; --navy-deep:#01243F; --navy-mid:#0A6FA0;
+  --ciano:#17ADC5; --ciano-vivo:#25BDD6; --ciano-lav:#E4F2F7;
+  --papel:#F3F7FA; --branco:#FFFFFF;
+  --tinta:#0E1E2B; --tinta-2:#47596A; --tinta-3:#7A8D9C;
+  --linha:#D8E3EC;
+  --f-display:"Montserrat","Helvetica Neue",Arial,sans-serif;
+  --f-body:"Source Sans 3","Segoe UI",Roboto,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,monospace;
+  --larg:1180px;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--papel); color:var(--tinta);
+  font-family:var(--f-body); font-size:17px; line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+}
+@media (prefers-reduced-motion:reduce){ html{scroll-behavior:auto} *{animation:none!important;transition:none!important} }
+img{max-width:100%;display:block}
+a{color:var(--navy)}
+
+.env{width:min(var(--larg),100% - 40px);margin-inline:auto}
+
+/* ---------- cabeçalho ---------- */
+.topo{
+  position:sticky;top:0;z-index:40;background:rgba(255,255,255,.94);
+  backdrop-filter:saturate(1.4) blur(8px); border-bottom:1px solid var(--linha);
+}
+.topo .env{display:flex;align-items:center;gap:22px;height:74px}
+.marca{display:flex;align-items:center;gap:11px;flex:none;text-decoration:none}
+.marca svg{width:34px;height:auto;flex:none}
+.marca .nome{font-family:var(--f-display);font-weight:800;font-size:23px;letter-spacing:.005em;color:var(--tinta)}
+.nav{margin-left:auto;display:flex;align-items:center;gap:28px}
+.nav a{
+  font-family:var(--f-body);font-weight:600;font-size:15.5px;color:var(--tinta-2);
+  text-decoration:none;padding:6px 0;border-bottom:2px solid transparent;
+}
+.nav a:hover,.nav a:focus-visible{color:var(--navy);border-bottom-color:var(--ciano)}
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:9px;
+  font-family:var(--f-display);font-weight:700;font-size:15px;letter-spacing:.01em;
+  padding:12px 22px;border-radius:7px;text-decoration:none;border:1.5px solid transparent;cursor:pointer;
+  transition:transform .12s ease, background .15s ease, border-color .15s ease;
+}
+.btn:active{transform:translateY(1px)}
+.btn-p{background:var(--navy);color:#fff}
+.btn-p:hover{background:var(--navy-mid)}
+.btn-s{background:transparent;color:var(--navy);border-color:var(--linha)}
+.btn-s:hover{border-color:var(--navy);background:#fff}
+.btn-luz{background:var(--ciano);color:#04222F}
+.btn-luz:hover{background:var(--ciano-vivo)}
+.btn-fant{background:transparent;color:#fff;border-color:rgba(255,255,255,.4)}
+.btn-fant:hover{border-color:#fff;background:rgba(255,255,255,.08)}
+.topo .btn{padding:10px 18px;font-size:14.5px}
+:focus-visible{outline:2.5px solid var(--ciano);outline-offset:3px;border-radius:4px}
+code{font-family:var(--f-mono);font-size:.88em;background:var(--ciano-lav);color:var(--navy);
+  padding:1px 5px;border-radius:4px;white-space:nowrap}
+
+/* ---------- trilho de marcos ---------- */
+/* a página é lida como um cronograma: cada seção é um marco no trilho */
+.secao{position:relative;padding:88px 0}
+.secao .env{position:relative}
+.rotulo{
+  display:flex;align-items:center;gap:11px;margin:0 0 16px;
+  font-family:var(--f-mono);font-size:12px;font-weight:500;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--ciano);
+}
+.rotulo::before{
+  content:"";width:9px;height:9px;background:var(--ciano);flex:none;
+  transform:rotate(45deg); /* losango = marco, o mesmo símbolo do produto */
+}
+h1,h2,h3{font-family:var(--f-display);margin:0;text-wrap:balance;letter-spacing:-.018em;line-height:1.14}
+h2{font-size:clamp(28px,3.6vw,40px);font-weight:800;color:var(--tinta)}
+h3{font-size:19px;font-weight:700}
+.sub{margin:16px 0 0;max-width:62ch;font-size:18px;color:var(--tinta-2)}
+
+/* ---------- hero ---------- */
+.hero{
+  position:relative;overflow:hidden;padding:84px 0 96px;
+  background:
+    radial-gradient(900px 520px at 78% 8%, #E8F3F8, transparent 62%),
+    linear-gradient(180deg,#FBFDFE,var(--papel));
+  border-bottom:1px solid var(--linha);
+}
+.hero .env{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.08fr);gap:56px;align-items:center}
+.hero h1{font-size:clamp(34px,4.6vw,54px);font-weight:800;color:var(--tinta)}
+.hero h1 em{font-style:normal;color:var(--navy)}
+.hero p.lead{margin:22px 0 0;font-size:20px;line-height:1.55;color:var(--tinta-2);max-width:52ch}
+.acoes{display:flex;flex-wrap:wrap;gap:12px;margin-top:32px}
+.hero .selos{
+  display:flex;flex-wrap:wrap;gap:8px 26px;margin-top:34px;padding-top:24px;border-top:1px solid var(--linha);
+  font-family:var(--f-mono);font-size:12.5px;letter-spacing:.06em;color:var(--tinta-3);
+}
+.tela{
+  border-radius:12px;overflow:hidden;background:#fff;
+  border:1px solid var(--linha);
+  box-shadow:0 1px 2px rgba(1,36,63,.06), 0 26px 60px -26px rgba(1,36,63,.42);
+}
+.hero .tela{margin-right:calc(-1 * max(0px, (100vw - var(--larg))/2 + 20px))}
+
+/* ---------- pilares ---------- */
+.pilares{display:grid;grid-template-columns:repeat(3,1fr);gap:0;margin-top:8px}
+.pilar{padding:34px 30px;border-left:1px solid var(--linha)}
+.pilar:first-child{border-left:0;padding-left:0}
+.pilar svg{width:34px;height:34px;color:var(--navy);margin-bottom:16px}
+.pilar h3{margin-bottom:9px}
+.pilar p{margin:0;font-size:16px;color:var(--tinta-2)}
+.faixa-pilares{background:var(--branco);border-bottom:1px solid var(--linha);padding:26px 0 34px}
+
+/* ---------- funcionalidades ---------- */
+.recursos{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--linha);
+  border:1px solid var(--linha);border-radius:12px;overflow:hidden;margin-top:44px}
+.rec{background:var(--branco);padding:28px 26px}
+.rec .n{font-family:var(--f-mono);font-size:11.5px;letter-spacing:.14em;color:var(--ciano);text-transform:uppercase}
+.rec h3{margin:10px 0 8px;font-size:17.5px}
+.rec p{margin:0;font-size:15.5px;color:var(--tinta-2);line-height:1.55}
+
+/* ---------- mostruário ---------- */
+.mostra{display:grid;grid-template-columns:1fr 1.25fr;gap:52px;align-items:center;margin-top:48px}
+.mostra + .mostra{margin-top:76px}
+.mostra.espelho{grid-template-columns:1.25fr 1fr}
+.mostra.espelho .txt{order:2}
+.mostra h3{font-size:25px;letter-spacing:-.015em}
+.mostra p{color:var(--tinta-2);margin:14px 0 0;font-size:17px}
+.lista{margin:20px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:11px}
+.lista li{position:relative;padding-left:24px;font-size:16px;color:var(--tinta-2)}
+.lista li::before{content:"";position:absolute;left:0;top:9px;width:8px;height:8px;background:var(--ciano);transform:rotate(45deg)}
+
+/* ---------- segurança ---------- */
+.seg{background:var(--navy-deep);color:#DCEAF2}
+.seg h2{color:#fff}
+.seg .rotulo{color:var(--ciano-vivo)}
+.seg .rotulo::before{background:var(--ciano-vivo)}
+.seg .sub{color:#A9C6D6}
+.seg-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:28px;margin-top:40px}
+.seg-item{padding:26px;border:1px solid rgba(255,255,255,.14);border-radius:10px;background:rgba(255,255,255,.04)}
+.seg-item h3{color:#fff;font-size:17px;margin-bottom:9px}
+.seg-item p{margin:0;font-size:15.5px;color:#A9C6D6;line-height:1.55}
+
+/* ---------- sobre ---------- */
+.sobre{background:var(--branco);border-top:1px solid var(--linha);border-bottom:1px solid var(--linha)}
+.sobre .env{display:grid;grid-template-columns:1fr 1fr;gap:56px;align-items:start}
+.sobre p{color:var(--tinta-2);font-size:17.5px}
+.sobre p + p{margin-top:16px}
+.numeros{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--linha);border:1px solid var(--linha);border-radius:10px;overflow:hidden}
+.num{background:var(--branco);padding:24px 22px}
+.num b{display:block;font-family:var(--f-display);font-weight:800;font-size:31px;color:var(--navy);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.num span{font-size:14.5px;color:var(--tinta-2)}
+
+/* ---------- contato ---------- */
+.contato .env{display:grid;grid-template-columns:.95fr 1.05fr;gap:56px;align-items:start}
+form{display:grid;gap:14px}
+.dupla{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+label{display:block;font-family:var(--f-display);font-weight:600;font-size:13px;color:var(--tinta-2);margin-bottom:6px;letter-spacing:.01em}
+input,textarea{
+  width:100%;font:inherit;font-size:16px;color:var(--tinta);background:var(--branco);
+  border:1px solid var(--linha);border-radius:8px;padding:11px 13px;
+}
+input:focus,textarea:focus{border-color:var(--ciano);outline:none;box-shadow:0 0 0 3px var(--ciano-lav)}
+textarea{min-height:126px;resize:vertical}
+.aviso{font-size:14.5px;color:var(--tinta-2);margin:0;min-height:22px}
+.aviso.erro{color:#B23324}
+.aviso.ok{color:#1F6B45}
+.canais{display:flex;flex-direction:column;gap:14px;margin-top:26px}
+.canal{display:flex;gap:12px;align-items:flex-start;font-size:16px;color:var(--tinta-2)}
+.canal b{display:block;font-family:var(--f-display);font-size:14px;color:var(--tinta)}
+.canal a{color:var(--navy);text-decoration:none;border-bottom:1px solid var(--linha)}
+.canal a:hover{border-bottom-color:var(--ciano)}
+
+/* ---------- chamada final ---------- */
+.final{background:linear-gradient(150deg,var(--navy-mid),var(--navy) 55%,var(--navy-deep));color:#fff;text-align:center}
+.final h2{color:#fff}
+.final p{color:#B7D5E6;max-width:56ch;margin:16px auto 0;font-size:18px}
+.final .acoes{justify-content:center}
+
+/* ---------- rodapé ---------- */
+.rodape{background:var(--navy-deep);color:#8FB1C4;padding:48px 0 34px;font-size:15px}
+.rodape .env{display:flex;flex-wrap:wrap;gap:26px;align-items:center;justify-content:space-between}
+.rodape .marca .nome{color:#fff}
+.rodape a{color:#B7D5E6;text-decoration:none}
+.rodape a:hover{color:#fff}
+.rodape .links{display:flex;gap:22px;flex-wrap:wrap}
+.rodape .fim{width:100%;border-top:1px solid rgba(255,255,255,.13);padding-top:22px;margin-top:8px;font-size:13.5px;color:#7295AA}
+
+@media (max-width:980px){
+  .hero .env,.sobre .env,.contato .env{grid-template-columns:1fr;gap:38px}
+  .hero .tela{margin-right:0}
+  .mostra,.mostra.espelho{grid-template-columns:1fr;gap:26px}
+  .mostra.espelho .txt{order:0}
+  .pilares,.recursos,.seg-grid{grid-template-columns:1fr}
+  .pilar{border-left:0;border-top:1px solid var(--linha);padding-left:0;padding-right:0}
+  .pilar:first-child{border-top:0}
+  .recursos{gap:1px}
+  .nav a:not(.btn){display:none}
+  .nav{margin-left:auto;gap:0}
+}
+@media (max-width:600px){
+  body{font-size:16px}
+  .secao{padding:60px 0}
+  .dupla{grid-template-columns:1fr}
+  .numeros{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<header class="topo">
+  <div class="env">
+    <a class="marca" href="#topo" aria-label="MILEST, página inicial">
+      <svg viewBox="0 0 72 60" role="img" aria-hidden="true">
+        <defs>
+          <linearGradient id="lf" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#02528F"/><stop offset="1" stop-color="#013A68"/></linearGradient>
+          <linearGradient id="lt" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#0A6FA0"/><stop offset="1" stop-color="#1391B3"/></linearGradient>
+          <linearGradient id="ll" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1FB4CB"/><stop offset="1" stop-color="#0D7CA3"/></linearGradient>
+          <linearGradient id="ls" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#25BDD6"/><stop offset="1" stop-color="#0C6EA0"/></linearGradient>
+        </defs>
+        <polygon points="3 34 17 34 17 56 3 56" fill="url(#lf)"/>
+        <polygon points="3 34 9 28 23 28 17 34" fill="url(#lt)"/>
+        <polygon points="17 34 23 28 23 50 17 56" fill="url(#ll)"/>
+        <polygon points="22 22 36 22 36 56 22 56" fill="url(#lf)"/>
+        <polygon points="22 22 28 16 42 16 36 22" fill="url(#lt)"/>
+        <polygon points="36 22 42 16 42 50 36 56" fill="url(#ll)"/>
+        <polygon points="41 8 55 8 55 56 41 56" fill="url(#lf)"/>
+        <polygon points="41 8 47 2 61 2 55 8" fill="url(#lt)"/>
+        <polygon points="55 8 61 2 61 50 55 56" fill="url(#ll)"/>
+        <path d="M4 54 L19 41 L25 47 L39 31 L45 37 L60 16.5" fill="none" stroke="#FFF" stroke-width="6.4" stroke-linejoin="round" stroke-linecap="round"/>
+        <polygon points="67,8 64.6,20.6 55.2,12.6" fill="#FFF" stroke="#FFF" stroke-width="3.4" stroke-linejoin="round"/>
+        <path d="M4 54 L19 41 L25 47 L39 31 L45 37 L60 16.5" fill="none" stroke="url(#ls)" stroke-width="3.6" stroke-linejoin="round" stroke-linecap="round"/>
+        <polygon points="67,8 64.6,20.6 55.2,12.6" fill="url(#ls)"/>
+      </svg>
+      <span class="nome">MILEST</span>
+    </a>
+    <nav class="nav" aria-label="Principal">
+      <a href="#topo">Home</a>
+      <a href="#funcionalidades">Funcionalidades</a>
+      <a href="#sobre">Sobre</a>
+      <a href="#contato">Contato</a>
+      <a class="btn btn-p" href="https://app.milest.com.br">Entrar</a>
+    </nav>
+  </div>
+</header>
+
+<main id="topo">
+
+  <!-- ============ hero ============ -->
+  <section class="hero">
+    <div class="env">
+      <div>
+        <h1>Sua plataforma de <em>governança e controle</em> de projetos</h1>
+        <p class="lead">
+          Cronograma que calcula o caminho crítico, curva S que mostra o avanço real e o status
+          report pronto para a reunião — no mesmo lugar, sem exportar nada para o PowerPoint.
+        </p>
+        <div class="acoes">
+          <a class="btn btn-p" href="#contato">Solicitar demonstração</a>
+          <a class="btn btn-s" href="#funcionalidades">Ver funcionalidades</a>
+        </div>
+        <div class="selos">
+          <span>CPM · TI, II, TT e IT</span>
+          <span>Curva S física</span>
+          <span>Relatórios em PDF</span>
+        </div>
+      </div>
+      <figure class="tela" style="margin:0">
+        <img src="img/cronograma.png" width="1560" height="700"
+             alt="Tela do MILEST: cronograma em Gantt com fases, dependências, folgas e percentual concluído.">
+      </figure>
+    </div>
+  </section>
+
+  <!-- ============ três pilares ============ -->
+  <section class="faixa-pilares">
+    <div class="env">
+      <div class="pilares">
+        <article class="pilar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 5h8M3 10h13M3 15h6M3 20h11"/><circle cx="19" cy="15" r="2.2"/>
+          </svg>
+          <h3>Cronograma que calcula</h3>
+          <p>Datas saem do método do caminho crítico, não da sua planilha. Dependências com atraso, folgas por atividade e calendário de dias úteis com feriados.</p>
+        </article>
+        <article class="pilar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 20h18"/><path d="M4 16c4 0 5-9 9-9s3.5 5 7 5"/><circle cx="20" cy="12" r="1.8" fill="currentColor" stroke="none"/>
+          </svg>
+          <h3>Avanço que se comprova</h3>
+          <p>Curva S de avanço físico contra a linha de base, com IDP e IDC calculados. O que já foi entregue conta na data em que foi entregue.</p>
+        </article>
+        <article class="pilar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3" y="4" width="18" height="14" rx="2"/><path d="M7 9h6M7 13h10M8 21h8"/>
+          </svg>
+          <h3>Relatório pronto para a reunião</h3>
+          <p>Status report em folha 16:9 e o cronograma inteiro em uma página de PDF. Com a sua marca, sem passar pelo PowerPoint.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ funcionalidades ============ -->
+  <section class="secao" id="funcionalidades">
+    <div class="env">
+      <p class="rotulo">Funcionalidades</p>
+      <h2>O que um gerente de projetos precisa, sem o que não precisa</h2>
+      <p class="sub">
+        Feito para quem entrega projeto de verdade: cada recurso existe porque uma reunião de status
+        cobrou por ele.
+      </p>
+
+      <div class="recursos">
+        <article class="rec">
+          <span class="n">Cronograma</span>
+          <h3>Gantt com dependências reais</h3>
+          <p>Término–início, início–início, término–término e início–término, com atraso ou antecipação: <code>3TI+2d</code>, <code>5II</code>, <code>7TT-1d</code>.</p>
+        </article>
+        <article class="rec">
+          <span class="n">Cronograma</span>
+          <h3>Caminho crítico e folgas</h3>
+          <p>Passagem progressiva e regressiva a cada alteração. Folga total por atividade, e o que não pode atrasar fica evidente.</p>
+        </article>
+        <article class="rec">
+          <span class="n">Cronograma</span>
+          <h3>Calendário de trabalho</h3>
+          <p>Durações em dias úteis, com a semana de trabalho e os feriados da sua operação saindo da conta.</p>
+        </article>
+        <article class="rec">
+          <span class="n">Controle</span>
+          <h3>Linha de base e versões</h3>
+          <p>Congele o plano aprovado e acompanhe o desvio. Cada versão guarda o que mudou de uma para a outra, atividade por atividade.</p>
+        </article>
+        <article class="rec">
+          <span class="n">Controle</span>
+          <h3>Curva S de avanço físico</h3>
+          <p>Previsto, linha de base e realizado na mesma escala. Sem custos na conta quando o seu contrato não tem custos.</p>
+        </article>
+        <article class="rec">
+          <span class="n">Controle</span>
+          <h3>Equipe e alocação</h3>
+          <p>Cadastro único de pessoas, compartilhado entre os cronogramas, com a carga diária e o alerta de superalocação.</p>
+        </article>
+        <article class="rec">
+          <span class="n">Relatórios</span>
+          <h3>Status report em um clique</h3>
+          <p>Folha 16:9 com indicadores, curva S, entregas, riscos e as atividades concluídas na semana. Em PNG ou PDF.</p>
+        </article>
+        <article class="rec">
+          <span class="n">Relatórios</span>
+          <h3>Report gerencial do portfólio</h3>
+          <p>Um PDF com a capa consolidada da carteira e uma folha por projeto. Para a reunião de diretoria, não para o gerente.</p>
+        </article>
+        <article class="rec">
+          <span class="n">Operação</span>
+          <h3>Importação de planilha</h3>
+          <p>Traga 50 atividades de uma vez pelo modelo em Excel, com fases, durações, predecessoras e recursos.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ mostruário ============ -->
+  <section class="secao" style="padding-top:0">
+    <div class="env">
+
+      <div class="mostra">
+        <div class="txt">
+          <p class="rotulo">Status report</p>
+          <h3>A folha que você levaria para o cliente</h3>
+          <p>Uma página, no formato da apresentação, montada a partir do próprio cronograma — não de um slide que alguém precisa atualizar à mão.</p>
+          <ul class="lista">
+            <li>Planejado, realizado e aderência, com o semáforo de situação</li>
+            <li>Curva S do avanço físico e as entregas por fase</li>
+            <li>Atividades concluídas na semana, preenchidas sozinhas</li>
+            <li>Riscos e pontos de atenção que você escreve</li>
+          </ul>
+        </div>
+        <figure class="tela" style="margin:0">
+          <img src="img/status.png" width="1560" height="604" loading="lazy"
+               alt="Status report do MILEST: indicadores, curva S, entregas por fase e atividades realizadas.">
+        </figure>
+      </div>
+
+      <div class="mostra espelho">
+        <div class="txt">
+          <p class="rotulo">Curva S</p>
+          <h3>Onde o projeto está, de verdade</h3>
+          <p>O avanço é medido pelo peso das atividades, e o que foi entregue adiantado conta na data da entrega — e não na data em que estava planejado.</p>
+          <ul class="lista">
+            <li>Previsto pela linha de base e pelo plano atual</li>
+            <li>IDP e IDC calculados na data de status</li>
+            <li>Exportação em imagem para a apresentação gerencial</li>
+          </ul>
+        </div>
+        <figure class="tela" style="margin:0">
+          <img src="img/curva.png" width="1560" height="568" loading="lazy"
+               alt="Curva S do MILEST comparando avanço previsto, linha de base e realizado.">
+        </figure>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ============ segurança ============ -->
+  <section class="secao seg">
+    <div class="env">
+      <p class="rotulo">Segurança e acesso</p>
+      <h2>Os dados de cada empresa ficam com a empresa</h2>
+      <p class="sub">
+        Cada cliente é uma conta isolada. Não é um filtro numa consulta que alguém pode esquecer:
+        é a própria estrutura dos dados.
+      </p>
+      <div class="seg-grid">
+        <article class="seg-item">
+          <h3>Isolamento entre empresas</h3>
+          <p>Os cronogramas ficam sob a conta da empresa. Nenhuma outra empresa os alcança — nem quem opera a plataforma.</p>
+        </article>
+        <article class="seg-item">
+          <h3>Papéis por pessoa</h3>
+          <p>Administrador, gerente e leitor. Quem só precisa acompanhar consulta e baixa relatórios, sem alterar nada.</p>
+        </article>
+        <article class="seg-item">
+          <h3>Entrada pela conta Google</h3>
+          <p>Sem mais uma senha para lembrar. O administrador da empresa cadastra quem entra e suspende o acesso na hora.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ sobre ============ -->
+  <section class="secao sobre" id="sobre">
+    <div class="env">
+      <div>
+        <p class="rotulo">Sobre</p>
+        <h2>Nascido de reunião de status</h2>
+        <p>
+          O MILEST veio de uma rotina conhecida: o cronograma numa ferramenta, o avanço numa planilha
+          e o status report num slide que alguém refaz toda semana. Três lugares para contar a mesma
+          história — e três chances de os números não baterem.
+        </p>
+        <p>
+          A proposta é simples: um cronograma que calcula sozinho, um avanço que sai dele, e o
+          relatório gerado do mesmo dado. O que você apresenta na reunião é o que está no plano,
+          porque é literalmente a mesma origem.
+        </p>
+      </div>
+      <div class="numeros">
+        <div class="num"><b>4</b><span>tipos de dependência, com atraso e antecipação</span></div>
+        <div class="num"><b>1</b><span>página de PDF para o cronograma inteiro</span></div>
+        <div class="num"><b>16:9</b><span>o status report já no formato da apresentação</span></div>
+        <div class="num"><b>0</b><span>planilhas paralelas para fechar o avanço</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ contato ============ -->
+  <section class="secao contato" id="contato">
+    <div class="env">
+      <div>
+        <p class="rotulo">Contato</p>
+        <h2>Vamos ver o MILEST com o seu projeto</h2>
+        <p class="sub">
+          Conte em duas linhas o tipo de projeto que você gerencia. A demonstração é feita em cima
+          de um cronograma parecido com o seu, não de um exemplo genérico.
+        </p>
+        <div class="canais">
+          <div class="canal">
+            <div><b>E-mail</b><a href="mailto:contato@milest.com.br">contato@milest.com.br</a></div>
+          </div>
+          <div class="canal">
+            <div><b>Já é cliente?</b><a href="https://app.milest.com.br">Entrar na plataforma</a></div>
+          </div>
+        </div>
+      </div>
+
+      <form id="formContato" method="post" action="contato.php" novalidate>
+        <div class="dupla">
+          <div>
+            <label for="nome">Nome</label>
+            <input id="nome" name="nome" type="text" autocomplete="name" required>
+          </div>
+          <div>
+            <label for="empresa">Empresa</label>
+            <input id="empresa" name="empresa" type="text" autocomplete="organization">
+          </div>
+        </div>
+        <div class="dupla">
+          <div>
+            <label for="email">E-mail</label>
+            <input id="email" name="email" type="email" autocomplete="email" required>
+          </div>
+          <div>
+            <label for="telefone">Telefone</label>
+            <input id="telefone" name="telefone" type="tel" autocomplete="tel">
+          </div>
+        </div>
+        <div>
+          <label for="mensagem">Como podemos ajudar?</label>
+          <textarea id="mensagem" name="mensagem" required placeholder="Ex.: gerencio projetos de infraestrutura com 40 a 80 atividades e preciso fechar status semanal para o cliente."></textarea>
+        </div>
+        <input type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true"
+               style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0">
+        <button class="btn btn-p" type="submit" id="btnEnviar">Enviar mensagem</button>
+        <p class="aviso" id="aviso" role="status" aria-live="polite"></p>
+      </form>
+    </div>
+  </section>
+
+  <!-- ============ chamada final ============ -->
+  <section class="secao final">
+    <div class="env">
+      <h2>Pare de refazer o mesmo slide toda semana</h2>
+      <p>Traga um cronograma seu e veja o status report sair pronto dele.</p>
+      <div class="acoes">
+        <a class="btn btn-luz" href="#contato">Solicitar demonstração</a>
+        <a class="btn btn-fant" href="https://app.milest.com.br">Entrar na plataforma</a>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="rodape">
+  <div class="env">
+    <a class="marca" href="#topo" aria-label="MILEST">
+      <svg viewBox="0 0 72 60" role="img" aria-hidden="true" style="width:30px">
+        <polygon points="3 34 17 34 17 56 3 56" fill="#0A6FA0"/>
+        <polygon points="3 34 9 28 23 28 17 34" fill="#1391B3"/>
+        <polygon points="17 34 23 28 23 50 17 56" fill="#17ADC5"/>
+        <polygon points="22 22 36 22 36 56 22 56" fill="#0A6FA0"/>
+        <polygon points="22 22 28 16 42 16 36 22" fill="#1391B3"/>
+        <polygon points="36 22 42 16 42 50 36 56" fill="#17ADC5"/>
+        <polygon points="41 8 55 8 55 56 41 56" fill="#0A6FA0"/>
+        <polygon points="41 8 47 2 61 2 55 8" fill="#1391B3"/>
+        <polygon points="55 8 61 2 61 50 55 56" fill="#17ADC5"/>
+        <path d="M4 54 L19 41 L25 47 L39 31 L45 37 L60 16.5" fill="none" stroke="#01243F" stroke-width="6.4" stroke-linejoin="round" stroke-linecap="round"/>
+        <polygon points="67,8 64.6,20.6 55.2,12.6" fill="#01243F" stroke="#01243F" stroke-width="3.4" stroke-linejoin="round"/>
+        <path d="M4 54 L19 41 L25 47 L39 31 L45 37 L60 16.5" fill="none" stroke="#25BDD6" stroke-width="3.6" stroke-linejoin="round" stroke-linecap="round"/>
+        <polygon points="67,8 64.6,20.6 55.2,12.6" fill="#25BDD6"/>
+      </svg>
+      <span class="nome">MILEST</span>
+    </a>
+    <nav class="links" aria-label="Rodapé">
+      <a href="#funcionalidades">Funcionalidades</a>
+      <a href="#sobre">Sobre</a>
+      <a href="#contato">Contato</a>
+      <a href="https://app.milest.com.br">Entrar</a>
+    </nav>
+    <p class="fim">
+      MILEST — Gestão de projetos e marcos · <a href="mailto:contato@milest.com.br">contato@milest.com.br</a>
+      <span style="float:right">© <span id="ano">2026</span></span>
+    </p>
+  </div>
+</footer>
+
+<script>
+document.getElementById('ano').textContent = new Date().getFullYear();
+
+/* O formulário envia para contato.php (funciona em hospedagem com PHP).
+   Se o servidor não tiver PHP — Firebase Hosting, por exemplo — a mensagem
+   não se perde: abrimos o e-mail do visitante já preenchido. */
+(function () {
+  const form = document.getElementById('formContato');
+  const aviso = document.getElementById('aviso');
+  const btn = document.getElementById('btnEnviar');
+  if (!form) return;
+
+  const porEmail = (d) => {
+    const corpo = [
+      'Nome: ' + d.get('nome'),
+      'Empresa: ' + (d.get('empresa') || '—'),
+      'E-mail: ' + d.get('email'),
+      'Telefone: ' + (d.get('telefone') || '—'),
+      '', d.get('mensagem')
+    ].join('\n');
+    location.href = 'mailto:contato@milest.com.br'
+      + '?subject=' + encodeURIComponent('Contato pelo site — ' + (d.get('empresa') || d.get('nome')))
+      + '&body=' + encodeURIComponent(corpo);
+  };
+
+  form.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    aviso.className = 'aviso';
+    if (!form.reportValidity()) return;
+    const dados = new FormData(form);
+    btn.disabled = true; aviso.textContent = 'Enviando…';
+    try {
+      const r = await fetch(form.action, { method: 'POST', body: dados });
+      const txt = (await r.text()).trim();
+      if (r.ok && txt.startsWith('OK')) {
+        form.reset();
+        aviso.className = 'aviso ok';
+        aviso.textContent = 'Recebemos sua mensagem. Respondemos em até um dia útil.';
+      } else { throw new Error('sem php'); }
+    } catch (e) {
+      aviso.className = 'aviso';
+      aviso.textContent = 'Abrindo seu programa de e-mail para concluir o envio…';
+      porEmail(dados);
+    } finally { btn.disabled = false; }
+  });
+})();
+</script>
+
+</body>
+</html>
