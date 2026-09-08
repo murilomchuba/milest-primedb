@@ -572,7 +572,7 @@ body.soleitura .avisoleitura{display:flex}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-08.11';
+const VERSAO = '2026-09-08.12';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -3554,6 +3554,8 @@ function renderPlataforma() {
   p.appendChild(cab);
   const corpo = el('div'); p.appendChild(corpo); host.appendChild(p);
 
+  host.appendChild(painelBackupPlataforma());
+
   const nota = el('div', 'panel');
   nota.appendChild(el('h3', '', 'O que este painel enxerga'));
   nota.appendChild(el('div', 'tagline',
@@ -3603,7 +3605,9 @@ function renderPlataforma() {
 
   if (ST.orgs) { desenhar(ST.orgs); return; }
   corpo.appendChild(el('div', 'empty', 'Carregando…'));
-  carregarOrgs().then(l => { ST.orgs = l; if (VIEW === 'plataforma') desenhar(l); })
+  // a lista chega depois: redesenha a aba inteira, para o painel de restauração
+  // também receber as empresas (na segunda passada ST.orgs já está em cache)
+  carregarOrgs().then(l => { ST.orgs = l; if (VIEW === 'plataforma') renderPlataforma(); })
     .catch(e => { corpo.textContent = ''; corpo.appendChild(diagnosticando(e)); });
 }
 
@@ -3735,6 +3739,45 @@ function primeirosPassos() {
   return cx;
 }
 
+/* Com o painel da plataforma aberto e nenhuma empresa em uso, as outras abas
+   ficam escondidas — e o backup mora numa delas. Aqui ele fica ao alcance,
+   com a empresa de destino escolhida na hora. */
+function painelBackupPlataforma() {
+  const p = el('div', 'panel');
+  p.appendChild(el('h3', '', 'Restaurar um backup'));
+  const orgs = (ST.orgs || []).filter(o => o.ativo !== false);
+
+  if (!orgs.length) {
+    p.appendChild(el('div', 'tagline',
+      'Crie uma empresa primeiro: um backup precisa de um destino. Depois volte aqui para restaurá-lo dentro dela.'));
+    return p;
+  }
+
+  const fg = el('div', 'formgrid'); fg.style.gridTemplateColumns = '1fr auto';
+  fg.style.alignItems = 'end';
+  const f = el('div', 'field');
+  f.appendChild(el('label', '', 'Restaurar dentro de qual empresa'));
+  const sel = el('select', 'inp');
+  for (const o of orgs) { const op = el('option', '', o.nome || o.id); op.value = o.id; sel.appendChild(op); }
+  const minha = orgs.find(o => o.propria === true) || orgs.find(o => o.id === ST.orgId);
+  if (minha) sel.value = minha.id;
+  f.appendChild(sel); fg.appendChild(f);
+
+  const b = el('button', 'btn primary', 'Escolher o arquivo…');
+  b.addEventListener('click', () => {
+    const o = orgs.find(x => x.id === sel.value);
+    restaurarBackup(sel.value, o ? (o.nome || o.id) : sel.value);
+  });
+  const cxb = el('div'); cxb.appendChild(b); fg.appendChild(cxb);
+  p.appendChild(fg);
+
+  p.appendChild(el('div', 'tagline',
+    'Serve para o arquivo baixado antes da separação por empresa: os projetos entram na empresa escolhida, ' +
+    'com atividades, linha de base e histórico. É o mesmo destino do botão “Migrar estrutura antiga” — ' +
+    'use um ou outro, não os dois.'));
+  return p;
+}
+
 function modalEmpresa() {
   modal('Nova empresa', (body, close) => {
     body.appendChild(el('div', 'hint',
@@ -3831,21 +3874,27 @@ async function baixarBackup() {
 
 /** Regrava tudo o que está no arquivo. Não apaga o que existe hoje e não
  *  estiver no backup — sobrescrever é menos destrutivo do que limpar. */
-async function aplicarBackup(d) {
+/** Regrava o backup. `orgAlvo` diz em qual empresa — sem isso, com o painel
+ *  da plataforma aberto e nenhuma empresa em uso, os dados voltariam para a
+ *  raiz do banco, que é a estrutura antiga. */
+async function aplicarBackup(d, orgAlvo) {
   const emLotes = async (itens, fn) => {
     for (let i = 0; i < itens.length; i += 15) await Promise.all(itens.slice(i, i + 15).map(fn));
   };
+  const raiz = orgAlvo ? (dOrg(orgAlvo) + '/') : pre();
+  const alvoProjeto = id => raiz + 'projects/' + id;
+  const alvoRecurso = id => raiz + 'resources/' + id;
   if (ST.mode === 'db') {
     for (const p of d.projects) {
-      const base = dProjeto(p.id);
+      const base = alvoProjeto(p.id);
       const meta = Object.assign({}, p.meta); delete meta.id;
       await ST.db.doc(base).set(meta);
       await emLotes(p.tasks || [], t => ST.db.doc(base + '/tasks/' + t.id).set(t));
       await emLotes(p.versions || [], v => ST.db.doc(base + '/versions/' + v.id).set(v));
       await emLotes(p.versionsData || [], v => ST.db.doc(base + '/versionsData/' + v.id).set(v));
     }
-    await emLotes(d.resources || [], r => ST.db.doc(dRecurso(r.id)).set(r));
-    if (ehAdmin()) await emLotes(d.users || [], u => ST.db.doc('users/' + u.id).set(u).catch(() => { }));
+    await emLotes(d.resources || [], r => ST.db.doc(alvoRecurso(r.id)).set(r));
+    if (ehAdmin() && !orgAlvo) await emLotes(d.users || [], u => ST.db.doc('users/' + u.id).set(u).catch(() => { }));
   } else {
     const all = localLoad() || { projects: {} };
     for (const p of d.projects) {
@@ -3856,7 +3905,7 @@ async function aplicarBackup(d) {
   }
 }
 
-function restaurarBackup() {
+function restaurarBackup(orgAlvo, nomeAlvo) {
   const inp = el('input'); inp.type = 'file'; inp.accept = '.json,application/json';
   inp.addEventListener('change', async () => {
     const f = inp.files && inp.files[0]; if (!f) return;
@@ -3869,7 +3918,8 @@ function restaurarBackup() {
         'Backup de ' + dataHora(d.geradoEm) + ', versão ' + (d.versao || '?') + ': ' +
         d.projects.length + ' projeto(s), ' + tarefas + ' atividade(s), ' + (d.resources || []).length + ' recurso(s).'));
       body.appendChild(el('div', 'hint',
-        'Os projetos do arquivo serão regravados por cima dos atuais. O que existe hoje e não está no backup permanece.'));
+        'Destino: ' + (nomeAlvo || (ST.perfil && ST.perfil.nomeOrg) || 'os dados desta sessão') +
+        '. Os projetos do arquivo serão regravados por cima dos atuais; o que existe hoje e não está no backup permanece.'));
       const f2 = el('div', 'field');
       f2.appendChild(el('label', '', 'Digite RESTAURAR para confirmar'));
       const i2 = el('input', 'inp'); i2.placeholder = 'RESTAURAR'; f2.appendChild(i2); body.appendChild(f2);
@@ -3879,7 +3929,7 @@ function restaurarBackup() {
       i2.addEventListener('input', () => { bOk.disabled = i2.value.trim().toUpperCase() !== 'RESTAURAR'; });
       bOk.addEventListener('click', async () => {
         close(); toast('Restaurando…');
-        try { await aplicarBackup(d); toast('Backup restaurado. Recarregando…'); setTimeout(() => location.reload(), 1200); }
+        try { await aplicarBackup(d, orgAlvo); toast('Backup restaurado. Recarregando…'); setTimeout(() => location.reload(), 1500); }
         catch (e) { toast('Falhou no meio da restauração: ' + ((e && e.message) || 'erro')); }
       });
       linha.appendChild(bC); linha.appendChild(bOk); body.appendChild(linha);
