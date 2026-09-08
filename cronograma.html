@@ -572,7 +572,7 @@ body.soleitura .avisoleitura{display:flex}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-08.09';
+const VERSAO = '2026-09-08.10';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -3562,7 +3562,7 @@ function renderPlataforma() {
 
   const desenhar = (lista) => {
     corpo.textContent = '';
-    if (!lista.length) { corpo.appendChild(el('div', 'empty', 'Nenhuma empresa cadastrada. Use “＋ Nova empresa”.')); return; }
+    if (!lista.length) { corpo.appendChild(primeirosPassos()); return; }
     const tb = el('table', 'data');
     const th = el('thead'), tr = el('tr');
     for (const c of ['Empresa', 'CNPJ', 'Plano', 'Projetos', 'Usuários', 'Criada em', 'Situação', '']) tr.appendChild(el('th', '', c));
@@ -3686,6 +3686,49 @@ function diagnosticando(erroOriginal) {
     cx.appendChild(p);
   })();
 
+  return cx;
+}
+
+/* Banco recém-separado por empresa: o painel abre sem nenhuma empresa e a tela
+   ficava muda. Aqui ele diz o que fazer — inclusive trazer os cronogramas que
+   ficaram na estrutura antiga. */
+function primeirosPassos() {
+  const cx = el('div'); cx.style.padding = '10px 2px 4px';
+  const t = el('div');
+  t.style.cssText = 'font-family:var(--f-display);font-weight:700;font-size:16px;margin-bottom:6px';
+  t.textContent = 'Nenhuma empresa cadastrada ainda';
+  cx.appendChild(t);
+  cx.appendChild(el('div', 'tagline',
+    'A leitura do banco funcionou — a lista está vazia porque nenhuma empresa foi criada ainda. ' +
+    'O caminho daqui:'));
+
+  const passos = [
+    ['1', 'Crie a sua empresa', 'Use “＋ Nova empresa” com o seu nome de operação e o seu e-mail como administrador. Você fica nos dois papéis: gestor da plataforma e administrador da sua empresa.'],
+    ['2', 'Traga os cronogramas antigos', 'Use “Migrar estrutura antiga” para copiar os projetos que estão soltos na raiz do banco para dentro dela. Os originais não são apagados.'],
+    ['3', 'Cadastre as empresas clientes', 'Cada uma nasce isolada, com o primeiro administrador definido por você. Daí em diante quem cuida dos usuários é ela.']
+  ];
+  const grade = el('div');
+  grade.style.cssText = 'display:grid;gap:1px;background:var(--line);border:1px solid var(--line);border-radius:9px;overflow:hidden;margin-top:12px';
+  for (const [n, tit, txt] of passos) {
+    const l = el('div');
+    l.style.cssText = 'background:var(--surface);padding:14px 16px;display:flex;gap:13px;align-items:flex-start';
+    const num = el('div', '', n);
+    num.style.cssText = 'font-family:var(--f-mono);font-size:12px;font-weight:600;color:var(--accent);' +
+      'background:var(--accent-soft);border-radius:5px;width:24px;height:24px;display:flex;align-items:center;justify-content:center;flex:none';
+    const cor = el('div');
+    const h = el('div', '', tit);
+    h.style.cssText = 'font-family:var(--f-display);font-weight:600;font-size:13.5px;margin-bottom:3px';
+    cor.appendChild(h);
+    cor.appendChild(el('div', 'tagline', txt));
+    l.appendChild(num); l.appendChild(cor);
+    grade.appendChild(l);
+  }
+  cx.appendChild(grade);
+
+  const b = el('button', 'btn primary', '＋ Criar a minha empresa');
+  b.style.marginTop = '14px';
+  b.addEventListener('click', () => modalEmpresa());
+  cx.appendChild(b);
   return cx;
 }
 
