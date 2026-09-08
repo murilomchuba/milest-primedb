@@ -573,7 +573,7 @@ body.soleitura .avisoleitura{display:flex}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-08.08';
+const VERSAO = '2026-09-08.09';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -3602,13 +3602,92 @@ function renderPlataforma() {
   if (ST.orgs) { desenhar(ST.orgs); return; }
   corpo.appendChild(el('div', 'empty', 'Carregando…'));
   carregarOrgs().then(l => { ST.orgs = l; if (VIEW === 'plataforma') desenhar(l); })
-    .catch(e => {
-      corpo.textContent = '';
-      const negado = /permission|insufficient/i.test(String((e && (e.code || e.message)) || ''));
-      corpo.appendChild(el('div', 'empty', negado
-        ? 'O banco recusou a leitura. Publique as regras novas: firebase deploy --only firestore:rules'
-        : 'Não consegui ler a lista: ' + ((e && e.message) || 'erro')));
-    });
+    .catch(e => { corpo.textContent = ''; corpo.appendChild(diagnosticando(e)); });
+}
+
+/* Quando a listagem falha, o painel investiga sozinho em vez de repetir o texto
+   cru do Firebase. O teste decisivo é a estrutura antiga: se `projects` na raiz
+   responde e `orgs` não, as regras publicadas ainda são as de antes. */
+function diagnosticando(erroOriginal) {
+  const cx = el('div');
+  cx.style.padding = '16px 2px';
+  cx.appendChild(el('div', 'empty', 'Não consegui ler a lista. Investigando…'));
+
+  const provar = async (rotulo, fn) => {
+    try { const v = await fn(); return { rotulo, ok: true, nota: v || '' }; }
+    catch (e) {
+      const cod = String((e && (e.code || e.message)) || '');
+      return { rotulo, ok: false, negado: /permission|insufficient/i.test(cod), nota: cod.slice(0, 70) };
+    }
+  };
+
+  (async () => {
+    const testes = [
+      await provar('Ler o próprio cadastro em users/', async () => {
+        const d = await ST.db.doc(dIndice(ST.userEmail)).get();
+        if (!d.exists) return 'documento não existe';
+        const x = d.data() || {};
+        return 'plataforma=' + (x.plataforma === true) + ' · empresa=' + (x.orgId || 'nenhuma');
+      }),
+      await provar('Gravar a marca de plataforma', async () => {
+        await ST.db.doc(dIndice(ST.userEmail)).set({ plataforma: true }, { merge: true });
+        return 'gravou';
+      }),
+      await provar('Listar as empresas em orgs/', async () => {
+        const q = await ST.db.collection('orgs').get();
+        return q.docs.length + ' empresa(s)';
+      }),
+      await provar('Ler a estrutura antiga em projects/', async () => {
+        const q = await ST.db.collection('projects').get();
+        return q.docs.length + ' projeto(s) na raiz';
+      })
+    ];
+
+    const orgs = testes[2], antiga = testes[3];
+    // regras antigas no ar: a raiz responde, orgs não
+    const regrasVelhas = !orgs.ok && orgs.negado && antiga.ok;
+
+    cx.textContent = '';
+    const p = el('div', 'panel'); p.style.margin = '0';
+    p.appendChild(el('h3', '', regrasVelhas ? 'As regras do Firestore ainda são as antigas' : 'O que o banco respondeu'));
+
+    if (regrasVelhas) {
+      p.appendChild(el('div', 'tagline',
+        'A leitura de orgs/ foi recusada, mas a estrutura antiga na raiz respondeu — sinal de que o banco ' +
+        'ainda está com as regras anteriores à separação por empresa. Publique-as e recarregue:'));
+      const cmd = el('div', 'tagline');
+      cmd.style.cssText = 'font-family:var(--f-mono);background:var(--surface-2);border:1px solid var(--line);border-radius:6px;padding:9px 11px;margin-top:8px;user-select:all';
+      cmd.textContent = 'firebase deploy --only firestore:rules --project cronograma-7c295';
+      p.appendChild(cmd);
+    }
+
+    const tb = el('table', 'data');
+    const tbody = el('tbody');
+    for (const t of testes) {
+      const l = el('tr');
+      const td1 = el('td'); td1.style.width = '26px';
+      td1.appendChild(el('span', 'pill ' + (t.ok ? 'on' : 'off'), t.ok ? 'ok' : 'não'));
+      l.appendChild(td1);
+      l.appendChild(el('td', '', t.rotulo));
+      const td3 = el('td'); td3.style.color = 'var(--ink-3)'; td3.style.fontSize = '12px';
+      td3.textContent = t.nota || (t.negado ? 'permissão negada' : '');
+      l.appendChild(td3);
+      tbody.appendChild(l);
+    }
+    tb.appendChild(tbody); p.appendChild(tb);
+
+    if (!regrasVelhas) {
+      p.appendChild(el('div', 'tagline', 'Erro original: ' + ((erroOriginal && (erroOriginal.code || erroOriginal.message)) || 'desconhecido') +
+        ' · conta: ' + ST.userEmail + ' · versão ' + VERSAO));
+    }
+    const bR = el('button', 'btn', 'Tentar de novo');
+    bR.style.marginTop = '10px';
+    bR.addEventListener('click', () => { ST.orgs = null; renderPlataforma(); });
+    p.appendChild(bR);
+    cx.appendChild(p);
+  })();
+
+  return cx;
 }
 
 function modalEmpresa() {
