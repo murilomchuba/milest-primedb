@@ -1,0 +1,970 @@
+{
+ "formato": "cronograma-cpm/1",
+ "meta": {
+  "name": "Implantação de ERP — Fase 1",
+  "start": "2026-06-01",
+  "workweek": [
+   false,
+   true,
+   true,
+   true,
+   true,
+   true,
+   false
+  ],
+  "holidays": [
+   "2026-06-04",
+   "2026-09-07",
+   "2026-10-12",
+   "2026-11-02",
+   "2026-11-20",
+   "2026-12-25"
+  ],
+  "hoursPerDay": 8,
+  "currency": "R$",
+  "statusDate": "2026-09-03",
+  "baselineAt": "2026-06-05",
+  "updatedAt": 1788468521625
+ },
+ "tasks": [
+  {
+   "id": "t01",
+   "ord": 0,
+   "name": "Mobilização",
+   "level": 0,
+   "dur": 0,
+   "preds": [],
+   "res": [],
+   "pct": 0,
+   "fixed": 0,
+   "ac": null,
+   "cst": null,
+   "bl": {
+    "start": "2026-06-01",
+    "finish": "2026-06-17",
+    "dur": 12,
+    "cost": 20880,
+    "work": 136
+   },
+   "collapsed": false,
+   "notes": ""
+  },
+  {
+   "id": "t02",
+   "ord": 10,
+   "name": "Kickoff e alinhamento com a diretoria",
+   "level": 1,
+   "dur": 2,
+   "preds": [],
+   "res": [
+    {
+     "rid": "r_ana",
+     "units": 100
+    }
+   ],
+   "pct": 100,
+   "fixed": 0,
+   "ac": 3110,
+   "cst": null,
+   "bl": {
+    "start": "2026-06-01",
+    "finish": "2026-06-02",
+    "dur": 2,
+    "cost": 2880,
+    "work": 16
+   },
+   "collapsed": false,
+   "notes": ""
+  },
+  {
+   "id": "t03",
+   "ord": 20,
+   "name": "Levantamento de processos AS-IS",
+   "level": 1,
+   "dur": 10,
+   "preds": [
+    {
+     "id": "t02",
+     "type": "FS",
+     "lag": 0
+    }
+   ],
+   "res": [
+    {
+     "rid": "r_bruno",
+     "units": 100
+    },
+    {
+     "rid": "r_carla",
+     "units": 50
+    }
+   ],
+   "pct": 100,
+   "fixed": 0,
+   "ac": 19440,
+   "cst": null,
+   "bl": {
+    "start": "2026-06-03",
+    "finish": "2026-06-17",
+    "dur": 10,
+    "cost": 18000,
+    "work": 120
+   },
+   "collapsed": false,
+   "notes": ""
+  },
+  {
+   "id": "t04",
+   "ord": 30,
+   "name": "Mapa de processos aprovado",
+   "level": 1,
+   "dur": 0,
+   "preds": [
+    {
+     "id": "t03",
+     "type": "FS",
+     "lag": 0
+    }
+   ],
+   "res": [],
+   "pct": 100,
+   "fixed": 0,
+   "ac": 0,
+   "cst": null,
+   "bl": {
+    "start": "2026-06-18",
+    "finish": "2026-06-18",
+    "dur": 0,
+    "cost": 0,
+    "work": 0
+   },
+   "collapsed": false,
+   "notes": ""
+  },
+  {
+   "id": "t05",
+   "ord": 40,
+   "name": "Projeto da solução",
+   "level": 0,
+   "dur": 0,
+   "preds": [],
+   "res": [],
+   "pct": 0,
+   "fixed": 0,
+   "ac": null,
+   "cst": null,
+   "bl": {
+    "start": "2026-06-18",
+    "finish": "2026-07-15",
+    "dur": 20,
+    "cost": 48384,
+    "work": 294.4
+   },
+   "collapsed": false,
+   "notes": ""
+  },
+  {
+   "id": "t06",
+   "ord": 50,
+   "name": "Desenho dos processos TO-BE",
+   "level": 1,
+   "dur": 12,
+   "preds": [
+    {
+     "id": "t04",
+     "type": "FS",
+     "lag": 0
+    }
+   ],
+   "res": [
+    {
+     "rid": "r_carla",
+     "units": 100
+    },
+    {
+     "rid": "r_bruno",
+     "units": 50
+    }
+   ],
+   "pct": 100,
+   "fixed": 0,
+   "ac": 27990,
+   "cst": null,
+   "bl": {
+    "start": "2026-06-18",
+    "finish": "2026-07-03",
+    "dur": 12,
+    "cost": 25920,
+    "work": 144
+   },
+   "collapsed": false,
+   "notes": ""
+  },
+  {
+   "id": "t07",
+   "ord": 60,
+   "name": "Definição de parametrizações",
+   "level": 1,
+   "dur": 8,
+   "preds": [
+    {
+     "id": "t06",
+     "type": "FS",
+     "lag": 0
+    }
+   ],
+   "res": [
+    {
+     "rid": "r_carla",
+     "units": 60
+    },
+    {
+     "rid": "r_bruno",
+     "units": 100
+    }
+   ],
+   "pct": 100,
+   "fixed": 0,
+   "ac": 17000,
+   "cst": null,
+   "bl": {
+    "start": "2026-07-06",
+    "finish": "2026-07-15",
+    "dur": 8,
+    "cost": 15744,
+    "work": 102.4
+   },
+   "collapsed": false,
+   "notes": ""
+  },
+  {
+   "id": "t08",
+   "ord": 70,
+   "name": "Plano de integrações e interfaces",
+   "level": 1,
+   "dur": 6,
+   "preds": [
+    {
+     "id": "t06",
+     "type": "SS",
+     "lag": 5
+    }
+   ],
+   "res": [
+    {
+     "rid": "r_diego",
+     "units": 100
+    }
+   ],
+   "pct": 100,
+   "fixed": 0,
+   "ac": 7260,
+   "cst": null,
+   "bl": {
+    "start": "2026-06-25",
+    "finish": "2026-07-02",
+    "dur": 6,
+    "cost": 6720,
+    "work": 48
+   },
+   "collapsed": false,
+   "notes": ""
+  },
+  {
+   "id": "t09",
+   "ord": 80,
+   "name": "Blueprint assinado",
+   "level": 1,
+   "dur": 0,
+   "preds": [
+    {
+     "id": "t07",
+     "type": "FS",
+     "lag": 0
+    },
+    {
+     "id": "t08",
+     "type": "FS",
+     "lag": 0
+    }
+   ],
+   "res": [],
+   "pct": 100,
+   "fixed": 0,
+   "ac": 0,
+   "cst": null,
+   "bl": {
+    "start": "2026-07-16",
+    "finish": "2026-07-16",
+    "dur": 0,
+    "cost": 0,
+    "work": 0
+   },
+   "collapsed": false,
+   "notes": ""
+  },
+  {
+   "id": "t10",
+   "ord": 90,
+   "name": "Construção",
+   "level": 0,
+   "dur": 0,
+   "preds": [],
+   "res": [],
+   "pct": 0,
+   "fixed": 0,
+   "ac": null,
+   "cst": null,
+   "bl": {
+    "start": "2026-06-18",
+    "finish": "2026-08-20",
+    "dur": 46,
+    "cost": 79000,
+    "work": 440
+   },
+   "collapsed": false,
+   "notes": ""
+  },
+  {
+   "id": "t11",
+   "ord": 100,
+   "name": "Preparação dos ambientes (DEV/QA/PRD)",
+   "level": 1,
+   "dur": 5,
+   "preds": [
+    {
+     "id": "t04",
+     "type": "FS",
+     "lag": 0
+    }
+   ],
+   "res": [
+    {
+     "rid": "r_ti",
+     "units": 100
+    }
+   ],
+   "pct": 100,
+   "fixed": 12000,
+   "ac": 17060,
+   "cst": null,
+   "bl": {
+    "start": "2026-06-18",
+    "finish": "2026-06-24",
+    "dur": 5,
+    "cost": 15800,
+    "work": 40
+   },
+   "collapsed": false,
+   "notes": ""
+  },
+  {
+   "id": "t12",
+   "ord": 110,
+   "name": "Parametrização do ERP",
+   "level": 1,
+   "dur": 21,
+   "preds": [
+    {
+     "id": "t09",
+     "type": "FS",
+     "lag": 0
+    },
+    {
+     "id": "t11",
+     "type": "FS",
+     "lag": 0
+    }
+   ],
+   "res": [
+    {
+     "rid": "r_carla",
+     "units": 100
+    },
+    {
+     "rid": "r_bruno",
+     "units": 50
+    }
+   ],
+   "pct": 70,
+   "fixed": 0,
+   "ac": 34290,
+   "cst": null,
+   "bl": {
+    "start": "2026-07-16",
+    "finish": "2026-08-10",
+    "dur": 18,
+    "cost": 38880,
+    "work": 216
+   },
+   "collapsed": false,
+   "notes": ""
+  },
+  {
+   "id": "t13",
+   "ord": 120,
+   "name": "Desenvolvimento das integrações",
+   "level": 1,
+   "dur": 17,
+   "preds": [
+    {
+     "id": "t09",
+     "type": "FS",
+     "lag": 0
+    }
+   ],
+   "res": [
+    {
+     "rid": "r_diego",
+     "units": 100
+    }
+   ],
+   "pct": 45,
+   "fixed": 0,
+   "ac": 9250,
+   "cst": null,
+   "bl": {
+    "start": "2026-07-16",
+    "finish": "2026-08-05",
+    "dur": 15,
+    "cost": 16800,
+    "work": 120
+   },
+   "collapsed": false,
+   "notes": ""
+  },
+  {
+   "id": "t14",
+   "ord": 130,
+   "name": "Carga e validação de dados mestres",
+   "level": 1,
+   "dur": 8,
+   "preds": [
+    {
+     "id": "t12",
+     "type": "FS",
+     "lag": 0
+    }
+   ],
+   "res": [
+    {
+     "rid": "r_diego",
+     "units": 50
+    },
+    {
+     "rid": "r_ti",
+     "units": 50
+    }
+   ],
+   "pct": 0,
+   "fixed": 0,
+   "ac": null,
+   "cst": null,
+   "bl": {
+    "start": "2026-08-11",
+    "finish": "2026-08-20",
+    "dur": 8,
+    "cost": 7520,
+    "work": 64
+   },
+   "collapsed": false,
+   "notes": ""
+  },
+  {
+   "id": "t15",
+   "ord": 140,
+   "name": "Testes",
+   "level": 0,
+   "dur": 0,
+   "preds": [],
+   "res": [],
+   "pct": 0,
+   "fixed": 0,
+   "ac": null,
+   "cst": null,
+   "bl": {
+    "start": "2026-08-11",
+    "finish": "2026-09-24",
+    "dur": 32,
+    "cost": 41456,
+    "work": 323.2
+   },
+   "collapsed": false,
+   "notes": ""
+  },
+  {
+   "id": "t16",
+   "ord": 150,
+   "name": "Testes unitários",
+   "level": 1,
+   "dur": 6,
+   "preds": [
+    {
+     "id": "t12",
+     "type": "FS",
+     "lag": 0
+    },
+    {
+     "id": "t13",
+     "type": "FS",
+     "lag": 0
+    }
+   ],
+   "res": [
+    {
+     "rid": "r_fer",
+     "units": 100
+    }
+   ],
+   "pct": 0,
+   "fixed": 0,
+   "ac": null,
+   "cst": null,
+   "bl": {
+    "start": "2026-08-11",
+    "finish": "2026-08-18",
+    "dur": 6,
+    "cost": 5280,
+    "work": 48
+   },
+   "collapsed": false,
+   "notes": ""
+  },
+  {
+   "id": "t17",
+   "ord": 160,
+   "name": "Testes integrados ponta a ponta",
+   "level": 1,
+   "dur": 10,
+   "preds": [
+    {
+     "id": "t16",
+     "type": "FS",
+     "lag": 0
+    },
+    {
+     "id": "t14",
+     "type": "FS",
+     "lag": 0
+    }
+   ],
+   "res": [
+    {
+     "rid": "r_fer",
+     "units": 100
+    },
+    {
+     "rid": "r_bruno",
+     "units": 50
+    }
+   ],
+   "pct": 0,
+   "fixed": 0,
+   "ac": null,
+   "cst": null,
+   "bl": {
+    "start": "2026-08-21",
+    "finish": "2026-09-03",
+    "dur": 10,
+    "cost": 13600,
+    "work": 120
+   },
+   "collapsed": false,
+   "notes": ""
+  },
+  {
+   "id": "t18",
+   "ord": 170,
+   "name": "Correção de defeitos",
+   "level": 1,
+   "dur": 6,
+   "preds": [
+    {
+     "id": "t17",
+     "type": "FS",
+     "lag": 0
+    }
+   ],
+   "res": [
+    {
+     "rid": "r_diego",
+     "units": 100
+    },
+    {
+     "rid": "r_carla",
+     "units": 50
+    }
+   ],
+   "pct": 0,
+   "fixed": 0,
+   "ac": null,
+   "cst": null,
+   "bl": {
+    "start": "2026-09-04",
+    "finish": "2026-09-14",
+    "dur": 6,
+    "cost": 11760,
+    "work": 72
+   },
+   "collapsed": false,
+   "notes": ""
+  },
+  {
+   "id": "t19",
+   "ord": 180,
+   "name": "Teste de aceitação do usuário (UAT)",
+   "level": 1,
+   "dur": 8,
+   "preds": [
+    {
+     "id": "t18",
+     "type": "FS",
+     "lag": 0
+    }
+   ],
+   "res": [
+    {
+     "rid": "r_fer",
+     "units": 50
+    },
+    {
+     "rid": "r_ana",
+     "units": 30
+    },
+    {
+     "rid": "r_bruno",
+     "units": 50
+    }
+   ],
+   "pct": 0,
+   "fixed": 0,
+   "ac": null,
+   "cst": null,
+   "bl": {
+    "start": "2026-09-15",
+    "finish": "2026-09-24",
+    "dur": 8,
+    "cost": 10816,
+    "work": 83.2
+   },
+   "collapsed": false,
+   "notes": ""
+  },
+  {
+   "id": "t20",
+   "ord": 190,
+   "name": "Implantação",
+   "level": 0,
+   "dur": 0,
+   "preds": [],
+   "res": [],
+   "pct": 0,
+   "fixed": 0,
+   "ac": null,
+   "cst": null,
+   "bl": {
+    "start": "2026-08-28",
+    "finish": "2026-10-20",
+    "dur": 36,
+    "cost": 45820,
+    "work": 272
+   },
+   "collapsed": false,
+   "notes": ""
+  },
+  {
+   "id": "t21",
+   "ord": 200,
+   "name": "Treinamento dos usuários-chave",
+   "level": 1,
+   "dur": 6,
+   "preds": [
+    {
+     "id": "t17",
+     "type": "SS",
+     "lag": 5
+    }
+   ],
+   "res": [
+    {
+     "rid": "r_bruno",
+     "units": 100
+    },
+    {
+     "rid": "r_carla",
+     "units": 50
+    }
+   ],
+   "pct": 0,
+   "fixed": 4500,
+   "ac": null,
+   "cst": null,
+   "bl": {
+    "start": "2026-08-28",
+    "finish": "2026-09-04",
+    "dur": 6,
+    "cost": 15300,
+    "work": 72
+   },
+   "collapsed": false,
+   "notes": ""
+  },
+  {
+   "id": "t22",
+   "ord": 210,
+   "name": "Plano de virada e checklist de corte",
+   "level": 1,
+   "dur": 3,
+   "preds": [
+    {
+     "id": "t19",
+     "type": "FS",
+     "lag": 0
+    }
+   ],
+   "res": [
+    {
+     "rid": "r_ana",
+     "units": 100
+    }
+   ],
+   "pct": 0,
+   "fixed": 0,
+   "ac": null,
+   "cst": null,
+   "bl": {
+    "start": "2026-09-25",
+    "finish": "2026-09-29",
+    "dur": 3,
+    "cost": 4320,
+    "work": 24
+   },
+   "collapsed": false,
+   "notes": ""
+  },
+  {
+   "id": "t23",
+   "ord": 220,
+   "name": "Virada para produção",
+   "level": 1,
+   "dur": 2,
+   "preds": [
+    {
+     "id": "t21",
+     "type": "FS",
+     "lag": 0
+    },
+    {
+     "id": "t22",
+     "type": "FS",
+     "lag": 0
+    }
+   ],
+   "res": [
+    {
+     "rid": "r_ti",
+     "units": 100
+    },
+    {
+     "rid": "r_carla",
+     "units": 100
+    },
+    {
+     "rid": "r_diego",
+     "units": 50
+    }
+   ],
+   "pct": 0,
+   "fixed": 0,
+   "ac": null,
+   "cst": null,
+   "bl": {
+    "start": "2026-09-30",
+    "finish": "2026-10-01",
+    "dur": 2,
+    "cost": 6000,
+    "work": 40
+   },
+   "collapsed": false,
+   "notes": ""
+  },
+  {
+   "id": "t24",
+   "ord": 230,
+   "name": "Go-live",
+   "level": 1,
+   "dur": 0,
+   "preds": [
+    {
+     "id": "t23",
+     "type": "FS",
+     "lag": 0
+    }
+   ],
+   "res": [],
+   "pct": 0,
+   "fixed": 0,
+   "ac": null,
+   "cst": null,
+   "bl": {
+    "start": "2026-10-02",
+    "finish": "2026-10-02",
+    "dur": 0,
+    "cost": 0,
+    "work": 0
+   },
+   "collapsed": false,
+   "notes": ""
+  },
+  {
+   "id": "t25",
+   "ord": 240,
+   "name": "Suporte intensivo pós-implantação",
+   "level": 1,
+   "dur": 10,
+   "preds": [
+    {
+     "id": "t24",
+     "type": "FS",
+     "lag": 0
+    }
+   ],
+   "res": [
+    {
+     "rid": "r_carla",
+     "units": 50
+    },
+    {
+     "rid": "r_diego",
+     "units": 50
+    },
+    {
+     "rid": "r_ti",
+     "units": 50
+    }
+   ],
+   "pct": 0,
+   "fixed": 0,
+   "ac": null,
+   "cst": null,
+   "bl": {
+    "start": "2026-10-02",
+    "finish": "2026-10-16",
+    "dur": 10,
+    "cost": 17800,
+    "work": 120
+   },
+   "collapsed": false,
+   "notes": ""
+  },
+  {
+   "id": "t26",
+   "ord": 250,
+   "name": "Encerramento e lições aprendidas",
+   "level": 1,
+   "dur": 2,
+   "preds": [
+    {
+     "id": "t25",
+     "type": "FS",
+     "lag": 0
+    }
+   ],
+   "res": [
+    {
+     "rid": "r_ana",
+     "units": 50
+    },
+    {
+     "rid": "r_bruno",
+     "units": 50
+    }
+   ],
+   "pct": 0,
+   "fixed": 0,
+   "ac": null,
+   "cst": null,
+   "bl": {
+    "start": "2026-10-19",
+    "finish": "2026-10-20",
+    "dur": 2,
+    "cost": 2400,
+    "work": 16
+   },
+   "collapsed": false,
+   "notes": ""
+  },
+  {
+   "id": "t27",
+   "ord": 260,
+   "name": "Projeto encerrado",
+   "level": 1,
+   "dur": 0,
+   "preds": [
+    {
+     "id": "t26",
+     "type": "FS",
+     "lag": 0
+    }
+   ],
+   "res": [],
+   "pct": 0,
+   "fixed": 0,
+   "ac": null,
+   "cst": null,
+   "bl": {
+    "start": "2026-10-21",
+    "finish": "2026-10-21",
+    "dur": 0,
+    "cost": 0,
+    "work": 0
+   },
+   "collapsed": false,
+   "notes": ""
+  }
+ ],
+ "resources": [
+  {
+   "id": "r_ana",
+   "name": "Ana Prado",
+   "role": "Gerente de projeto",
+   "rate": 180,
+   "capacity": 100
+  },
+  {
+   "id": "r_bruno",
+   "name": "Bruno Lima",
+   "role": "Analista de negócios",
+   "rate": 120,
+   "capacity": 100
+  },
+  {
+   "id": "r_carla",
+   "name": "Carla Souza",
+   "role": "Consultora ERP",
+   "rate": 210,
+   "capacity": 100
+  },
+  {
+   "id": "r_diego",
+   "name": "Diego Martins",
+   "role": "Desenvolvedor",
+   "rate": 140,
+   "capacity": 100
+  },
+  {
+   "id": "r_fer",
+   "name": "Fernanda Reis",
+   "role": "Analista de testes",
+   "rate": 110,
+   "capacity": 100
+  },
+  {
+   "id": "r_ti",
+   "name": "Equipe de Infraestrutura",
+   "role": "TI interna",
+   "rate": 95,
+   "capacity": 200
+  }
+ ]
+}

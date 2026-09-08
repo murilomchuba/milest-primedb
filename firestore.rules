@@ -1,0 +1,72 @@
+rules_version = '2';
+
+// MILEST — regras de acesso
+// Quem entra e o que cada um pode fazer sai da coleção `users`, que é
+// gerenciada pela aba Usuários do sistema. Estas regras são a única
+// barreira real: a tela apenas evita que a pessoa perca tempo.
+//
+// Publicar com:  firebase deploy --only firestore:rules --project cronograma-7c295
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // A conta dona nunca perde o acesso, mesmo que a coleção `users`
+    // esteja vazia ou tenha sido apagada por engano.
+    function dono() {
+      return request.auth != null
+          && request.auth.token.email_verified == true
+          && request.auth.token.email.lower() == 'mmc.chuba@gmail.com';
+    }
+
+    function meuEmail() { return request.auth.token.email.lower(); }
+    function meuDoc()   { return /databases/$(database)/documents/users/$(meuEmail()); }
+    function cadastrado() {
+      return request.auth != null
+          && request.auth.token.email_verified == true
+          && exists(meuDoc())
+          && get(meuDoc()).data.ativo != false;
+    }
+    function meuPapel() { return get(meuDoc()).data.papel; }
+
+    // Lê qualquer coisa: administrador, gerente ou leitor ativo.
+    function entra()      { return dono() || cadastrado(); }
+    // Grava dados de projeto: administrador ou gerente.
+    function edita()      { return dono() || (cadastrado() && meuPapel() in ['admin', 'gerente']); }
+    // Mexe em usuários: só administrador.
+    function administra() { return dono() || (cadastrado() && meuPapel() == 'admin'); }
+
+    // ---- Usuários e permissões -------------------------------------------
+    match /users/{email} {
+      // cada um lê o próprio cadastro (é assim que o sistema descobre o papel)
+      allow get: if request.auth != null && (meuEmail() == email.lower() || administra());
+      allow list: if administra();
+      allow create, delete: if administra();
+      // o administrador altera o que quiser; qualquer um pode carimbar
+      // apenas o próprio último acesso
+      allow update: if administra()
+                    || (request.auth != null && meuEmail() == email.lower()
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ultimoAcesso']));
+    }
+
+    // ---- Cronogramas ------------------------------------------------------
+    match /projects/{projeto} {
+      allow read: if entra();
+      allow write: if edita();
+      match /{documento=**} {
+        allow read: if entra();
+        allow write: if edita();
+      }
+    }
+
+    // ---- Equipe: cadastro único, compartilhado por todos os cronogramas ----
+    match /resources/{recurso} {
+      allow read: if entra();
+      allow write: if edita();
+    }
+
+    // Nada mais é acessível.
+    match /{documento=**} {
+      allow read, write: if false;
+    }
+  }
+}
