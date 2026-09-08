@@ -59,8 +59,11 @@ service cloud.firestore {
 
       // a plataforma cuida de plano e situação, mas NÃO pode reabrir a janela
       // de provisionamento depois de fechada — semDono só anda de true para false
+      // `propria` é definida no nascimento e nunca muda: sem isso, uma empresa
+      // de cliente poderia ser marcada como própria depois e abrir a porta
       allow update: if (souPlataforma()
-                        && !(resource.data.semDono == false && request.resource.data.semDono == true))
+                        && !(resource.data.semDono == false && request.resource.data.semDono == true)
+                        && request.resource.data.get('propria', false) == resource.data.get('propria', false))
                     || (mandaNaOrg(org) && mexeuSomenteEm(['nome', 'cnpj', 'atualizadoEm', 'projetos', 'usuarios']))
                     || (editaOrg(org)   && mexeuSomenteEm(['projetos', 'usuarios', 'atualizadoEm']));
 
@@ -77,11 +80,18 @@ service cloud.firestore {
         // `propria: true`: a exceção fica gravada no dado, visível a quem
         // auditar, em vez de ser um privilégio invisível.
         allow create: if mandaNaOrg(org)
+                      // provisionamento de um cliente: uma única vez, enquanto a
+                      // empresa não tem dono, e nunca cadastrando a si mesma
                       || (souPlataforma()
                           && get(docOrg(org)).data.semDono == true
                           && request.resource.data.papel == 'admin'
-                          && (email.lower() != eu()
-                              || get(docOrg(org)).data.get('propria', false) == true));
+                          && email.lower() != eu())
+                      // a empresa do próprio operador: ele entra nela quando quiser,
+                      // inclusive para consertar uma criação que parou no meio
+                      || (souPlataforma()
+                          && get(docOrg(org)).data.get('propria', false) == true
+                          && email.lower() == eu()
+                          && request.resource.data.papel == 'admin');
 
         allow update: if mandaNaOrg(org)
                       || (logado() && eu() == email.lower() && mexeuSomenteEm(['ultimoAcesso']));

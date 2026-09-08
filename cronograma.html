@@ -572,7 +572,7 @@ body.soleitura .avisoleitura{display:flex}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-08.12';
+const VERSAO = '2026-09-08.13';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -3465,7 +3465,18 @@ async function criarEmpresa(nome, cnpj, emailDono, nomeDono, plano) {
     await ST.db.doc(dOrg(id)).update({ semDono: false });
     return id;
   } catch (e) {
-    toast('Não consegui criar a empresa: ' + ((e && e.message) || 'erro'));
+    // a org pode ter sido criada e o cadastro do administrador não: dizer
+    // exatamente isso, para não sobrar empresa órfã sem ninguém entender
+    const msg = String((e && e.message) || 'erro');
+    modal('A empresa não ficou pronta', (body, close) => {
+      body.appendChild(el('div', 'hint',
+        'O cadastro parou no meio: ' + msg + '. Se “' + nome + '” aparecer na lista, ela está sem administrador ' +
+        'e não aceita gravação. Exclua-a pelo ✕ e crie de novo.'));
+      const b = el('button', 'btn primary', 'Entendi'); b.addEventListener('click', close);
+      const linha = el('div'); linha.style.cssText = 'display:flex;justify-content:flex-end';
+      linha.appendChild(b); body.appendChild(linha);
+    }, []);
+    ST.orgs = null;
     return null;
   }
 }
@@ -3528,10 +3539,15 @@ function modalMigracao(orgs) {
     const bOk = el('button', 'btn primary', 'Copiar agora');
     bOk.addEventListener('click', async () => {
       const alvo = sel.value; close(); toast('Copiando…');
+      const v = await verificarDestino(alvo);
+      if (!v.ok) { avisarDestino(v); return; }
       try {
         const n = await migrarEstruturaAntiga(alvo);
         if (n) toast(n + ' projeto(s) copiado(s). Recarregando…'), setTimeout(() => location.reload(), 1500);
-      } catch (e) { toast('Falhou: ' + ((e && e.message) || 'erro')); }
+      } catch (e) {
+        avisarDestino({ causa: 'A cópia parou no meio: ' + ((e && e.message) || 'erro') +
+          ' Os originais na raiz não foram tocados; corrija a causa e tente de novo.' });
+      }
     });
     linha.appendChild(bC); linha.appendChild(bOk); body.appendChild(linha);
   }, []);
@@ -3595,6 +3611,11 @@ function renderPlataforma() {
         catch (e) { toast('Não consegui alterar: ' + ((e && e.message) || 'erro')); }
       });
       tdA.appendChild(bT);
+      const bX = el('button', 'btn icon danger', '✕');
+      bX.style.marginLeft = '5px';
+      bX.title = 'Excluir esta empresa';
+      bX.addEventListener('click', () => excluirEmpresa(o));
+      tdA.appendChild(bX);
       l.appendChild(tdA);
       tbody.appendChild(l);
     }
@@ -3742,6 +3763,22 @@ function primeirosPassos() {
 /* Com o painel da plataforma aberto e nenhuma empresa em uso, as outras abas
    ficam escondidas — e o backup mora numa delas. Aqui ele fica ao alcance,
    com a empresa de destino escolhida na hora. */
+/* Um toast some em dois segundos e não cabe explicação. Quando o destino não
+   aceita a gravação, a pessoa precisa ler com calma o que fazer. */
+function avisarDestino(v) {
+  modal(v.orfa ? 'Esta empresa ficou sem administrador' : 'Não dá para gravar nesta empresa', (body, close) => {
+    body.appendChild(el('div', 'hint', v.causa));
+    if (v.orfa) {
+      body.appendChild(el('div', 'hint',
+        'Nada foi gravado. Os seus dados continuam onde estavam — nem a estrutura antiga nem o arquivo de backup foram tocados.'));
+    }
+    const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
+    const b = el('button', 'btn primary', 'Entendi');
+    b.addEventListener('click', close);
+    linha.appendChild(b); body.appendChild(linha);
+  }, []);
+}
+
 function painelBackupPlataforma() {
   const p = el('div', 'panel');
   p.appendChild(el('h3', '', 'Restaurar um backup'));
@@ -3776,6 +3813,53 @@ function painelBackupPlataforma() {
     'com atividades, linha de base e histórico. É o mesmo destino do botão “Migrar estrutura antiga” — ' +
     'use um ou outro, não os dois.'));
   return p;
+}
+
+/* Excluir a empresa é o conserto para a que nasceu sem administrador — e
+   também o caminho para encerrar um cliente. Só apaga o cadastro e os
+   usuários: os cronogramas dela a plataforma não alcança, por desenho. */
+function excluirEmpresa(o) {
+  const nome = o.nome || o.id;
+  const temDados = (o.projetos || 0) > 0;
+  modal('Excluir ' + nome, (body, close) => {
+    body.appendChild(el('div', 'hint',
+      temDados
+        ? 'Esta empresa registra ' + o.projetos + ' projeto(s). Excluir o cadastro tira o acesso de todos os usuários dela, ' +
+          'mas os cronogramas continuam gravados no banco — a plataforma não os alcança para apagar. ' +
+          'Para uma empresa em uso, prefira Suspender.'
+        : 'Esta empresa não registra nenhum projeto. Se ela ficou sem administrador porque a criação parou no meio, ' +
+          'excluir e criar de novo resolve.'));
+    const f = el('div', 'field');
+    f.appendChild(el('label', '', 'Digite EXCLUIR para confirmar'));
+    const i = el('input', 'inp'); i.placeholder = 'EXCLUIR'; f.appendChild(i); body.appendChild(f);
+    const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
+    const bC = el('button', 'btn', 'Cancelar'); bC.addEventListener('click', close);
+    const bOk = el('button', 'btn primary danger', 'Excluir'); bOk.disabled = true;
+    i.addEventListener('input', () => { bOk.disabled = i.value.trim().toUpperCase() !== 'EXCLUIR'; });
+    bOk.addEventListener('click', async () => {
+      close(); toast('Excluindo…');
+      try {
+        // primeiro os membros e o índice de cada um, depois o cadastro
+        let membros = { docs: [] };
+        try { membros = await ST.db.collection(dOrg(o.id) + '/members').get(); } catch (e) { }
+        for (const m of membros.docs) {
+          await ST.db.doc(dOrg(o.id) + '/members/' + m.id).delete().catch(() => { });
+          const idx = await ST.db.doc('users/' + m.id).get().catch(() => null);
+          if (idx && idx.exists && (idx.data() || {}).orgId === o.id) {
+            await ST.db.doc('users/' + m.id).set({ orgId: null }, { merge: true }).catch(() => { });
+          }
+        }
+        await ST.db.doc(dOrg(o.id)).delete();
+        if (ST.orgId === o.id) { ST.orgId = null; if (ST.perfil) { ST.perfil.orgId = null; ST.perfil.nomeOrg = ''; } }
+        toast(nome + ' excluída.');
+        ST.orgs = null; renderPlataforma();
+      } catch (e) {
+        toast('Não consegui excluir: ' + ((e && e.message) || 'erro'));
+      }
+    });
+    linha.appendChild(bC); linha.appendChild(bOk); body.appendChild(linha);
+    setTimeout(() => i.focus(), 30);
+  }, []);
 }
 
 function modalEmpresa() {
@@ -3874,6 +3958,43 @@ async function baixarBackup() {
 
 /** Regrava tudo o que está no arquivo. Não apaga o que existe hoje e não
  *  estiver no backup — sobrescrever é menos destrutivo do que limpar. */
+/** Confere se dá para gravar na empresa antes de começar. Uma restauração
+ *  interrompida no meio deixa metade dos dados — é melhor não começar. */
+async function verificarDestino(orgAlvo) {
+  if (ST.mode !== 'db' || !orgAlvo) return { ok: true };
+  try {
+    const o = await ST.db.doc(dOrg(orgAlvo)).get();
+    if (!o.exists) return { ok: false, causa: 'A empresa escolhida não existe mais.' };
+    if ((o.data() || {}).ativo === false) return { ok: false, causa: 'A empresa está suspensa. Reative-a antes de restaurar.' };
+  } catch (e) {
+    return { ok: false, causa: 'Não consegui ler o cadastro da empresa: ' + ((e && e.message) || 'erro') };
+  }
+  let m = null;
+  try { m = await ST.db.doc(dOrg(orgAlvo) + '/members/' + chaveEmail(ST.userEmail)).get(); } catch (e) { }
+  if (!m || !m.exists) {
+    return {
+      ok: false, orfa: true,
+      causa: 'Você não está cadastrado como usuário desta empresa, e só quem está pode gravar nela. ' +
+             'Isso acontece quando a criação da empresa parou no meio do caminho. ' +
+             'Apague esta empresa no painel e crie de novo — agora o cadastro do administrador funciona.'
+    };
+  }
+  const papel = (m.data() || {}).papel;
+  if (!(papel === 'admin' || papel === 'gerente')) {
+    return { ok: false, causa: 'Seu papel nesta empresa é ' + (PAPEIS[papel] || PAPEIS.leitor).rot.toLowerCase() + ', que não grava dados.' };
+  }
+  // prova de fogo: uma gravação de verdade, apagada em seguida
+  const teste = dOrg(orgAlvo) + '/projects/__teste_' + Date.now().toString(36);
+  try {
+    await ST.db.doc(teste).set({ name: 'teste de permissão' });
+    await ST.db.doc(teste).delete().catch(() => { });
+  } catch (e) {
+    return { ok: false, causa: 'O banco recusou a gravação: ' + ((e && e.message) || 'erro') +
+      '. Confira se as regras publicadas são as atuais.' };
+  }
+  return { ok: true };
+}
+
 /** Regrava o backup. `orgAlvo` diz em qual empresa — sem isso, com o painel
  *  da plataforma aberto e nenhuma empresa em uso, os dados voltariam para a
  *  raiz do banco, que é a estrutura antiga. */
@@ -3928,9 +4049,15 @@ function restaurarBackup(orgAlvo, nomeAlvo) {
       const bOk = el('button', 'btn primary danger', 'Restaurar'); bOk.disabled = true;
       i2.addEventListener('input', () => { bOk.disabled = i2.value.trim().toUpperCase() !== 'RESTAURAR'; });
       bOk.addEventListener('click', async () => {
+        bOk.disabled = true; bOk.textContent = 'Conferindo…';
+        const v = await verificarDestino(orgAlvo);
+        if (!v.ok) { close(); avisarDestino(v); return; }
         close(); toast('Restaurando…');
         try { await aplicarBackup(d, orgAlvo); toast('Backup restaurado. Recarregando…'); setTimeout(() => location.reload(), 1500); }
-        catch (e) { toast('Falhou no meio da restauração: ' + ((e && e.message) || 'erro')); }
+        catch (e) {
+          avisarDestino({ causa: 'A gravação parou no meio: ' + ((e && e.message) || 'erro') +
+            ' Parte dos projetos pode ter entrado. Corrija a causa e restaure de novo — a restauração regrava por cima.' });
+        }
       });
       linha.appendChild(bC); linha.appendChild(bOk); body.appendChild(linha);
       setTimeout(() => i2.focus(), 30);
