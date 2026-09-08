@@ -565,7 +565,7 @@ body.soleitura .avisoleitura{display:flex}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-08.02';
+const VERSAO = '2026-09-08.03';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -3328,6 +3328,134 @@ function confirmarRemocaoUsuario(email) {
   }, []);
 }
 
+/* ============ backup e restauração ============
+   Um arquivo só, com tudo: projetos, atividades, versões, equipe e acessos.
+   É o que permite voltar atrás depois de uma mudança grande. */
+async function coletarBackup() {
+  const saida = {
+    milest: 'backup', versao: VERSAO, geradoEm: new Date().toISOString(),
+    modo: ST.mode, projects: [], resources: [], users: []
+  };
+  if (ST.mode === 'db') {
+    const vazio = { docs: [] };
+    const lista = d => d.docs.map(x => Object.assign({}, x.data(), { id: x.id }));
+    const ps = await ST.db.collection('projects').get();
+    for (const d of ps.docs) {
+      const base = 'projects/' + d.id;
+      const [t, v, vd] = await Promise.all([
+        ST.db.collection(base + '/tasks').get().catch(() => vazio),
+        ST.db.collection(base + '/versions').get().catch(() => vazio),
+        ST.db.collection(base + '/versionsData').get().catch(() => vazio)
+      ]);
+      saida.projects.push({ id: d.id, meta: d.data() || {}, tasks: lista(t), versions: lista(v), versionsData: lista(vd) });
+    }
+    saida.resources = lista(await ST.db.collection('resources').get().catch(() => vazio));
+    try { saida.users = lista(await ST.db.collection('users').get()); } catch (e) { }
+  } else {
+    const all = localLoad() || { projects: {} };
+    for (const id of Object.keys(all.projects || {})) {
+      const p = all.projects[id] || {};
+      saida.projects.push({
+        id: id, meta: p.meta || {}, tasks: p.tasks || [],
+        versions: p.versions || [], versionsData: p.versionsData || []
+      });
+    }
+    saida.resources = (all.resources || []).slice();
+  }
+  return saida;
+}
+
+async function baixarBackup() {
+  toast('Coletando os dados…');
+  try {
+    const d = await coletarBackup();
+    const tarefas = d.projects.reduce((a, p) => a + (p.tasks || []).length, 0);
+    await offerDownload('milest-backup-' + todayISO() + '.json',
+      new Blob([JSON.stringify(d, null, 1)], { type: 'application/json' }));
+    toast(d.projects.length + ' projeto(s) · ' + tarefas + ' atividade(s) · ' + d.resources.length + ' recurso(s).');
+  } catch (e) {
+    toast('Não consegui gerar o backup: ' + ((e && e.message) || 'erro'));
+  }
+}
+
+/** Regrava tudo o que está no arquivo. Não apaga o que existe hoje e não
+ *  estiver no backup — sobrescrever é menos destrutivo do que limpar. */
+async function aplicarBackup(d) {
+  const emLotes = async (itens, fn) => {
+    for (let i = 0; i < itens.length; i += 15) await Promise.all(itens.slice(i, i + 15).map(fn));
+  };
+  if (ST.mode === 'db') {
+    for (const p of d.projects) {
+      const base = 'projects/' + p.id;
+      const meta = Object.assign({}, p.meta); delete meta.id;
+      await ST.db.doc(base).set(meta);
+      await emLotes(p.tasks || [], t => ST.db.doc(base + '/tasks/' + t.id).set(t));
+      await emLotes(p.versions || [], v => ST.db.doc(base + '/versions/' + v.id).set(v));
+      await emLotes(p.versionsData || [], v => ST.db.doc(base + '/versionsData/' + v.id).set(v));
+    }
+    await emLotes(d.resources || [], r => ST.db.doc('resources/' + r.id).set(r));
+    if (ehAdmin()) await emLotes(d.users || [], u => ST.db.doc('users/' + u.id).set(u).catch(() => { }));
+  } else {
+    const all = localLoad() || { projects: {} };
+    for (const p of d.projects) {
+      all.projects[p.id] = { meta: p.meta, tasks: p.tasks || [], versions: p.versions || [], versionsData: p.versionsData || [] };
+    }
+    all.resources = (d.resources || []).slice();
+    localStorage.setItem(LSKEY, JSON.stringify(all));
+  }
+}
+
+function restaurarBackup() {
+  const inp = el('input'); inp.type = 'file'; inp.accept = '.json,application/json';
+  inp.addEventListener('change', async () => {
+    const f = inp.files && inp.files[0]; if (!f) return;
+    let d = null;
+    try { d = JSON.parse(await f.text()); } catch (e) { toast('Arquivo ilegível.'); return; }
+    if (!d || d.milest !== 'backup' || !Array.isArray(d.projects)) { toast('Este arquivo não é um backup do MILEST.'); return; }
+    const tarefas = d.projects.reduce((a, p) => a + (p.tasks || []).length, 0);
+    modal('Restaurar backup', (body, close) => {
+      body.appendChild(el('div', 'hint',
+        'Backup de ' + dataHora(d.geradoEm) + ', versão ' + (d.versao || '?') + ': ' +
+        d.projects.length + ' projeto(s), ' + tarefas + ' atividade(s), ' + (d.resources || []).length + ' recurso(s).'));
+      body.appendChild(el('div', 'hint',
+        'Os projetos do arquivo serão regravados por cima dos atuais. O que existe hoje e não está no backup permanece.'));
+      const f2 = el('div', 'field');
+      f2.appendChild(el('label', '', 'Digite RESTAURAR para confirmar'));
+      const i2 = el('input', 'inp'); i2.placeholder = 'RESTAURAR'; f2.appendChild(i2); body.appendChild(f2);
+      const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
+      const bC = el('button', 'btn', 'Cancelar'); bC.addEventListener('click', close);
+      const bOk = el('button', 'btn primary danger', 'Restaurar'); bOk.disabled = true;
+      i2.addEventListener('input', () => { bOk.disabled = i2.value.trim().toUpperCase() !== 'RESTAURAR'; });
+      bOk.addEventListener('click', async () => {
+        close(); toast('Restaurando…');
+        try { await aplicarBackup(d); toast('Backup restaurado. Recarregando…'); setTimeout(() => location.reload(), 1200); }
+        catch (e) { toast('Falhou no meio da restauração: ' + ((e && e.message) || 'erro')); }
+      });
+      linha.appendChild(bC); linha.appendChild(bOk); body.appendChild(linha);
+      setTimeout(() => i2.focus(), 30);
+    }, []);
+  });
+  inp.click();
+}
+
+function painelBackup() {
+  const p = el('div', 'panel');
+  const h = el('h3', '', 'Backup e restauração');
+  h.style.display = 'flex'; h.style.alignItems = 'center'; h.style.justifyContent = 'space-between'; h.style.gap = '12px';
+  const acoes = el('div'); acoes.style.display = 'flex'; acoes.style.gap = '7px';
+  const bD = el('button', 'btn primary', 'Baixar backup completo');
+  bD.addEventListener('click', () => { bD.disabled = true; baixarBackup().finally(() => { bD.disabled = false; }); });
+  const bR = el('button', 'btn reqedit', 'Restaurar de um arquivo');
+  bR.addEventListener('click', restaurarBackup);
+  acoes.appendChild(bD); acoes.appendChild(bR); h.appendChild(acoes);
+  p.appendChild(h);
+  p.appendChild(el('div', 'tagline',
+    'O arquivo JSON leva todos os projetos, atividades, histórico de versões, a equipe e a lista de acessos — ' +
+    'não só o cronograma aberto. Guarde-o antes de qualquer mudança grande. ' +
+    'A restauração regrava os projetos do arquivo por cima dos atuais e pede confirmação digitada.'));
+  return p;
+}
+
 /* ============ aba Calendário ============ */
 function renderSettings() {
   const host = $('#setView'); host.textContent = '';
@@ -3389,6 +3517,8 @@ function renderSettings() {
   p2.appendChild(hl);
   if (!(m.holidays || []).length) p2.appendChild(el('div', 'tagline', 'Sem feriados cadastrados. Datas adicionadas aqui saem do cálculo de duração e aparecem sombreadas no Gantt.'));
   host.appendChild(p2);
+
+  if (ehAdmin()) host.appendChild(painelBackup());
 
   const p3 = el('div', 'panel');
   p3.appendChild(el('h3', '', 'Como o cálculo funciona'));
