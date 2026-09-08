@@ -36,7 +36,7 @@ body{
   -webkit-font-smoothing:antialiased;
 }
 @media (prefers-reduced-motion:reduce){ html{scroll-behavior:auto} *{animation:none!important;transition:none!important} }
-img{max-width:100%;display:block}
+img{max-width:100%;height:auto;display:block}
 a{color:var(--navy)}
 
 .env{width:min(var(--larg),100% - 40px);margin-inline:auto}
@@ -111,6 +111,7 @@ h3{font-size:19px;font-weight:700}
   display:flex;flex-wrap:wrap;gap:8px 26px;margin-top:34px;padding-top:24px;border-top:1px solid var(--linha);
   font-family:var(--f-mono);font-size:12.5px;letter-spacing:.06em;color:var(--tinta-3);
 }
+.tela img{width:100%;height:auto}
 .tela{
   border-radius:12px;overflow:hidden;background:#fff;
   border:1px solid var(--linha);
@@ -491,7 +492,7 @@ textarea{min-height:126px;resize:vertical}
         </div>
       </div>
 
-      <form id="formContato" method="post" action="contato.php" data-sem-servidor="1" novalidate>
+      <form id="formContato" method="post" action="contato.php" novalidate>
         <div class="dupla">
           <div>
             <label for="nome">Nome</label>
