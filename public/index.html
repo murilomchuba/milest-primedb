@@ -565,7 +565,7 @@ body.soleitura .avisoleitura{display:flex}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-08.03';
+const VERSAO = '2026-09-08.04';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -2534,7 +2534,14 @@ function renderOverview() {
   bAtu.addEventListener('click', () => { ST.portfolioEm = 0; renderOverview(); });
   const bNovo = el('button', 'btn primary reqedit', '＋ Novo projeto');
   bNovo.addEventListener('click', () => $('#btnNewProj').click());
-  acoes.appendChild(bAtu); acoes.appendChild(bNovo);
+  acoes.appendChild(bAtu);
+  if (ehAdmin()) {                       // backup é a primeira coisa que precisa estar à mão
+    const bBkp = el('button', 'btn', '⤓ Backup');
+    bBkp.title = 'Baixa um arquivo com todos os projetos, atividades, versões, equipe e acessos';
+    bBkp.addEventListener('click', () => { bBkp.disabled = true; baixarBackup().finally(() => { bBkp.disabled = false; }); });
+    acoes.appendChild(bBkp);
+  }
+  acoes.appendChild(bNovo);
   cab.appendChild(acoes);
   p.appendChild(cab);
 
@@ -3460,6 +3467,7 @@ function painelBackup() {
 function renderSettings() {
   const host = $('#setView'); host.textContent = '';
   const m = ST.P.meta;
+  if (ehAdmin()) host.appendChild(painelBackup());
   const p = el('div', 'panel');
   p.appendChild(el('h3', '', 'Projeto'));
   const fg = el('div', 'formgrid');
@@ -3517,8 +3525,6 @@ function renderSettings() {
   p2.appendChild(hl);
   if (!(m.holidays || []).length) p2.appendChild(el('div', 'tagline', 'Sem feriados cadastrados. Datas adicionadas aqui saem do cálculo de duração e aparecem sombreadas no Gantt.'));
   host.appendChild(p2);
-
-  if (ehAdmin()) host.appendChild(painelBackup());
 
   const p3 = el('div', 'panel');
   p3.appendChild(el('h3', '', 'Como o cálculo funciona'));
