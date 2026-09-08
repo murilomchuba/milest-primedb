@@ -198,9 +198,10 @@ button,input,select,textarea{font:inherit;color:inherit}
 .pickpop{
   position:fixed;z-index:70;width:300px;background:var(--surface);border:1px solid var(--line-strong);
   border-radius:9px;box-shadow:var(--shadow);display:flex;flex-direction:column;overflow:hidden;
+  max-height:calc(100vh - 16px);
 }
-.pickhead{padding:9px 12px;border-bottom:1px solid var(--line);font-family:var(--f-display);font-weight:600;font-size:11.5px}
-.picklist{max-height:230px;overflow-y:auto}
+.pickhead{padding:9px 12px;border-bottom:1px solid var(--line);font-family:var(--f-display);font-weight:600;font-size:11.5px;flex:none}
+.picklist{max-height:230px;overflow-y:auto;flex:1 1 auto;min-height:64px}
 .pickrow{display:flex;align-items:center;gap:8px;padding:6px 12px;cursor:pointer;font-size:12.5px}
 .pickrow:hover{background:var(--surface-2)}
 .pickrow.on{background:var(--accent-soft)}
@@ -208,7 +209,7 @@ button,input,select,textarea{font:inherit;color:inherit}
 .pickpct{border:1px solid var(--line);background:var(--surface);border-radius:4px;font-size:11px;padding:2px 3px}
 .pickpct:disabled{opacity:.35}
 .pickvazio{padding:14px 12px;font-size:11.5px;color:var(--ink-3)}
-.pickfoot{display:flex;gap:7px;padding:9px 12px;border-top:1px solid var(--line);background:var(--surface-2)}
+.pickfoot{display:flex;gap:7px;padding:9px 12px;border-top:1px solid var(--line);background:var(--surface-2);flex:none}
 .pickfoot .inp{font-size:12px}
 .pickpop.larga{width:388px}
 .pickeap{font-family:var(--f-mono);font-size:10px;color:var(--ink-3);min-width:30px;text-align:right;flex:none}
@@ -572,7 +573,7 @@ body.soleitura .avisoleitura{display:flex}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-08.06';
+const VERSAO = '2026-09-08.07';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -1380,6 +1381,25 @@ function applyEdit(t, f, raw) {
   markTask(t.id);
 }
 
+/* Encaixa o popup na tela medindo a altura real: abaixo da célula quando
+   couber, senão acima. Se não couber inteiro em lado nenhum, encolhe a lista —
+   o rodapé, onde fica o botão Pronto, nunca sai da janela. */
+function encaixarPopup(pop, cell, larg) {
+  const M = 8, r = cell.getBoundingClientRect();
+  const abaixo = window.innerHeight - r.bottom - M - 2;
+  const acima = r.top - M - 2;
+  let alt = pop.offsetHeight;
+  if (alt > abaixo && alt > acima) {
+    const lista = pop.querySelector('.picklist');
+    const espaco = Math.max(abaixo, acima);
+    if (lista) lista.style.maxHeight = Math.max(64, lista.offsetHeight - (alt - espaco)) + 'px';
+    alt = pop.offsetHeight;
+  }
+  const top = (alt <= abaixo || abaixo >= acima) ? r.bottom + 2 : r.top - alt - 2;
+  pop.style.top = Math.round(Math.max(M, Math.min(top, window.innerHeight - alt - M))) + 'px';
+  pop.style.left = Math.round(Math.max(M, Math.min(r.left, window.innerWidth - larg - M))) + 'px';
+}
+
 /* ---- lista de recursos na célula ---- */
 let listaAberta = null;
 function fecharLista() {
@@ -1416,9 +1436,6 @@ function abrirListaPredecessoras(cell, t) {
   fecharLista();
   ST.editing = true;
   const pop = el('div', 'pickpop larga');
-  const r = cell.getBoundingClientRect();
-  pop.style.left = Math.round(Math.min(r.left, window.innerWidth - 400)) + 'px';
-  pop.style.top = Math.round(Math.min(r.bottom + 2, window.innerHeight - 340)) + 'px';
   pop.appendChild(el('div', 'pickhead', 'Antes de “' + (t.name.length > 34 ? t.name.slice(0, 33) + '…' : t.name) + '” precisa terminar:'));
 
   const busca = el('input', 'inp'); busca.placeholder = 'Filtrar atividades…'; busca.autocomplete = 'off';
@@ -1482,6 +1499,7 @@ function abrirListaPredecessoras(cell, t) {
   pop.appendChild(rodape);
 
   document.body.appendChild(pop);
+  encaixarPopup(pop, cell, 388);
   listaAberta = pop;
   setTimeout(() => {
     document.addEventListener('mousedown', foraDaLista, true);
@@ -1495,10 +1513,6 @@ function abrirListaRecursos(cell, t) {
   fecharLista();
   ST.editing = true;
   const pop = el('div', 'pickpop');
-  const r = cell.getBoundingClientRect();
-  pop.style.left = Math.round(Math.min(r.left, window.innerWidth - 312)) + 'px';
-  pop.style.top = Math.round(Math.min(r.bottom + 2, window.innerHeight - 300)) + 'px';
-
   const cab = el('div', 'pickhead', 'Recursos de “' + (t.name.length > 30 ? t.name.slice(0, 29) + '…' : t.name) + '”');
   pop.appendChild(cab);
 
@@ -1552,6 +1566,7 @@ function abrirListaRecursos(cell, t) {
   pop.appendChild(rodape);
 
   document.body.appendChild(pop);
+  encaixarPopup(pop, cell, 300);
   listaAberta = pop;
   setTimeout(() => {
     document.addEventListener('mousedown', foraDaLista, true);
