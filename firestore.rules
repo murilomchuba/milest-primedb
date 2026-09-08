@@ -18,10 +18,16 @@ service cloud.firestore {
     }
     function eu() { return request.auth.token.email.lower(); }
 
+    // A conta dona é sempre gestora da plataforma, mesmo que o banco esteja
+    // vazio ou que o cadastro dela ainda não tenha a marca. Sem isso existe um
+    // impasse: para gravar a marca seria preciso já tê-la.
+    function contaDona() { return logado() && eu() == 'mmc.chuba@gmail.com'; }
+
     // ---- índice: em que empresa cada conta está --------------------------
     function meuIndice() { return /databases/$(database)/documents/users/$(eu()); }
     function souPlataforma() {
-      return logado() && exists(meuIndice()) && get(meuIndice()).data.plataforma == true;
+      return contaDona()
+          || (logado() && exists(meuIndice()) && get(meuIndice()).data.plataforma == true);
     }
 
     // ---- membros de uma empresa ------------------------------------------
@@ -115,7 +121,6 @@ service cloud.firestore {
     // ---- estrutura antiga, anterior à separação por empresa ---------------
     // Continua legível apenas para a conta dona, o tempo necessário para a
     // migração. Depois de conferir a cópia, apague estas coleções e este bloco.
-    function contaDona() { return logado() && eu() == 'mmc.chuba@gmail.com'; }
     match /projects/{projeto} {
       allow read, write: if contaDona();
       match /{documento=**} { allow read, write: if contaDona(); }

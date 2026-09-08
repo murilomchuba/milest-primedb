@@ -13,7 +13,8 @@ const env = await initializeTestEnvironment({
 const conta = email => env.authenticatedContext(email, { email, email_verified: true }).firestore();
 const anonimo = () => env.unauthenticatedContext().firestore();
 
-const PLATAFORMA = 'mmc.chuba@gmail.com';
+const PLATAFORMA = 'gestor@milest.com.br';   // gestor pela marca no índice
+const DONA = 'mmc.chuba@gmail.com';          // conta dona: gestora por definição
 const ANA = 'ana@unimed.com.br';        // administradora da Unimed
 const CAIO = 'caio@unimed.com.br';      // leitor da Unimed
 const BRUNO = 'bruno@varejo.com.br';    // gerente do Varejo Norte
@@ -24,6 +25,8 @@ await env.clearFirestore();
 await env.withSecurityRulesDisabled(async ctx => {
   const db = ctx.firestore();
   await setDoc(doc(db, 'users', PLATAFORMA), { email: PLATAFORMA, plataforma: true });
+  // a conta dona com um cadastro ANTIGO, sem a marca — foi o que quebrou em produção
+  await setDoc(doc(db, 'users', DONA), { email: DONA, papel: 'admin', ativo: true });
   await setDoc(doc(db, 'users', ANA), { email: ANA, orgId: 'unimed' });
   await setDoc(doc(db, 'users', CAIO), { email: CAIO, orgId: 'unimed' });
   await setDoc(doc(db, 'users', BRUNO), { email: BRUNO, orgId: 'varejo' });
@@ -125,6 +128,14 @@ await caso('admin da empresa NÃO rouba conta de outra empresa', () =>
 console.log('\nEMPRESA SUSPENSA');
 await caso('membro de empresa suspensa NÃO lê projeto', () =>
   assertFails(getDoc(doc(conta(BRUNO), 'orgs/suspensa/projects', 'qualquer'))));
+
+console.log('\nCONTA DONA SEM A MARCA NO ÍNDICE');
+await caso('a conta dona lista empresas mesmo sem plataforma:true gravado', () =>
+  assertSucceeds(getDocs(collection(conta(DONA), 'orgs'))));
+await caso('a conta dona grava a própria marca (sai do impasse)', () =>
+  assertSucceeds(setDoc(doc(conta(DONA), 'users', DONA), { email: DONA, plataforma: true }, { merge: true })));
+await caso('a conta dona NÃO lê projeto de cliente', () =>
+  assertFails(getDoc(doc(conta(DONA), 'orgs/unimed/projects', 'p1'))));
 
 console.log('\nÍNDICE DE CONTAS');
 await caso('cada um lê o próprio índice', () =>

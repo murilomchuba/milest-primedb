@@ -573,7 +573,7 @@ body.soleitura .avisoleitura{display:flex}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-08.07';
+const VERSAO = '2026-09-08.08';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -3163,10 +3163,13 @@ async function carregarPerfil() {
   let idx = null;
   try { const s = await ST.db.doc(dIndice(email)).get(); if (s.exists) idx = s.data() || null; } catch (e) { }
 
-  // o dono da plataforma nasce cadastrado, para o sistema nunca ficar sem gestor
-  if (!idx && dono) {
-    idx = { email: email, plataforma: true, orgId: null };
-    ST.db.doc(dIndice(email)).set({ email: email, plataforma: true, criadoEm: Date.now() }, { merge: true }).catch(() => { });
+  // O dono da plataforma é sempre gestor, para o sistema nunca ficar sem um.
+  // Vale também quando o cadastro dele já existe de uma versão anterior e
+  // ainda não tem a marca: sem gravá-la, as regras do Firestore negam tudo.
+  if (dono && (!idx || idx.plataforma !== true)) {
+    const novo = Object.assign({ email: email, orgId: null }, idx, { plataforma: true });
+    idx = novo;
+    try { await ST.db.doc(dIndice(email)).set({ email: email, plataforma: true }, { merge: true }); } catch (e) { }
   }
   if (!idx) return null;
 
@@ -3599,7 +3602,13 @@ function renderPlataforma() {
   if (ST.orgs) { desenhar(ST.orgs); return; }
   corpo.appendChild(el('div', 'empty', 'Carregando…'));
   carregarOrgs().then(l => { ST.orgs = l; if (VIEW === 'plataforma') desenhar(l); })
-    .catch(e => { corpo.textContent = ''; corpo.appendChild(el('div', 'empty', 'Não consegui ler a lista: ' + ((e && e.message) || 'erro'))); });
+    .catch(e => {
+      corpo.textContent = '';
+      const negado = /permission|insufficient/i.test(String((e && (e.code || e.message)) || ''));
+      corpo.appendChild(el('div', 'empty', negado
+        ? 'O banco recusou a leitura. Publique as regras novas: firebase deploy --only firestore:rules'
+        : 'Não consegui ler a lista: ' + ((e && e.message) || 'erro')));
+    });
 }
 
 function modalEmpresa() {
