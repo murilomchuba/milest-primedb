@@ -352,6 +352,13 @@ body.soleitura .avisoleitura{display:flex}
 .gatecard p.err{color:var(--critical)}
 .gateact{display:flex;gap:8px;margin-top:6px;flex-wrap:wrap}
 .gateact .btn{padding:9px 16px;font-size:13px}
+.gateou{display:flex;align-items:center;gap:10px;margin:2px 0;color:var(--ink-3);
+  font-family:var(--f-display);font-size:10.5px;font-weight:600;letter-spacing:.09em;text-transform:uppercase}
+.gateou::before,.gateou::after{content:"";height:1px;background:var(--line);flex:1}
+.gatemail{display:flex;flex-direction:column;gap:7px;margin:0}
+.gatemail label{font-size:12px;font-weight:600;color:var(--ink-2)}
+.gatemail .inp{padding:9px 11px;font-size:13px;width:100%}
+.gatemail .btn{align-self:flex-start;padding:9px 16px;font-size:13px}
 .gateg{display:inline-flex;align-items:center;gap:9px}
 .gateg svg{width:16px;height:16px;flex:none}
 .gatepe{margin-top:4px;font-size:11px;color:var(--ink-3);font-family:var(--f-mono);letter-spacing:.04em}
@@ -517,11 +524,17 @@ body.soleitura .avisoleitura{display:flex}
     </aside>
     <div class="gatecard">
       <h2 id="gateTitle">Entre na MILEST</h2>
-      <p id="gateMsg">O acesso é liberado por e-mail. Entre com a conta Google da sua equipe.</p>
+      <p id="gateMsg">Entre com a conta Google da sua empresa ou receba um link de acesso no seu e-mail corporativo.</p>
       <div class="gateact">
         <button class="btn primary" id="btnGoogle"><span class="gateg"><svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3c-1.6 4.7-6.1 8-11.3 8-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.0 6.1 29.3 4 24 4 13 4 4 13 4 24s9 20 20 20 20-9 20-20c0-1.3-.1-2.6-.4-3.9z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.0 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.6 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3c-.8 2.2-2.2 4.1-4.1 5.5l6.2 5.2C37.1 40.2 44 35 44 24c0-1.3-.1-2.6-.4-3.9z"/></svg>Entrar com Google</span></button>
         <button class="btn" id="btnGateOut" hidden>Trocar de conta</button>
       </div>
+      <div class="gateou"><span>ou</span></div>
+      <form class="gatemail" id="formLink" novalidate>
+        <label for="gateEmail">E-mail corporativo</label>
+        <input class="inp" id="gateEmail" type="email" placeholder="voce@suaempresa.com.br" autocomplete="email" spellcheck="false">
+        <button class="btn" id="btnGateLink" type="submit">Receber link de acesso</button>
+      </form>
       <div class="gatepe" id="gateVer"></div>
     </div>
   </div>
@@ -572,7 +585,7 @@ body.soleitura .avisoleitura{display:flex}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-08.13';
+const VERSAO = '2026-09-08.14';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -3348,6 +3361,15 @@ function renderUsuarios() {
       l.appendChild(el('td', '', u.ultimoAcesso ? dataHora(u.ultimoAcesso) : 'nunca entrou'));
 
       const tdA = el('td'); tdA.style.whiteSpace = 'nowrap';
+      const bMail = el('button', 'btn icon', '✉'); bMail.title = 'Reenviar o link de acesso para este e-mail';
+      bMail.style.marginRight = '5px';
+      bMail.addEventListener('click', async () => {
+        bMail.disabled = true;
+        const r = await convidarPorEmail(email);
+        bMail.disabled = false;
+        toast(r.ok ? 'Link de acesso enviado para ' + email + '.' : 'Não consegui enviar: ' + r.motivo);
+      });
+      tdA.appendChild(bMail);
       const bEd = el('button', 'btn icon', '✎'); bEd.title = 'Editar nome';
       bEd.style.marginRight = '5px';
       bEd.addEventListener('click', () => modalUsuario(Object.assign({}, u, { email: email })));
@@ -3374,8 +3396,8 @@ function modalUsuario(atual) {
   const editando = !!atual;
   modal(editando ? 'Editar usuário' : 'Convidar usuário', (body, close) => {
     body.appendChild(el('div', 'hint', editando
-      ? 'O e-mail não muda: ele é a chave da conta Google.'
-      : 'Informe o e-mail exato da conta Google da pessoa. Ela entra pelo botão “Entrar com Google” e cai direto nos cronogramas desta empresa.'));
+      ? 'O e-mail não muda: ele é a chave da conta.'
+      : 'Vale qualquer e-mail corporativo. Ao convidar, a pessoa recebe um link de acesso: clicando nele, ela já entra nos cronogramas desta empresa, sem criar senha. Quem tem conta Google também pode entrar pelo botão do Google.'));
     const f1 = el('div', 'field'); f1.appendChild(el('label', '', 'E-mail'));
     const iEm = el('input', 'inp'); iEm.type = 'email'; iEm.placeholder = 'pessoa@empresa.com.br';
     iEm.value = editando ? atual.email : ''; iEm.disabled = editando;
@@ -3399,8 +3421,14 @@ function modalUsuario(atual) {
       const dados = { nome: iNo.value.trim() || email.split('@')[0], papel: sel.value };
       if (!editando) { dados.ativo = true; dados.criadoEm = Date.now(); }
       if (await salvarUsuario(email, dados)) {
-        toast(editando ? 'Usuário atualizado.' : email + ' já pode entrar como ' + PAPEIS[sel.value].rot.toLowerCase() + '.');
         ST.usuarios = null; renderUsuarios();
+        if (editando) { toast('Usuário atualizado.'); return; }
+        const r = await convidarPorEmail(email);
+        toast(r.ok
+          ? 'Convite enviado para ' + email + ' — o link do e-mail entra direto como ' + PAPEIS[sel.value].rot.toLowerCase() + '.'
+          : r.semAuth
+            ? email + ' já pode entrar como ' + PAPEIS[sel.value].rot.toLowerCase() + '.'
+            : email + ' já tem acesso, mas o convite não saiu: ' + r.motivo);
       }
     });
     linha.appendChild(bC); linha.appendChild(bOk); body.appendChild(linha);
@@ -3866,7 +3894,8 @@ function modalEmpresa() {
   modal('Nova empresa', (body, close) => {
     body.appendChild(el('div', 'hint',
       'A empresa nasce isolada: os cronogramas dela ficam sob a própria conta e nenhuma outra empresa os enxerga. ' +
-      'Informe o e-mail da conta Google de quem será o administrador — é essa pessoa que passa a gerenciar os demais usuários.'));
+      'Informe o e-mail corporativo de quem será o administrador: ele recebe um link de acesso e entra sem criar senha. ' +
+      'É essa pessoa que passa a gerenciar os demais usuários da empresa dela.'));
     const campo = (rot, dica, tipo) => {
       const f = el('div', 'field'); f.appendChild(el('label', '', rot));
       const i = el('input', 'inp'); i.placeholder = dica || ''; if (tipo) i.type = tipo;
@@ -3879,7 +3908,7 @@ function modalEmpresa() {
     const nota = el('div', 'hint'); nota.style.marginTop = '-4px'; body.appendChild(nota);
     iEmail.addEventListener('input', () => {
       nota.textContent = chaveEmail(iEmail.value) === chaveEmail(ST.userEmail)
-        ? 'Este é o seu e-mail: a empresa será criada como a sua própria, e você entra nela como administrador.'
+        ? 'Este é o seu e-mail: a empresa nasce como a sua própria, e você entra nela como administrador.'
         : '';
     });
     const fp = el('div', 'field'); fp.appendChild(el('label', '', 'Plano'));
@@ -3897,8 +3926,22 @@ function modalEmpresa() {
       close();
       const id = await criarEmpresa(nome, iCnpj.value.trim(), email, iDono.value.trim(), sp.value);
       if (id) {
-        toast(nome + ' criada. ' + email + ' já pode entrar como administrador.');
         ST.orgs = null; renderPlataforma();
+        const r = await convidarPorEmail(email);
+        if (r.ok) {
+          toast(nome + ' criada. Enviamos o link de acesso para ' + email + ' — clicando nele, a pessoa já entra como administradora.');
+          return;
+        }
+        if (r.semAuth) { toast(nome + ' criada. ' + email + ' já pode entrar como administrador.'); return; }
+        // a empresa existe e o administrador está cadastrado; só o e-mail não saiu
+        modal('Empresa criada, mas o convite não saiu', (b2, c2) => {
+          b2.appendChild(el('div', 'hint',
+            '“' + nome + '” está criada e ' + email + ' já consta como administrador, mas o e-mail não foi enviado: ' + r.motivo +
+            ' A pessoa consegue entrar sozinha pela tela de acesso, pedindo o link com esse mesmo e-mail.'));
+          const linha2 = el('div'); linha2.style.cssText = 'display:flex;justify-content:flex-end';
+          const bb = el('button', 'btn primary', 'Entendi'); bb.addEventListener('click', c2);
+          linha2.appendChild(bb); b2.appendChild(linha2);
+        }, []);
       }
     });
     linha.appendChild(bC); linha.appendChild(bOk); body.appendChild(linha);
@@ -5444,6 +5487,35 @@ function loadScript(src) {
     document.head.appendChild(s);
   });
 }
+/* ---- entrada por link de e-mail (sem senha) ----------------------------
+   O convite e o login são a mesma coisa: o link que chega no e-mail já entra
+   no sistema. Não há senha para criar, nem cadastro para terminar. Isso vale
+   para qualquer e-mail corporativo, não só para contas Google. */
+const CHAVE_LINK = 'milest.linkEmail';
+const MSG_ENTRADA = 'Entre com a conta Google da sua empresa ou receba um link de acesso no seu e-mail corporativo.';
+
+function acaoLink() {
+  return { url: location.origin + location.pathname, handleCodeInApp: true };
+}
+function erroAuth(e) {
+  const c = String((e && e.code) || '');
+  if (c === 'auth/operation-not-allowed')
+    return 'o acesso por link de e-mail ainda não foi habilitado no Firebase (Authentication → Sign-in method → Email/Password → Email link).';
+  if (c === 'auth/unauthorized-continue-uri' || c === 'auth/invalid-continue-uri')
+    return 'este endereço não está na lista de domínios autorizados do Firebase (Authentication → Settings → Authorized domains).';
+  if (c === 'auth/invalid-email') return 'o e-mail informado não é válido.';
+  if (c === 'auth/invalid-action-code' || c === 'auth/expired-action-code')
+    return 'o link já foi usado ou expirou; peça um novo.';
+  if (c === 'auth/too-many-requests') return 'muitos pedidos seguidos; espere alguns minutos.';
+  return (e && e.message) || 'erro desconhecido.';
+}
+/** Manda o link de acesso para quem acabou de ser cadastrado. */
+async function convidarPorEmail(email) {
+  if (!ST.auth) return { ok: false, semAuth: true, motivo: 'este navegador não está conectado ao Firebase.' };
+  try { await ST.auth.sendSignInLinkToEmail(chaveEmail(email), acaoLink()); return { ok: true }; }
+  catch (e) { return { ok: false, motivo: erroAuth(e) }; }
+}
+
 function gateMsg(txt, isErr) {
   const p = $('#gateMsg'); p.textContent = txt; p.classList.toggle('err', !!isErr);
 }
@@ -5482,6 +5554,59 @@ async function bootFirebase(cfg) {
   const signOut = () => { auth.signOut(); };
   $('#btnSignOut').addEventListener('click', signOut);
   $('#btnGateOut').addEventListener('click', signOut);
+
+  ST.auth = auth;
+  const campoEmail = $('#gateEmail'), botaoLink = $('#btnGateLink');
+  let aguardandoEmail = false;   // o link foi aberto num navegador que não guardou o e-mail
+  let porLink = false;           // não apagar a mensagem do link com o texto padrão
+
+  const entrarPeloLink = async (email) => {
+    porLink = true;
+    gateMsg('Confirmando seu acesso…');
+    try {
+      await auth.signInWithEmailLink(email, location.href);
+      try { localStorage.removeItem(CHAVE_LINK); } catch (e) { }
+      try { history.replaceState({}, '', location.origin + location.pathname); } catch (e) { }
+      aguardandoEmail = false; botaoLink.textContent = 'Receber link de acesso';
+    } catch (e) {
+      gateMsg('Não consegui entrar por este link: ' + erroAuth(e), true);
+      aguardandoEmail = true; botaoLink.textContent = 'Confirmar e entrar';
+    }
+  };
+
+  $('#formLink').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const email = chaveEmail(campoEmail.value);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { gateMsg('Informe um e-mail válido.', true); return; }
+    botaoLink.disabled = true;
+    if (aguardandoEmail) { await entrarPeloLink(email); botaoLink.disabled = false; return; }
+    const rot = botaoLink.textContent; botaoLink.textContent = 'Enviando…';
+    try {
+      await auth.sendSignInLinkToEmail(email, acaoLink());
+      try { localStorage.setItem(CHAVE_LINK, email); } catch (e) { }
+      porLink = true;
+      gateMsg('Enviamos um link de acesso para ' + email + '. Abra a mensagem neste mesmo aparelho e clique no link — ele vale por pouco tempo e serve uma vez só.');
+      campoEmail.value = '';
+    } catch (e) {
+      porLink = true;
+      gateMsg('Não consegui enviar o link: ' + erroAuth(e), true);
+    }
+    botaoLink.disabled = false; botaoLink.textContent = rot;
+  });
+
+  // chegou clicando no link do convite
+  if (auth.isSignInWithEmailLink && auth.isSignInWithEmailLink(location.href)) {
+    let guardado = '';
+    try { guardado = localStorage.getItem(CHAVE_LINK) || ''; } catch (e) { }
+    if (guardado) { entrarPeloLink(guardado); }
+    else {
+      porLink = true; aguardandoEmail = true;
+      botaoLink.textContent = 'Confirmar e entrar';
+      gateMsg('Você abriu o link em outro navegador. Confirme o e-mail que recebeu o convite para concluir a entrada.');
+      setTimeout(() => { try { campoEmail.focus(); } catch (e) { } }, 60);
+    }
+  }
+
   $('#btnGoogle').addEventListener('click', async () => {
     const prov = new firebase.auth.GoogleAuthProvider();
     prov.setCustomParameters({ prompt: 'select_account' });
@@ -5498,7 +5623,7 @@ async function bootFirebase(cfg) {
       ST.db = null; ST.mode = 'local'; ST.perfil = null; ST.usuarios = null; ST.orgId = null; ST.orgs = null; ST.comLogin = true;
       chip.hidden = true; gate.hidden = false;
       $('#btnGateOut').hidden = true;
-      gateMsg('O acesso é liberado por e-mail. Entre com a conta Google da sua equipe.');
+      if (porLink) porLink = false; else gateMsg(MSG_ENTRADA);
       setSync('local', 'Não conectado');
       aplicarPermissoes();
       return;

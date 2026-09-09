@@ -78,6 +78,41 @@ Sem isso o botão "Entrar com Google" abre a janela e devolve o erro
 `cronograma-7c295.web.app` continua na lista, para o endereço antigo seguir
 funcionando enquanto o DNS propaga.
 
+### 3.4 Ligar o acesso por e-mail corporativo  ← indispensável
+
+O cliente não usa Gmail: ele entra com `nome@empresadele.com.br`. Isso funciona
+pelo **link de acesso** — a pessoa digita o e-mail, recebe uma mensagem e o
+link *é* o login. Não há senha para criar nem cadastro para terminar.
+
+Console do Firebase → **Authentication** → **Sign-in method** →
+**Email/Password** → ative o provedor **e marque também
+"Email link (passwordless sign-in)"** → Salvar.
+
+As duas chaves precisam ficar ligadas: a de cima ("Email/Password") habilita o
+provedor, a de baixo ("Email link") é a que permite entrar sem senha. Se só a
+de cima estiver ligada, a tela devolve `auth/operation-not-allowed` — e o
+sistema mostra exatamente essa instrução na mensagem de erro.
+
+**Deixar o e-mail em português.** Authentication → **Templates** →
+*Endereço de e-mail de login* → ícone de lápis. Vale ajustar:
+
+- o **nome do remetente** para `MILEST`;
+- o **assunto** para algo como `Seu acesso ao MILEST`;
+- o corpo, mantendo o marcador `%LINK%` — é ele que vira o link.
+
+O remetente sai como `noreply@cronograma-7c295.firebaseapp.com`. Para mandar de
+`acesso@milest.com.br`, na mesma tela há **Customize domain** (pede alguns
+registros de DNS). Vale a pena antes de vender: e-mail com o domínio do produto
+cai muito menos em spam.
+
+**Domínios autorizados valem para os dois caminhos.** O mesmo item 3.3 acima —
+o link volta para `app.milest.com.br`, e se esse endereço não estiver na lista o
+envio falha com `auth/unauthorized-continue-uri`.
+
+**O link abre em outro navegador?** Acontece quando a pessoa lê o e-mail no
+celular e o link abre num navegador diferente daquele em que pediu. A tela
+detecta isso e pede o e-mail de novo para confirmar — ninguém fica travado.
+
 ---
 
 ## 4. Usuários e permissões
@@ -95,10 +130,17 @@ empresa cliente. A seção 7 detalha o isolamento; aqui ficam os papéis.
 Na prática:
 
 1. Você, na aba **Plataforma**, cria a empresa e cadastra o primeiro
-   administrador dela (o e-mail da conta Google do contato do cliente).
-2. Esse administrador entra e, na aba **Usuários**, convida o resto do time da
+   administrador dela — o e-mail corporativo do contato do cliente. **Ele recebe
+   o link de acesso na hora**: clicando no link, entra já como administrador da
    empresa dele.
+2. Esse administrador entra e, na aba **Usuários**, convida o resto do time da
+   empresa dele — cada convite também sai por e-mail, com o mesmo link.
 3. Quem não estiver cadastrado em empresa nenhuma não passa da tela de entrada.
+
+O convite e o login são a mesma coisa: não existe "finalizar cadastro". Se um
+convite se perder, o ✉ ao lado da pessoa, na aba **Usuários**, reenvia o link.
+Quem tem conta Google pode continuar entrando pelo botão do Google; os dois
+caminhos chegam ao mesmo cadastro, porque a chave é sempre o e-mail.
 
 **Suspender** mantém o cadastro e corta o acesso imediatamente — preferível a
 remover, porque preserva o registro do último acesso. Suspender a *empresa*,
