@@ -191,7 +191,7 @@ a regra de produção padrão, que nega tudo — o sistema abre e não lê nada.
 erro mais comum da migração.
 
 Ao terminar, abra `https://<seu-id>.web.app`. O número da versão aparece
-embaixo do botão de entrada: precisa ser `2026-09-09.16`. Se for outro, é
+embaixo do botão de entrada: precisa ser `2026-09-14.2`. Se for outro, é
 cache — recarregue com `Cmd + Shift + R`.
 
 ---
@@ -268,7 +268,7 @@ Marque conforme for. A ordem importa até a Etapa 6.
 - [ ] Arquivos do repositório atualizados (comigo)
 - [ ] `firebase deploy --only hosting`
 - [ ] `firebase deploy --only firestore:rules`
-- [ ] Versão `2026-09-09.16` visível na tela de entrada
+- [ ] Versão `2026-09-14.2` visível na tela de entrada
 - [ ] Entrada como dono da plataforma funcionando
 - [ ] Primeira empresa criada e convite recebido por e-mail
 - [ ] Cronograma de teste completo, com PDF

@@ -10,7 +10,7 @@ report gerencial), vendido como SaaS para outras empresas. Um arquivo HTML só,
 publicado no Firebase Hosting, com Firestore e login por e-mail.
 
 - **Projeto Firebase:** `milest-app`
-- **Versão atual:** `2026-09-09.16` (o número aparece na tela de entrada)
+- **Versão atual:** `2026-09-14.2` (o número aparece na tela de entrada)
 - **Domínios previstos:** `app.milest.com.br` (sistema) e `milest.com.br` (landing)
 
 ## Onde está cada coisa
@@ -31,6 +31,13 @@ Fluxo de trabalho: editar `app.src.html` → `node build.js` → conferir →
 `firebase deploy --only firestore:rules` (o projeto vem do `.firebaserc`).
 
 ## O que já está pronto
+
+> **14/09 — as duas linhas de código foram unidas.** O sistema que estava sendo
+> desenvolvido em paralelo (abas Portfólio, Canvas, Horas, Documentos, KPI,
+> replanejamento, anexos, backup embutido) virou a base, e as 13 funções da
+> camada comercial — entrada por senha, senha temporária, prazo de avaliação —
+> foram transplantadas para dentro dele. Resultado: `2026-09-14.2`.
+
 
 - Cronograma CPM: dependências TI/II/TT/IT com defasagem, folgas, caminho
   crítico, calendário de dias úteis, linha de base e histórico de versões.
