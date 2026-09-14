@@ -1,0 +1,7 @@
+# A chave de serviço ignora TODAS as regras do Firestore.
+# Ela nunca entra no repositório.
+chave.json
+chave-*.json
+*-firebase-adminsdk-*.json
+node_modules/
+saidas/

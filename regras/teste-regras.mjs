@@ -19,6 +19,9 @@ const ANA = 'ana@unimed.com.br';        // administradora da Unimed
 const CAIO = 'caio@unimed.com.br';      // leitor da Unimed
 const BRUNO = 'bruno@varejo.com.br';    // gerente do Varejo Norte
 const FORA = 'estranho@outra.com';
+const DORA = 'dora@teste.com.br';       // administradora de duas empresas de teste
+
+const DIA = 86400000;
 
 // ---- estado inicial, gravado sem passar pelas regras ----
 await env.clearFirestore();
@@ -45,6 +48,15 @@ await env.withSecurityRulesDisabled(async ctx => {
   await setDoc(doc(db, 'orgs', 'nova'), { nome: 'Empresa Nova', ativo: true, semDono: true });
   await setDoc(doc(db, 'orgs', 'suspensa'), { nome: 'Empresa Suspensa', ativo: false, semDono: false });
   await setDoc(doc(db, 'orgs/suspensa/members', BRUNO), { email: BRUNO, papel: 'admin', ativo: true });
+
+  // prazo de acesso: uma vencida ontem, outra com uma semana pela frente
+  await setDoc(doc(db, 'users', DORA), { email: DORA, orgId: 'vencida' });
+  await setDoc(doc(db, 'orgs', 'vencida'), { nome: 'Teste Vencido', ativo: true, semDono: false, expiraEm: Date.now() - DIA });
+  await setDoc(doc(db, 'orgs/vencida/members', DORA), { email: DORA, papel: 'admin', ativo: true });
+  await setDoc(doc(db, 'orgs/vencida/projects', 'v1'), { name: 'Piloto' });
+  await setDoc(doc(db, 'orgs', 'noprazo'), { nome: 'Teste Corrente', ativo: true, semDono: false, expiraEm: Date.now() + 7 * DIA });
+  await setDoc(doc(db, 'orgs/noprazo/members', DORA), { email: DORA, papel: 'admin', ativo: true });
+  await setDoc(doc(db, 'orgs/noprazo/projects', 'n1'), { name: 'Piloto' });
 });
 
 let ok = 0, falhou = 0;
@@ -144,6 +156,32 @@ await caso('ninguém lê o índice alheio', () =>
   assertFails(getDoc(doc(conta(CAIO), 'users', ANA))));
 await caso('ninguém lista todas as contas', () =>
   assertFails(getDocs(collection(conta(ANA), 'users'))));
+
+console.log('\nPRAZO DE ACESSO');
+await caso('prazo vencido: continua LENDO o próprio projeto', () =>
+  assertSucceeds(getDoc(doc(conta(DORA), 'orgs/vencida/projects', 'v1'))));
+await caso('prazo vencido: NÃO grava projeto', () =>
+  assertFails(setDoc(doc(conta(DORA), 'orgs/vencida/projects', 'v2'), { name: 'depois do prazo' })));
+await caso('prazo vencido: NÃO grava atividade', () =>
+  assertFails(setDoc(doc(conta(DORA), 'orgs/vencida/projects/v1/tasks', 'x'), { name: 'x' })));
+await caso('prazo vencido: NÃO cadastra usuário', () =>
+  assertFails(setDoc(doc(conta(DORA), 'orgs/vencida/members', FORA), { email: FORA, papel: 'leitor', ativo: true })));
+await caso('prazo vencido: a empresa NÃO estica o próprio prazo', () =>
+  assertFails(updateDoc(doc(conta(DORA), 'orgs', 'vencida'), { expiraEm: Date.now() + 30 * DIA })));
+await caso('dentro do prazo: grava normalmente', () =>
+  assertSucceeds(setDoc(doc(conta(DORA), 'orgs/noprazo/projects', 'n2'), { name: 'dentro do prazo' })));
+await caso('sem campo de prazo: grava normalmente', () =>
+  assertSucceeds(setDoc(doc(conta(ANA), 'orgs/unimed/projects', 'p3'), { name: 'sem prazo' })));
+await caso('a plataforma define o prazo de uma empresa', () =>
+  assertSucceeds(updateDoc(doc(conta(PLATAFORMA), 'orgs', 'vencida'), { expiraEm: Date.now() + 15 * DIA })));
+
+console.log('\nSENHA PROVISÓRIA');
+await caso('a pessoa desliga a própria marca de senha provisória', () =>
+  assertSucceeds(setDoc(doc(conta(CAIO), 'orgs/unimed/members', CAIO), { senhaProvisoria: false }, { merge: true })));
+await caso('a pessoa NÃO se marca como provisória', () =>
+  assertFails(setDoc(doc(conta(CAIO), 'orgs/unimed/members', CAIO), { senhaProvisoria: true }, { merge: true })));
+await caso('ninguém mexe na marca de outra pessoa', () =>
+  assertFails(setDoc(doc(conta(CAIO), 'orgs/unimed/members', ANA), { senhaProvisoria: false }, { merge: true })));
 
 console.log('\n' + ok + ' passaram, ' + falhou + ' falharam.');
 await env.cleanup();

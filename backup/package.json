@@ -1,0 +1,12 @@
+{
+  "name": "milest-backup",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "backup": "node baixar.mjs",
+    "restaurar": "node restaurar.mjs"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.0.0"
+  }
+}

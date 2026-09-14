@@ -8,7 +8,10 @@ rules_version = '2';
 // barrado, é que não existe caminho. Isso é proposital e é o que sustenta a
 // promessa de que quem opera o MILEST não lê os dados dos clientes.
 //
-// Publicar com:  firebase deploy --only firestore:rules --project cronograma-7c295
+// Prazo: `expiraEm` na empresa corta a ESCRITA quando vence; a leitura fica.
+//
+// Publicar com:  firebase deploy --only firestore:rules
+// (o projeto vem do .firebaserc; hoje: milest-app)
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -37,14 +40,24 @@ service cloud.firestore {
     function orgViva(org) {
       return exists(docOrg(org)) && get(docOrg(org)).data.ativo != false;
     }
+
+    // Prazo de acesso (avaliação ou assinatura). `expiraEm` é a data em
+    // milissegundos; ausente ou 0 significa sem prazo. Vencido, a empresa
+    // continua LENDO os próprios dados — só para de escrever. É de propósito:
+    // quem testou vê o trabalho que fez do outro lado do vidro, e isso vende
+    // melhor do que uma porta fechada. Só a plataforma mexe neste campo.
+    function orgNoPrazo(org) {
+      return get(docOrg(org)).data.get('expiraEm', 0) == 0
+          || request.time.toMillis() < get(docOrg(org)).data.expiraEm;
+    }
     function daOrg(org) {
       return logado() && exists(docMembro(org))
           && get(docMembro(org)).data.ativo != false
           && orgViva(org);
     }
     function papelNa(org) { return get(docMembro(org)).data.papel; }
-    function editaOrg(org)  { return daOrg(org) && papelNa(org) in ['admin', 'gerente']; }
-    function mandaNaOrg(org) { return daOrg(org) && papelNa(org) == 'admin'; }
+    function editaOrg(org)  { return daOrg(org) && orgNoPrazo(org) && papelNa(org) in ['admin', 'gerente']; }
+    function mandaNaOrg(org) { return daOrg(org) && orgNoPrazo(org) && papelNa(org) == 'admin'; }
 
     function mexeuSomenteEm(campos) {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(campos);
@@ -94,7 +107,10 @@ service cloud.firestore {
                           && request.resource.data.papel == 'admin');
 
         allow update: if mandaNaOrg(org)
-                      || (logado() && eu() == email.lower() && mexeuSomenteEm(['ultimoAcesso']));
+                      || (logado() && eu() == email.lower()
+                          && mexeuSomenteEm(['ultimoAcesso', 'senhaProvisoria'])
+                          // só para desligar: ninguém se marca como provisório
+                          && request.resource.data.get('senhaProvisoria', false) == false);
         allow delete: if mandaNaOrg(org);
       }
 

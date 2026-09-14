@@ -311,6 +311,8 @@ body.soleitura .toolbar .btn:disabled{opacity:.35}
   background:var(--warn-soft);border:1px solid var(--line);border-radius:7px;padding:7px 12px;margin:9px 14px 0;
 }
 body.soleitura .avisoleitura{display:flex}
+.faixaprazo{margin:0 14px 8px;padding:8px 12px;border-radius:7px;font-size:12.5px;
+  background:var(--warn-soft);color:var(--warn);border:1px solid rgba(156,106,14,.25)}
 .tabuser td .inp{padding:3px 6px;font-size:12px}
 .pill{display:inline-block;font-size:10.5px;font-weight:600;border-radius:20px;padding:2px 9px;font-family:var(--f-display);letter-spacing:.02em}
 .pill.on{background:#E4F4EA;color:#1F6B45}
@@ -360,6 +362,10 @@ body.soleitura .avisoleitura{display:flex}
 .gatemail label{font-size:12px;font-weight:600;color:var(--ink-2)}
 .gatemail .inp{padding:9px 11px;font-size:13px;width:100%}
 .gatemail .btn{align-self:flex-start;padding:9px 16px;font-size:13px}
+.gatemail .op{font-weight:400;color:var(--ink-3)}
+.gatelink{background:none;border:0;padding:0;color:var(--accent);font-size:12px;font-family:inherit;
+  cursor:pointer;text-decoration:underline;align-self:flex-start}
+.gatelink:hover{color:var(--accent-2)}
 .gateg{display:inline-flex;align-items:center;gap:9px}
 .gateg svg{width:16px;height:16px;flex:none}
 .gatepe{margin-top:4px;font-size:11px;color:var(--ink-3);font-family:var(--f-mono);letter-spacing:.04em}
@@ -418,7 +424,7 @@ body.soleitura .avisoleitura{display:flex}
     <button class="btn icon" id="btnNewProj" title="Novo projeto">＋</button>
   </div>
   <div class="syncdot" id="syncDot"><i></i><span>—</span></div>
-  <div class="userchip" id="userChip" hidden><span class="org" id="orgChip" hidden></span><span class="papel" id="userRole" hidden></span><span id="userEmail"></span><button class="btn icon" id="btnSignOut" title="Sair da conta">Sair</button></div>
+  <div class="userchip" id="userChip" hidden><span class="org" id="orgChip" hidden></span><span class="papel" id="userRole" hidden></span><span id="userEmail"></span><button class="btn icon" id="btnSenha" title="Criar ou trocar a senha desta conta" hidden>Senha</button><button class="btn icon" id="btnSignOut" title="Sair da conta">Sair</button></div>
   <div class="tabs" role="tablist">
     <button class="tab" role="tab" data-view="overview" aria-selected="true">Visão geral</button>
     <button class="tab" role="tab" data-view="schedule" aria-selected="false">Cronograma</button>
@@ -432,6 +438,8 @@ body.soleitura .avisoleitura{display:flex}
 </div>
 
 <div class="kpis" id="kpis"></div>
+
+<div class="faixaprazo" id="faixaPrazo" hidden></div>
 
 <div class="avisoleitura" id="avisoLeitura"><span>🔒</span><span>Seu acesso é somente leitura: você consulta os cronogramas e baixa os relatórios, mas não altera dados.</span></div>
 
@@ -525,17 +533,23 @@ body.soleitura .avisoleitura{display:flex}
     </aside>
     <div class="gatecard">
       <h2 id="gateTitle">Entre na MILEST</h2>
-      <p id="gateMsg">Entre com a conta Google da sua empresa ou receba um link de acesso no seu e-mail corporativo.</p>
-      <div class="gateact">
-        <button class="btn primary" id="btnGoogle"><span class="gateg"><svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3c-1.6 4.7-6.1 8-11.3 8-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.0 6.1 29.3 4 24 4 13 4 4 13 4 24s9 20 20 20 20-9 20-20c0-1.3-.1-2.6-.4-3.9z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.0 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.6 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3c-.8 2.2-2.2 4.1-4.1 5.5l6.2 5.2C37.1 40.2 44 35 44 24c0-1.3-.1-2.6-.4-3.9z"/></svg>Entrar com Google</span></button>
-        <button class="btn" id="btnGateOut" hidden>Trocar de conta</button>
-      </div>
-      <div class="gateou"><span>ou</span></div>
-      <form class="gatemail" id="formLink" novalidate>
-        <label for="gateEmail">E-mail corporativo</label>
+      <p id="gateMsg">Entre com o seu e-mail e a sua senha.</p>
+      <form class="gatemail" id="formEntrar" novalidate>
+        <label for="gateEmail">E-mail</label>
         <input class="inp" id="gateEmail" type="email" placeholder="voce@suaempresa.com.br" autocomplete="email" spellcheck="false">
-        <button class="btn" id="btnGateLink" type="submit">Receber link de acesso</button>
+        <label for="gateSenha">Senha</label>
+        <input class="inp" id="gateSenha" type="password" placeholder="••••••••" autocomplete="current-password">
+        <button class="btn primary" id="btnEntrar" type="submit">Entrar</button>
+        <button class="gatelink" id="btnEsqueci" type="button">Esqueci minha senha</button>
+        <button class="gatelink" id="btnReenviar" type="button" hidden>Reenviar o e-mail de confirmação</button>
       </form>
+      <div id="gateGoogle" hidden>
+        <div class="gateou"><span>ou</span></div>
+        <div class="gateact">
+          <button class="btn" id="btnGoogle"><span class="gateg"><svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3c-1.6 4.7-6.1 8-11.3 8-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.0 6.1 29.3 4 24 4 13 4 4 13 4 24s9 20 20 20 20-9 20-20c0-1.3-.1-2.6-.4-3.9z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.0 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.6 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3c-.8 2.2-2.2 4.1-4.1 5.5l6.2 5.2C37.1 40.2 44 35 44 24c0-1.3-.1-2.6-.4-3.9z"/></svg>Entrar com Google</span></button>
+        </div>
+      </div>
+      <div class="gateact"><button class="btn" id="btnGateOut" hidden>Trocar de conta</button></div>
       <div class="gatepe" id="gateVer"></div>
     </div>
   </div>
@@ -586,7 +600,7 @@ body.soleitura .avisoleitura{display:flex}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-08.14';
+const VERSAO = '2026-09-09.16';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -993,7 +1007,15 @@ function papelAtual() {
   if (!ST.comLogin) return 'admin';
   return (ST.perfil && ST.perfil.papel) || 'leitor';
 }
-function podeEditar() { const p = papelAtual(); return p === 'admin' || p === 'gerente'; }
+function podeEditar() {
+  if (ST.perfil && ST.perfil.expirado) return false;   // prazo vencido: só leitura
+  const p = papelAtual(); return p === 'admin' || p === 'gerente';
+}
+/** Dias que faltam para o prazo da empresa. null quando não há prazo. */
+function diasDePrazo(expiraEm) {
+  if (!expiraEm) return null;
+  return Math.ceil((expiraEm - Date.now()) / 86400000);
+}
 function ehAdmin() { return papelAtual() === 'admin'; }
 /** Usar nos pontos de entrada: avisa e devolve true quando a ação é proibida. */
 function semPermissao() {
@@ -3201,7 +3223,12 @@ async function carregarPerfil() {
         if (m.ativo === false) return { bloqueado: 'pessoa' };
         perfil.papel = PAPEIS[m.papel] ? m.papel : 'leitor';
         perfil.nome = m.nome || email.split('@')[0];
-        perfil.nomeOrg = (oSnap.data() || {}).nome || '';
+        perfil.senhaProvisoria = m.senhaProvisoria === true;
+        const org = oSnap.data() || {};
+        perfil.nomeOrg = org.nome || '';
+        perfil.plano = org.plano || '';
+        perfil.expiraEm = org.expiraEm || 0;
+        perfil.expirado = !!(perfil.expiraEm && Date.now() >= perfil.expiraEm);
         ST.db.doc(dOrg(perfil.orgId) + '/members/' + chaveEmail(email))
           .set({ ultimoAcesso: Date.now() }, { merge: true }).catch(() => { });
       }
@@ -3211,11 +3238,39 @@ async function carregarPerfil() {
   return perfil;
 }
 
+/* A tarja do topo. Quando o prazo venceu ela explica o motivo, em vez de dizer
+   genericamente "somente leitura" — quem testou precisa entender que o trabalho
+   continua ali e o que fazer para voltar a editar. */
+function avisoDePrazo() {
+  const t = $('#avisoLeitura'); if (!t) return;
+  const pe = ST.perfil || {};
+  const dias = diasDePrazo(pe.expiraEm);
+  const alvo = t.querySelectorAll('span')[1]; if (!alvo) return;
+  if (pe.expirado) {
+    t.querySelectorAll('span')[0].textContent = '⏳';
+    alvo.textContent = 'O prazo de acesso de ' + (pe.nomeOrg || 'sua empresa') + ' venceu. '
+      + 'Seus cronogramas continuam aqui e você pode consultá-los e baixar os relatórios, '
+      + 'mas não é possível alterar nada. Fale com quem contratou o MILEST para liberar de novo.';
+  } else {
+    t.querySelectorAll('span')[0].textContent = '🔒';
+    alvo.textContent = 'Seu acesso é somente leitura: você consulta os cronogramas e baixa os relatórios, mas não altera dados.';
+  }
+  const b = $('#faixaPrazo');
+  if (b) {
+    const mostrar = !pe.expirado && dias != null && dias <= 7;
+    b.hidden = !mostrar;
+    if (mostrar) b.textContent = dias <= 0
+      ? 'Seu período de avaliação termina hoje.'
+      : 'Seu período de avaliação termina em ' + dias + (dias === 1 ? ' dia.' : ' dias.');
+  }
+}
+
 function aplicarPermissoes() {
   const ed = podeEditar(), adm = ehAdmin(), nuvem = ST.comLogin;
   const naOrg = !!ST.orgId;
   document.body.classList.toggle('soleitura', naOrg && !ed);
   document.body.classList.toggle('semorg', nuvem && !naOrg);
+  avisoDePrazo();
   for (const sel of ['#btnAdd', '#btnIndent', '#btnOutdent', '#btnUp', '#btnDown', '#btnDel',
     '#btnMilestone', '#btnLink', '#btnBaseline', '#btnImport', '#btnNewProj']) {
     const n = $(sel); if (n) n.disabled = !ed;
@@ -3362,13 +3417,13 @@ function renderUsuarios() {
       l.appendChild(el('td', '', u.ultimoAcesso ? dataHora(u.ultimoAcesso) : 'nunca entrou'));
 
       const tdA = el('td'); tdA.style.whiteSpace = 'nowrap';
-      const bMail = el('button', 'btn icon', '✉'); bMail.title = 'Reenviar o link de acesso para este e-mail';
+      const bMail = el('button', 'btn icon', '✉'); bMail.title = 'Enviar e-mail para esta pessoa criar uma nova senha';
       bMail.style.marginRight = '5px';
       bMail.addEventListener('click', async () => {
         bMail.disabled = true;
-        const r = await convidarPorEmail(email);
+        const r = await enviarRedefinicao(email);
         bMail.disabled = false;
-        toast(r.ok ? 'Link de acesso enviado para ' + email + '.' : 'Não consegui enviar: ' + r.motivo);
+        toast(r.ok ? 'Enviamos para ' + email + ' o e-mail para criar uma nova senha.' : 'Não consegui enviar: ' + r.motivo);
       });
       tdA.appendChild(bMail);
       const bEd = el('button', 'btn icon', '✎'); bEd.title = 'Editar nome';
@@ -3395,10 +3450,11 @@ function renderUsuarios() {
 
 function modalUsuario(atual) {
   const editando = !!atual;
-  modal(editando ? 'Editar usuário' : 'Convidar usuário', (body, close) => {
+  modal(editando ? 'Editar usuário' : 'Novo usuário', (body, close) => {
     body.appendChild(el('div', 'hint', editando
       ? 'O e-mail não muda: ele é a chave da conta.'
-      : 'Vale qualquer e-mail corporativo. Ao convidar, a pessoa recebe um link de acesso: clicando nele, ela já entra nos cronogramas desta empresa, sem criar senha. Quem tem conta Google também pode entrar pelo botão do Google.'));
+      : 'Vale qualquer e-mail corporativo. Ao cadastrar, o MILEST cria a conta e mostra uma senha temporária para você passar à pessoa. '
+        + 'Ela recebe um e-mail para confirmar o endereço e, no primeiro acesso, escolhe a senha dela.'));
     const f1 = el('div', 'field'); f1.appendChild(el('label', '', 'E-mail'));
     const iEm = el('input', 'inp'); iEm.type = 'email'; iEm.placeholder = 'pessoa@empresa.com.br';
     iEm.value = editando ? atual.email : ''; iEm.disabled = editando;
@@ -3414,7 +3470,7 @@ function modalUsuario(atual) {
 
     const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
     const bC = el('button', 'btn', 'Cancelar'); bC.addEventListener('click', close);
-    const bOk = el('button', 'btn primary', editando ? 'Salvar' : 'Convidar');
+    const bOk = el('button', 'btn primary', editando ? 'Salvar' : 'Criar acesso');
     bOk.addEventListener('click', async () => {
       const email = chaveEmail(iEm.value);
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { toast('E-mail inválido.'); return; }
@@ -3424,17 +3480,78 @@ function modalUsuario(atual) {
       if (await salvarUsuario(email, dados)) {
         ST.usuarios = null; renderUsuarios();
         if (editando) { toast('Usuário atualizado.'); return; }
-        const r = await convidarPorEmail(email);
-        toast(r.ok
-          ? 'Convite enviado para ' + email + ' — o link do e-mail entra direto como ' + PAPEIS[sel.value].rot.toLowerCase() + '.'
-          : r.semAuth
-            ? email + ' já pode entrar como ' + PAPEIS[sel.value].rot.toLowerCase() + '.'
-            : email + ' já tem acesso, mas o convite não saiu: ' + r.motivo);
+        await provisionarAcesso(email,
+          () => salvarUsuario(email, { senhaProvisoria: true }),
+          {
+            titulo: 'Acesso criado para ' + email,
+            intro: 'Cadastro feito como ' + PAPEIS[sel.value].rot.toLowerCase() + '. '
+          });
+        ST.usuarios = null; renderUsuarios();
       }
     });
     linha.appendChild(bC); linha.appendChild(bOk); body.appendChild(linha);
     setTimeout(() => (editando ? iNo : iEm).focus(), 30);
   }, []);
+}
+
+/* O que você entrega para a pessoa. Fica numa janela em vez de um toast porque
+   a senha temporária só existe aqui: ninguém consegue lê-la de volta depois,
+   nem você — é assim que uma senha guardada deve se comportar. */
+function modalCredenciais(email, senha, opts) {
+  const o = opts || {};
+  modal(o.titulo || 'Acesso criado', (body, close) => {
+    if (senha) {
+      body.appendChild(el('div', 'hint', (o.intro || '') +
+        'Passe estes dados para a pessoa (WhatsApp, telefone, o que for). ' +
+        'Ela recebeu também um e-mail para confirmar o endereço — esse clique é obrigatório, ' +
+        'e só depois dele a senha funciona. No primeiro acesso o MILEST pede que ela troque esta senha por uma dela.'));
+      const cx = el('div'); cx.style.cssText =
+        'font-family:var(--f-mono);font-size:13px;background:var(--surface-2);border:1px solid var(--line);' +
+        'border-radius:7px;padding:11px 13px;margin:10px 0;user-select:all;line-height:1.7';
+      cx.textContent = 'E-mail: ' + email + '\nSenha: ' + senha;
+      cx.style.whiteSpace = 'pre';
+      body.appendChild(cx);
+      const bCp = el('button', 'btn', 'Copiar');
+      bCp.addEventListener('click', async () => {
+        try { await navigator.clipboard.writeText('E-mail: ' + email + '\nSenha: ' + senha); bCp.textContent = 'Copiado'; }
+        catch (e) { bCp.textContent = 'Selecione e copie'; }
+        setTimeout(() => { bCp.textContent = 'Copiar'; }, 2200);
+      });
+      body.appendChild(bCp);
+      body.appendChild(el('div', 'hint',
+        'Esta senha não fica guardada em lugar nenhum: fechando esta janela, ela some. ' +
+        'Se perder, use o ✉ na lista para a pessoa criar outra.'));
+    } else {
+      body.appendChild(el('div', 'hint',
+        'A conta ' + email + ' já existia no MILEST, então a senha dela continua sendo a de antes — ' +
+        'ninguém, nem você, consegue trocá-la por aqui. O cadastro nesta empresa está feito. ' +
+        'Se a pessoa não lembra a senha, mande o e-mail para ela criar outra.'));
+      const bR = el('button', 'btn', 'Enviar e-mail para criar nova senha');
+      bR.addEventListener('click', async () => {
+        bR.disabled = true;
+        const r = await enviarRedefinicao(email);
+        toast(r.ok ? 'E-mail enviado para ' + email + '.' : 'Não consegui enviar: ' + r.motivo);
+        bR.disabled = false;
+      });
+      body.appendChild(bR);
+    }
+    const linha = el('div'); linha.style.cssText = 'display:flex;justify-content:flex-end;margin-top:12px';
+    const bb = el('button', 'btn primary', 'Entendi'); bb.addEventListener('click', close);
+    linha.appendChild(bb); body.appendChild(linha);
+  }, []);
+}
+
+/** Cria a conta, entrega a senha temporária e marca o cadastro como provisório. */
+async function provisionarAcesso(email, marcarProvisoria, opts) {
+  const senha = senhaTemporaria();
+  const r = await criarContaComSenha(email, senha);
+  if (!r.ok) {
+    toast('Cadastro feito, mas a conta de acesso não: ' + r.motivo);
+    return false;
+  }
+  if (r.criada && marcarProvisoria) { try { await marcarProvisoria(); } catch (e) { } }
+  modalCredenciais(email, r.criada ? senha : null, opts);
+  return true;
 }
 
 function confirmarRemocaoUsuario(email) {
@@ -3473,7 +3590,7 @@ function idDeOrg(nome) {
   return base + '-' + Math.random().toString(36).slice(2, 6);
 }
 
-async function criarEmpresa(nome, cnpj, emailDono, nomeDono, plano) {
+async function criarEmpresa(nome, cnpj, emailDono, nomeDono, plano, expiraEm) {
   const id = idDeOrg(nome), email = chaveEmail(emailDono);
   // a empresa do próprio operador nasce marcada: é a única em que ele pode
   // se cadastrar, e a marca deixa isso registrado no dado
@@ -3481,12 +3598,17 @@ async function criarEmpresa(nome, cnpj, emailDono, nomeDono, plano) {
   try {
     await ST.db.doc(dOrg(id)).set({
       nome: nome, cnpj: cnpj || '', plano: plano || 'Padrão', ativo: true,
+      expiraEm: expiraEm || 0,
+      // espaço da assinatura: quem preenche, mais adiante, é o webhook do
+      // gateway de pagamento. Nascem vazios de propósito — a tela e as regras
+      // já sabem lidar com isso, então ligar a cobrança vira preencher campos.
+      assinatura: { status: expiraEm ? 'avaliacao' : 'nenhuma', ciclo: '', gateway: '', idExterno: '', desde: Date.now() },
       semDono: true, propria: propria, criadoEm: Date.now(), criadaPor: ST.userEmail,
       projetos: 0, usuarios: 1
     });
     await ST.db.doc(dOrg(id) + '/members/' + email).set({
       email: email, nome: nomeDono || email.split('@')[0],
-      papel: 'admin', ativo: true, criadoEm: Date.now()
+      papel: 'admin', ativo: true, criadoEm: Date.now(), senhaProvisoria: true
     });
     await ST.db.doc(dIndice(email)).set({ email: email, orgId: id, criadoEm: Date.now() }, { merge: true });
     // fecha a janela de provisionamento: a partir daqui só a própria empresa
@@ -3582,6 +3704,65 @@ function modalMigracao(orgs) {
   }, []);
 }
 
+/* O prazo de acesso de uma empresa. É o campo que as regras do Firestore leem
+   para decidir se ela ainda escreve — mudar aqui vale imediatamente, sem
+   republicar nada. Quando a cobrança entrar, é este mesmo campo que o webhook
+   do gateway vai empurrar para a frente a cada pagamento confirmado. */
+function modalPrazo(org) {
+  modal('Prazo de acesso — ' + (org.nome || org.id), (body, close) => {
+    const dias = diasDePrazo(org.expiraEm);
+    body.appendChild(el('div', 'hint', dias == null
+      ? 'Esta empresa está sem data de corte: escreve normalmente, sem prazo.'
+      : (dias <= 0
+        ? 'O prazo venceu em ' + new Date(org.expiraEm).toLocaleDateString('pt-BR') + '. A empresa está somente leitura.'
+        : 'Faltam ' + dias + ' dia(s), até ' + new Date(org.expiraEm).toLocaleDateString('pt-BR') + '.')));
+
+    const f = el('div', 'field'); f.appendChild(el('label', '', 'Novo prazo'));
+    const sel = el('select', 'inp');
+    const opcoes = [['7 dias a partir de hoje', 7], ['15 dias a partir de hoje', 15],
+    ['30 dias a partir de hoje', 30], ['60 dias a partir de hoje', 60],
+    ['1 ano a partir de hoje', 365], ['Sem prazo', 0], ['Escolher uma data…', -1]];
+    for (const [rot, v] of opcoes) { const o = el('option', '', rot); o.value = String(v); sel.appendChild(o); }
+    sel.value = '15'; f.appendChild(sel); body.appendChild(f);
+
+    const fd = el('div', 'field'); fd.hidden = true;
+    fd.appendChild(el('label', '', 'Data'));
+    const iData = el('input', 'inp'); iData.type = 'date';
+    iData.value = new Date(Date.now() + 15 * 86400000).toISOString().slice(0, 10);
+    fd.appendChild(iData); body.appendChild(fd);
+    sel.addEventListener('change', () => { fd.hidden = sel.value !== '-1'; });
+
+    body.appendChild(el('div', 'hint',
+      'Vencido, a empresa continua lendo os cronogramas e baixando os relatórios — só para de editar. ' +
+      'Para cortar tudo, use Suspender.'));
+
+    const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
+    const bC = el('button', 'btn', 'Cancelar'); bC.addEventListener('click', close);
+    const bOk = el('button', 'btn primary', 'Salvar prazo');
+    bOk.addEventListener('click', async () => {
+      const v = Number(sel.value);
+      let expira = 0;
+      if (v === -1) {
+        if (!iData.value) { toast('Escolha uma data.'); return; }
+        expira = new Date(iData.value + 'T23:59:59').getTime();
+      } else if (v > 0) expira = Date.now() + v * 86400000;
+      bOk.disabled = true;
+      try {
+        await ST.db.doc(dOrg(org.id)).update({
+          expiraEm: expira, atualizadoEm: Date.now(),
+          'assinatura.status': expira ? (v === 365 ? 'ativa' : 'avaliacao') : 'nenhuma'
+        });
+        close(); ST.orgs = null; renderPlataforma();
+        toast(expira ? 'Prazo até ' + new Date(expira).toLocaleDateString('pt-BR') + '.' : 'Prazo removido.');
+      } catch (e) {
+        toast('Não consegui salvar: ' + ((e && e.message) || 'erro'));
+        bOk.disabled = false;
+      }
+    });
+    linha.appendChild(bC); linha.appendChild(bOk); body.appendChild(linha);
+  }, []);
+}
+
 function renderPlataforma() {
   const host = $('#platView'); host.textContent = '';
   const p = el('div', 'panel');
@@ -3615,7 +3796,7 @@ function renderPlataforma() {
     if (!lista.length) { corpo.appendChild(primeirosPassos()); return; }
     const tb = el('table', 'data');
     const th = el('thead'), tr = el('tr');
-    for (const c of ['Empresa', 'CNPJ', 'Plano', 'Projetos', 'Usuários', 'Criada em', 'Situação', '']) tr.appendChild(el('th', '', c));
+    for (const c of ['Empresa', 'CNPJ', 'Plano', 'Acesso até', 'Projetos', 'Usuários', 'Criada em', 'Situação', '']) tr.appendChild(el('th', '', c));
     th.appendChild(tr); tb.appendChild(th);
     const tbody = el('tbody');
     for (const o of lista) {
@@ -3626,6 +3807,20 @@ function renderPlataforma() {
       l.appendChild(tdN);
       l.appendChild(el('td', '', o.cnpj || '—'));
       l.appendChild(el('td', '', o.plano || '—'));
+
+      const tdP = el('td');
+      const dias = diasDePrazo(o.expiraEm);
+      if (dias == null) tdP.appendChild(el('span', 'pill on', 'sem prazo'));
+      else {
+        tdP.appendChild(document.createTextNode(
+          new Date(o.expiraEm).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' })));
+        const marca = el('span', 'pill ' + (dias <= 0 ? 'off' : ''), dias <= 0 ? 'vencido' : dias + 'd');
+        marca.style.marginLeft = '7px';
+        if (dias > 0 && dias <= 7) { marca.style.background = 'var(--warn-soft)'; marca.style.color = 'var(--warn)'; }
+        tdP.appendChild(marca);
+      }
+      l.appendChild(tdP);
+
       l.appendChild(el('td', '', o.projetos == null ? '—' : String(o.projetos)));
       l.appendChild(el('td', '', o.usuarios == null ? '—' : String(o.usuarios)));
       l.appendChild(el('td', '', o.criadoEm ? fmtBR(new Date(o.criadoEm).toISOString().slice(0, 10)) : '—'));
@@ -3640,6 +3835,11 @@ function renderPlataforma() {
         catch (e) { toast('Não consegui alterar: ' + ((e && e.message) || 'erro')); }
       });
       tdA.appendChild(bT);
+      const bP = el('button', 'btn', 'Prazo');
+      bP.style.marginLeft = '5px';
+      bP.title = 'Definir ou estender o prazo de acesso desta empresa';
+      bP.addEventListener('click', () => modalPrazo(o));
+      tdA.appendChild(bP);
       const bX = el('button', 'btn icon danger', '✕');
       bX.style.marginLeft = '5px';
       bX.title = 'Excluir esta empresa';
@@ -3713,7 +3913,9 @@ function diagnosticando(erroOriginal) {
         'ainda está com as regras anteriores à separação por empresa. Publique-as e recarregue:'));
       const cmd = el('div', 'tagline');
       cmd.style.cssText = 'font-family:var(--f-mono);background:var(--surface-2);border:1px solid var(--line);border-radius:6px;padding:9px 11px;margin-top:8px;user-select:all';
-      cmd.textContent = 'firebase deploy --only firestore:rules --project cronograma-7c295';
+      const proj = (window.__FIREBASE_CONFIG__ || {}).projectId;
+      cmd.textContent = 'firebase deploy --only firestore:rules'
+        + (proj ? ' --project ' + proj : '');
       p.appendChild(cmd);
     }
 
@@ -3895,7 +4097,7 @@ function modalEmpresa() {
   modal('Nova empresa', (body, close) => {
     body.appendChild(el('div', 'hint',
       'A empresa nasce isolada: os cronogramas dela ficam sob a própria conta e nenhuma outra empresa os enxerga. ' +
-      'Informe o e-mail corporativo de quem será o administrador: ele recebe um link de acesso e entra sem criar senha. ' +
+      'Informe o e-mail de quem será o administrador: o MILEST cria a conta dele e mostra uma senha temporária para você passar adiante. ' +
       'É essa pessoa que passa a gerenciar os demais usuários da empresa dela.'));
     const campo = (rot, dica, tipo) => {
       const f = el('div', 'field'); f.appendChild(el('label', '', rot));
@@ -3915,7 +4117,22 @@ function modalEmpresa() {
     const fp = el('div', 'field'); fp.appendChild(el('label', '', 'Plano'));
     const sp = el('select', 'inp');
     for (const v of ['Avaliação', 'Padrão', 'Corporativo']) { const o = el('option', '', v); o.value = v; sp.appendChild(o); }
-    sp.value = 'Padrão'; fp.appendChild(sp); body.appendChild(fp);
+    sp.value = 'Avaliação'; fp.appendChild(sp); body.appendChild(fp);
+
+    const fpz = el('div', 'field'); fpz.appendChild(el('label', '', 'Prazo de acesso'));
+    const spz = el('select', 'inp');
+    for (const [rot, dias] of [['7 dias', 7], ['15 dias', 15], ['30 dias', 30], ['Sem prazo', 0]]) {
+      const o = el('option', '', rot); o.value = String(dias); spz.appendChild(o);
+    }
+    spz.value = '15'; fpz.appendChild(spz); body.appendChild(fpz);
+    const notaPz = el('div', 'hint'); notaPz.style.marginTop = '-4px'; body.appendChild(notaPz);
+    const explicarPrazo = () => {
+      const d = Number(spz.value);
+      notaPz.textContent = d
+        ? 'Vencido o prazo, a empresa continua lendo os cronogramas e baixando relatórios, mas para de editar. Dá para estender depois, pelo painel.'
+        : 'Sem data de corte. Use para cliente que já assinou.';
+    };
+    spz.addEventListener('change', explicarPrazo); explicarPrazo();
 
     const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
     const bC = el('button', 'btn', 'Cancelar'); bC.addEventListener('click', close);
@@ -3925,24 +4142,16 @@ function modalEmpresa() {
       if (!nome) { toast('Informe o nome da empresa.'); return; }
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { toast('E-mail do administrador inválido.'); return; }
       close();
-      const id = await criarEmpresa(nome, iCnpj.value.trim(), email, iDono.value.trim(), sp.value);
+      const dias = Number(spz.value);
+      const expira = dias ? Date.now() + dias * 86400000 : 0;
+      const id = await criarEmpresa(nome, iCnpj.value.trim(), email, iDono.value.trim(), sp.value, expira);
       if (id) {
         ST.orgs = null; renderPlataforma();
-        const r = await convidarPorEmail(email);
-        if (r.ok) {
-          toast(nome + ' criada. Enviamos o link de acesso para ' + email + ' — clicando nele, a pessoa já entra como administradora.');
-          return;
-        }
-        if (r.semAuth) { toast(nome + ' criada. ' + email + ' já pode entrar como administrador.'); return; }
-        // a empresa existe e o administrador está cadastrado; só o e-mail não saiu
-        modal('Empresa criada, mas o convite não saiu', (b2, c2) => {
-          b2.appendChild(el('div', 'hint',
-            '“' + nome + '” está criada e ' + email + ' já consta como administrador, mas o e-mail não foi enviado: ' + r.motivo +
-            ' A pessoa consegue entrar sozinha pela tela de acesso, pedindo o link com esse mesmo e-mail.'));
-          const linha2 = el('div'); linha2.style.cssText = 'display:flex;justify-content:flex-end';
-          const bb = el('button', 'btn primary', 'Entendi'); bb.addEventListener('click', c2);
-          linha2.appendChild(bb); b2.appendChild(linha2);
-        }, []);
+        await provisionarAcesso(email, null, {
+          titulo: nome + ' criada',
+          intro: (dias ? 'Acesso liberado por ' + dias + ' dias. ' : 'Acesso sem prazo. ')
+        });
+        ST.orgs = null; renderPlataforma();
       }
     });
     linha.appendChild(bC); linha.appendChild(bOk); body.appendChild(linha);
@@ -5492,11 +5701,35 @@ function loadScript(src) {
    O convite e o login são a mesma coisa: o link que chega no e-mail já entra
    no sistema. Não há senha para criar, nem cadastro para terminar. Isso vale
    para qualquer e-mail corporativo, não só para contas Google. */
-const CHAVE_LINK = 'milest.linkEmail';
-const MSG_ENTRADA = 'Entre com a conta Google da sua empresa ou receba um link de acesso no seu e-mail corporativo.';
+const MSG_ENTRADA = 'Entre com o seu e-mail e a sua senha.';
 
-function acaoLink() {
-  return { url: location.origin + location.pathname, handleCodeInApp: true };
+/* Uma segunda instância do Firebase, com outro nome, só para criar contas.
+   Sem ela o SDK trocaria a sessão de quem está criando pela do recém-criado —
+   o administrador seria expulso do próprio painel a cada cadastro. */
+let APP_SEC = null;
+function firebaseSecundario() {
+  if (APP_SEC) return APP_SEC;
+  const cfg = window.__FIREBASE_CONFIG__;
+  if (!cfg || typeof firebase === 'undefined') return null;
+  try { APP_SEC = firebase.app('milest-cadastro'); }
+  catch (e) { APP_SEC = firebase.initializeApp(cfg, 'milest-cadastro'); }
+  return APP_SEC;
+}
+
+/* Senha temporária legível ao telefone: sem l/I/1 nem O/0, que viram engano na
+   hora de ditar. Sorteada pelo gerador do navegador, não por Math.random. */
+function senhaTemporaria() {
+  const min = 'abcdefghijkmnopqrstuvwxyz', mai = 'ABCDEFGHJKLMNPQRSTUVWXYZ', num = '23456789';
+  const todo = min + mai + num;
+  const n = 10, bytes = new Uint32Array(n);
+  if (window.crypto && crypto.getRandomValues) crypto.getRandomValues(bytes);
+  else for (let i = 0; i < n; i++) bytes[i] = Math.floor(Math.random() * 4294967296);
+  const cs = [min[bytes[0] % min.length], mai[bytes[1] % mai.length], num[bytes[2] % num.length]];
+  for (let i = 3; i < n; i++) cs.push(todo[bytes[i] % todo.length]);
+  for (let i = cs.length - 1; i > 0; i--) {           // embaralha
+    const j = bytes[i] % (i + 1); const t = cs[i]; cs[i] = cs[j]; cs[j] = t;
+  }
+  return cs.join('');
 }
 function erroAuth(e) {
   const c = String((e && e.code) || '');
@@ -5505,16 +5738,135 @@ function erroAuth(e) {
   if (c === 'auth/unauthorized-continue-uri' || c === 'auth/invalid-continue-uri')
     return 'este endereço não está na lista de domínios autorizados do Firebase (Authentication → Settings → Authorized domains).';
   if (c === 'auth/invalid-email') return 'o e-mail informado não é válido.';
+  if (c === 'auth/wrong-password' || c === 'auth/invalid-credential' || c === 'auth/invalid-login-credentials'
+    || c === 'auth/user-not-found')
+    return 'e-mail ou senha não conferem. Se você ainda não criou uma senha, deixe o campo em branco e receba um link.';
+  if (c === 'auth/weak-password') return 'a senha precisa ter pelo menos 6 caracteres.';
+  if (c === 'auth/email-already-in-use') return 'já existe uma conta com este e-mail.';
+  if (c === 'auth/requires-recent-login')
+    return 'por segurança, entre de novo (pelo link ou pela senha atual) antes de trocar a senha.';
+  if (c === 'auth/user-disabled') return 'esta conta está desativada no Firebase.';
   if (c === 'auth/invalid-action-code' || c === 'auth/expired-action-code')
     return 'o link já foi usado ou expirou; peça um novo.';
   if (c === 'auth/too-many-requests') return 'muitos pedidos seguidos; espere alguns minutos.';
   return (e && e.message) || 'erro desconhecido.';
 }
 /** Manda o link de acesso para quem acabou de ser cadastrado. */
-async function convidarPorEmail(email) {
-  if (!ST.auth) return { ok: false, semAuth: true, motivo: 'este navegador não está conectado ao Firebase.' };
-  try { await ST.auth.sendSignInLinkToEmail(chaveEmail(email), acaoLink()); return { ok: true }; }
+/** Cria a conta de autenticação de outra pessoa com uma senha temporária e
+    dispara a confirmação de e-mail — sem derrubar a sessão de quem cadastra.
+    A confirmação não é burocracia: as regras do Firestore exigem e-mail
+    verificado, então sem esse clique a pessoa entraria e não leria nada. */
+async function criarContaComSenha(email, senha) {
+  const sec = firebaseSecundario();
+  if (!sec) return { ok: false, semAuth: true, motivo: 'este navegador não está conectado ao Firebase.' };
+  const alvo = chaveEmail(email);
+  try {
+    const cred = await sec.auth().createUserWithEmailAndPassword(alvo, senha);
+    try { await cred.user.sendEmailVerification(); } catch (e) { }
+    try { await sec.auth().signOut(); } catch (e) { }
+    return { ok: true, criada: true };
+  } catch (e) {
+    try { await sec.auth().signOut(); } catch (e2) { }
+    if (String((e && e.code) || '') === 'auth/email-already-in-use') {
+      // já existe: o cadastro no MILEST vale, mas a senha continua sendo a antiga
+      return { ok: true, criada: false };
+    }
+    return { ok: false, motivo: erroAuth(e) };
+  }
+}
+
+/** Manda a pessoa criar outra senha. É o caminho de quem esqueceu — e o único
+    jeito, sem servidor, de repor a senha de uma conta que já existia. */
+async function enviarRedefinicao(email) {
+  if (!ST.auth) return { ok: false, motivo: 'este navegador não está conectado ao Firebase.' };
+  try { await ST.auth.sendPasswordResetEmail(chaveEmail(email)); return { ok: true }; }
   catch (e) { return { ok: false, motivo: erroAuth(e) }; }
+}
+
+/** Cria ou troca a senha da conta que está logada agora.
+    Quem entrou por link já tem o provedor de senha e usa updatePassword;
+    quem entrou pelo Google ainda não tem, e aí o caminho é vincular a credencial. */
+async function definirSenha(senha) {
+  const u = ST.auth && ST.auth.currentUser;
+  if (!u) throw new Error('Ninguém está logado.');
+  try { await u.updatePassword(senha); return; }
+  catch (e) {
+    const c = String((e && e.code) || '');
+    if (c === 'auth/requires-recent-login') throw e;
+    try {
+      const cred = firebase.auth.EmailAuthProvider.credential(u.email, senha);
+      await u.linkWithCredential(cred);
+      return;
+    } catch (e2) { throw (String((e2 && e2.code) || '') === 'auth/provider-already-linked') ? e : e2; }
+  }
+}
+
+/** A janelinha de criar/trocar senha.
+    modo 'obrigatoria': primeiro acesso com senha temporária — fechar sem
+    definir devolve a pessoa para a tela de entrada, porque a senha que ela tem
+    na mão foi você quem escolheu e não pode virar a senha permanente dela. */
+function modalSenha(modo) {
+  const obrig = modo === 'obrigatoria';
+  let sucesso = false;
+  const wrap = modal(obrig ? 'Crie a sua senha' : 'Trocar a senha', (body, close) => {
+    body.appendChild(el('div', 'hint', obrig
+      ? 'Você entrou com a senha temporária que recebeu. Escolha agora uma senha só sua — '
+        + 'a temporária deixa de valer assim que você salvar.'
+      : 'A nova senha passa a valer imediatamente, neste e nos outros aparelhos.'));
+    const f1 = el('div', 'field'); f1.appendChild(el('label', '', 'Nova senha'));
+    const i1 = el('input', 'inp'); i1.type = 'password'; i1.autocomplete = 'new-password';
+    i1.placeholder = 'pelo menos 6 caracteres'; f1.appendChild(i1); body.appendChild(f1);
+    const f2 = el('div', 'field'); f2.appendChild(el('label', '', 'Repita a senha'));
+    const i2 = el('input', 'inp'); i2.type = 'password'; i2.autocomplete = 'new-password';
+    f2.appendChild(i2); body.appendChild(f2);
+    const aviso = el('div', 'hint'); aviso.style.color = 'var(--critical)'; aviso.hidden = true;
+    body.appendChild(aviso);
+
+    const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
+    if (!obrig) { const bC = el('button', 'btn', 'Cancelar'); bC.addEventListener('click', close); linha.appendChild(bC); }
+    const bOk = el('button', 'btn primary', 'Salvar senha');
+    bOk.addEventListener('click', async () => {
+      const a = i1.value, b = i2.value;
+      const erro = a.length < 6 ? 'A senha precisa ter pelo menos 6 caracteres.'
+        : (a !== b ? 'As duas senhas não são iguais.' : '');
+      if (erro) { aviso.textContent = erro; aviso.hidden = false; return; }
+      aviso.hidden = true; bOk.disabled = true; bOk.textContent = 'Salvando…';
+      try {
+        await definirSenha(a);
+        sucesso = true;
+        await baixarMarcaProvisoria();
+        close();
+        toast('Senha alterada. Use ela para entrar da próxima vez.');
+      } catch (e) {
+        aviso.textContent = 'Não consegui salvar: ' + erroAuth(e); aviso.hidden = false;
+        bOk.disabled = false; bOk.textContent = 'Salvar senha';
+      }
+    });
+    linha.appendChild(bOk); body.appendChild(linha);
+    setTimeout(() => { try { i1.focus(); } catch (e) { } }, 30);
+  }, []);
+
+  if (obrig) {                       // fechou no ✕ ou clicando fora, sem salvar
+    const obs = new MutationObserver(() => {
+      if (wrap.isConnected) return;
+      obs.disconnect();
+      if (sucesso) return;
+      toast('Você precisa criar uma senha para usar o MILEST.');
+      try { ST.auth.signOut(); } catch (e) { }
+    });
+    obs.observe($('#modalHost'), { childList: true });
+  }
+}
+
+/** Depois de trocar a senha, o cadastro deixa de estar marcado como provisório.
+    A regra do Firestore só aceita esta gravação no sentido de desligar. */
+async function baixarMarcaProvisoria() {
+  if (!(ST.perfil && ST.perfil.senhaProvisoria && ST.orgId && ST.db)) return;
+  try {
+    await ST.db.doc(dOrg(ST.orgId) + '/members/' + chaveEmail(ST.userEmail))
+      .set({ senhaProvisoria: false }, { merge: true });
+    ST.perfil.senhaProvisoria = false;
+  } catch (e) { }
 }
 
 function gateMsg(txt, isErr) {
@@ -5555,58 +5907,65 @@ async function bootFirebase(cfg) {
   const signOut = () => { auth.signOut(); };
   $('#btnSignOut').addEventListener('click', signOut);
   $('#btnGateOut').addEventListener('click', signOut);
+  $('#btnSenha').addEventListener('click', () => modalSenha('troca'));
 
   ST.auth = auth;
-  const campoEmail = $('#gateEmail'), botaoLink = $('#btnGateLink');
-  let aguardandoEmail = false;   // o link foi aberto num navegador que não guardou o e-mail
-  let porLink = false;           // não apagar a mensagem do link com o texto padrão
-
-  const entrarPeloLink = async (email) => {
-    porLink = true;
-    gateMsg('Confirmando seu acesso…');
-    try {
-      await auth.signInWithEmailLink(email, location.href);
-      try { localStorage.removeItem(CHAVE_LINK); } catch (e) { }
-      try { history.replaceState({}, '', location.origin + location.pathname); } catch (e) { }
-      aguardandoEmail = false; botaoLink.textContent = 'Receber link de acesso';
-    } catch (e) {
-      gateMsg('Não consegui entrar por este link: ' + erroAuth(e), true);
-      aguardandoEmail = true; botaoLink.textContent = 'Confirmar e entrar';
-    }
+  const campoEmail = $('#gateEmail'), campoSenha = $('#gateSenha');
+  const botaoEntrar = $('#btnEntrar'), botaoReenviar = $('#btnReenviar');
+  let msgPropria = false;        // não apagar um aviso nosso com o texto padrão
+  ST.gate = {
+    reenviar: botaoReenviar,
+    aviso: (txt, err) => { msgPropria = true; gateMsg(txt, err); },
+    limpar: () => { msgPropria = false; }
   };
 
-  $('#formLink').addEventListener('submit', async (ev) => {
+  // Porta de emergência da conta dona: com ?google=1 no endereço, o botão do
+  // Google reaparece. O cliente nunca vê. Existe para que perder a senha não
+  // signifique perder a plataforma. Para tirar de vez: apague esta linha e o
+  // bloco #gateGoogle no HTML.
+  if (/[?&]google=1/.test(location.search)) $('#gateGoogle').hidden = false;
+
+  $('#formEntrar').addEventListener('submit', async (ev) => {
     ev.preventDefault();
-    const email = chaveEmail(campoEmail.value);
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { gateMsg('Informe um e-mail válido.', true); return; }
-    botaoLink.disabled = true;
-    if (aguardandoEmail) { await entrarPeloLink(email); botaoLink.disabled = false; return; }
-    const rot = botaoLink.textContent; botaoLink.textContent = 'Enviando…';
+    const email = chaveEmail(campoEmail.value), senha = campoSenha.value;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { ST.gate.aviso('Informe um e-mail válido.', true); return; }
+    if (!senha) { ST.gate.aviso('Informe a sua senha. Se você não tem uma, use "Esqueci minha senha".', true); return; }
+    botaoEntrar.disabled = true; botaoEntrar.textContent = 'Entrando…';
+    botaoReenviar.hidden = true; msgPropria = false;
     try {
-      await auth.sendSignInLinkToEmail(email, acaoLink());
-      try { localStorage.setItem(CHAVE_LINK, email); } catch (e) { }
-      porLink = true;
-      gateMsg('Enviamos um link de acesso para ' + email + '. Abra a mensagem neste mesmo aparelho e clique no link — ele vale por pouco tempo e serve uma vez só.');
-      campoEmail.value = '';
+      await auth.signInWithEmailAndPassword(email, senha);
+      campoSenha.value = '';
     } catch (e) {
-      porLink = true;
-      gateMsg('Não consegui enviar o link: ' + erroAuth(e), true);
+      ST.gate.aviso('Não consegui entrar: ' + erroAuth(e), true);
     }
-    botaoLink.disabled = false; botaoLink.textContent = rot;
+    botaoEntrar.disabled = false; botaoEntrar.textContent = 'Entrar';
   });
 
-  // chegou clicando no link do convite
-  if (auth.isSignInWithEmailLink && auth.isSignInWithEmailLink(location.href)) {
-    let guardado = '';
-    try { guardado = localStorage.getItem(CHAVE_LINK) || ''; } catch (e) { }
-    if (guardado) { entrarPeloLink(guardado); }
-    else {
-      porLink = true; aguardandoEmail = true;
-      botaoLink.textContent = 'Confirmar e entrar';
-      gateMsg('Você abriu o link em outro navegador. Confirme o e-mail que recebeu o convite para concluir a entrada.');
-      setTimeout(() => { try { campoEmail.focus(); } catch (e) { } }, 60);
+  // esqueceu a senha: o próprio Firebase manda o e-mail de redefinição
+  $('#btnEsqueci').addEventListener('click', async () => {
+    const email = chaveEmail(campoEmail.value);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      ST.gate.aviso('Escreva o seu e-mail no campo acima e clique aqui de novo — mandamos uma mensagem para você criar outra senha.', true);
+      try { campoEmail.focus(); } catch (e) { }
+      return;
     }
-  }
+    const r = await enviarRedefinicao(email);
+    ST.gate.aviso(r.ok
+      ? 'Se ' + email + ' tiver cadastro no MILEST, a mensagem para criar uma nova senha já está a caminho. Vale olhar no lixo eletrônico.'
+      : 'Não consegui enviar: ' + r.motivo, !r.ok);
+  });
+
+  // reenviar a confirmação de e-mail (só aparece quando falta confirmar)
+  botaoReenviar.addEventListener('click', async () => {
+    const u = auth.currentUser;
+    if (!u) { ST.gate.aviso('Entre com o seu e-mail e a sua senha primeiro.', true); return; }
+    botaoReenviar.disabled = true;
+    try {
+      await u.sendEmailVerification();
+      ST.gate.aviso('Reenviamos a confirmação para ' + u.email + '. Vale olhar no lixo eletrônico.');
+    } catch (e) { ST.gate.aviso('Não consegui reenviar: ' + erroAuth(e), true); }
+    botaoReenviar.disabled = false;
+  });
 
   $('#btnGoogle').addEventListener('click', async () => {
     const prov = new firebase.auth.GoogleAuthProvider();
@@ -5614,7 +5973,7 @@ async function bootFirebase(cfg) {
     try { await auth.signInWithPopup(prov); }
     catch (e) {
       if (e && e.code === 'auth/popup-closed-by-user') return;
-      gateMsg('Não foi possível entrar: ' + ((e && e.message) || 'erro desconhecido'), true);
+      ST.gate.aviso('Não foi possível entrar: ' + ((e && e.message) || 'erro desconhecido'), true);
     }
   });
   auth.onAuthStateChanged(async user => {
@@ -5623,9 +5982,24 @@ async function bootFirebase(cfg) {
     if (!user) {
       ST.db = null; ST.mode = 'local'; ST.perfil = null; ST.usuarios = null; ST.orgId = null; ST.orgs = null; ST.comLogin = true;
       chip.hidden = true; gate.hidden = false;
-      $('#btnGateOut').hidden = true;
-      if (porLink) porLink = false; else gateMsg(MSG_ENTRADA);
+      $('#btnGateOut').hidden = true; botaoReenviar.hidden = true;
+      if (msgPropria) msgPropria = false; else gateMsg(MSG_ENTRADA);
       setSync('local', 'Não conectado');
+      aplicarPermissoes();
+      return;
+    }
+    // Conta existe e a senha confere, mas o e-mail ainda não foi confirmado.
+    // Sem confirmar, as regras do Firestore negam tudo — então é melhor dizer
+    // isso aqui do que deixar a pessoa entrar numa tela vazia.
+    if (!user.emailVerified) {
+      ST.db = null; ST.mode = 'local'; ST.perfil = null; ST.usuarios = null;
+      ST.orgId = null; ST.orgs = null; ST.comLogin = true;
+      chip.hidden = true; gate.hidden = false;
+      $('#btnGateOut').hidden = false; botaoReenviar.hidden = false;
+      msgPropria = true;
+      gateMsg('Falta confirmar o seu e-mail. Abra a mensagem que enviamos para ' + (user.email || 'você')
+        + ' e clique no link de confirmação; depois volte aqui e entre com a sua senha.', true);
+      setSync('local', 'E-mail não confirmado');
       aplicarPermissoes();
       return;
     }
@@ -5660,6 +6034,9 @@ async function bootFirebase(cfg) {
       ST.perfil = perfil; ST.orgId = perfil.orgId;
       $('#userEmail').textContent = user.email || '';
       chip.hidden = false; gate.hidden = true;
+      $('#btnSenha').hidden = false;
+      // entrou com a senha temporária que o administrador passou: troca agora
+      if (perfil.senhaProvisoria) setTimeout(() => modalSenha('obrigatoria'), 400);
       if (ST.orgId) {
         await adoptSharedDb();
         setSync('live', podeEditar() ? perfil.nomeOrg || 'Compartilhado' : 'Somente leitura');

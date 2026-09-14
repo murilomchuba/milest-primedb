@@ -1,6 +1,14 @@
 {
   "projects": {
-    "default": "cronograma-7c295",
-    "cronograma": "cronograma-7c295"
+    "default": "milest-app",
+    "milest": "milest-app"
+  },
+  "targets": {
+    "milest-app": {
+      "hosting": {
+        "app": ["milest-app"],
+        "site": ["milest-site"]
+      }
+    }
   }
 }

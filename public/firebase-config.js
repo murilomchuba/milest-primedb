@@ -5,11 +5,11 @@
    Estes valores NÃO são segredo: todo app web do Firebase os expõe ao navegador.
    Quem protege os dados são as regras em firestore.rules.                      */
 window.__FIREBASE_CONFIG__ = {
-  apiKey: "AIzaSyCn7xy75cqRiH6yVghp0SUD6HYxxFsKUhE",
-  authDomain: "cronograma-7c295.firebaseapp.com",
-  projectId: "cronograma-7c295",
-  storageBucket: "cronograma-7c295.firebasestorage.app",
-  messagingSenderId: "684259566880",
-  appId: "1:684259566880:web:b9b4d8f0d825ff2b69e345",
-  measurementId: "G-WQ45X0P89S"
+  apiKey: "AIzaSyAA9Qejlul1zK9nxCXai864hm8FwD_dtcU",
+  authDomain: "milest-app.firebaseapp.com",
+  projectId: "milest-app",
+  storageBucket: "milest-app.firebasestorage.app",
+  messagingSenderId: "510689287624",
+  appId: "1:510689287624:web:abf259a38805a6162ff4fd",
+  measurementId: "G-VGF340FF7V"
 };
