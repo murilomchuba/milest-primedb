@@ -848,7 +848,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-14.2';
+const VERSAO = '2026-09-14.3';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -4855,6 +4855,16 @@ function modalUsuario(atual) {
     const f2 = el('div', 'field'); f2.appendChild(el('label', '', 'Nome'));
     const iNo = el('input', 'inp'); iNo.value = (atual && atual.nome) || ''; iNo.placeholder = 'Como aparece na lista';
     f2.appendChild(iNo); body.appendChild(f2);
+    let iSenhaU = null;
+    if (!editando) {
+      const fS = el('div', 'field'); fS.appendChild(el('label', '', 'Senha inicial (opcional)'));
+      iSenhaU = el('input', 'inp'); iSenhaU.type = 'password';
+      iSenhaU.placeholder = 'em branco = o sistema sorteia uma';
+      fS.appendChild(iSenhaU); body.appendChild(fS);
+      const nS = el('div', 'hint'); nS.style.marginTop = '-4px';
+      nS.textContent = 'Pelo menos 6 caracteres. De todo jeito é provisória: a pessoa troca no primeiro acesso.';
+      body.appendChild(nS);
+    }
     const f3 = el('div', 'field'); f3.appendChild(el('label', '', 'Papel'));
     const sel = el('select', 'inp');
     for (const k of ['gerente', 'leitor', 'admin']) { const o = el('option', '', PAPEIS[k].rot + ' — ' + PAPEIS[k].desc); o.value = k; sel.appendChild(o); }
@@ -4867,6 +4877,8 @@ function modalUsuario(atual) {
     bOk.addEventListener('click', async () => {
       const email = chaveEmail(iEm.value);
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { toast('E-mail inválido.'); return; }
+      const senhaU = iSenhaU ? iSenhaU.value.trim() : '';
+      if (senhaU && senhaU.length < 6) { toast('A senha inicial precisa ter pelo menos 6 caracteres.'); return; }
       close();
       const dados = { nome: iNo.value.trim() || email.split('@')[0], papel: sel.value };
       if (!editando) { dados.ativo = true; dados.criadoEm = Date.now(); }
@@ -4877,7 +4889,8 @@ function modalUsuario(atual) {
           () => salvarUsuario(email, { senhaProvisoria: true }),
           {
             titulo: 'Acesso criado para ' + email,
-            intro: 'Cadastro feito como ' + PAPEIS[sel.value].rot.toLowerCase() + '. '
+            intro: 'Cadastro feito como ' + PAPEIS[sel.value].rot.toLowerCase() + '. ',
+            senha: senhaU
           });
         ST.usuarios = null; renderUsuarios();
       }
@@ -4895,6 +4908,7 @@ function modalCredenciais(email, senha, opts) {
   modal(o.titulo || 'Acesso criado', (body, close) => {
     if (senha) {
       body.appendChild(el('div', 'hint', (o.intro || '') +
+        (o.escolhida ? 'Esta é a senha que você definiu. ' : '') +
         'Passe estes dados para a pessoa (WhatsApp, telefone, o que for). ' +
         'Ela recebeu também um e-mail para confirmar o endereço — esse clique é obrigatório, ' +
         'e só depois dele a senha funciona. No primeiro acesso o MILEST pede que ela troque esta senha por uma dela.'));
@@ -4936,14 +4950,16 @@ function modalCredenciais(email, senha, opts) {
 
 /** Cria a conta, entrega a senha temporária e marca o cadastro como provisório. */
 async function provisionarAcesso(email, marcarProvisoria, opts) {
-  const senha = senhaTemporaria();
+  const o = opts || {};
+  const escolhida = String(o.senha || '').trim();   // você digitou uma; senão sorteamos
+  const senha = escolhida || senhaTemporaria();
   const r = await criarContaComSenha(email, senha);
   if (!r.ok) {
     toast('Cadastro feito, mas a conta de acesso não: ' + r.motivo);
     return false;
   }
   if (r.criada && marcarProvisoria) { try { await marcarProvisoria(); } catch (e) { } }
-  modalCredenciais(email, r.criada ? senha : null, opts);
+  modalCredenciais(email, r.criada ? senha : null, Object.assign({}, o, { escolhida: !!escolhida }));
   return true;
 }
 
@@ -5625,6 +5641,11 @@ function modalEmpresa() {
     const iCnpj = campo('CNPJ (opcional)', '00.000.000/0001-00');
     const iEmail = campo('E-mail do administrador', 'gestor@empresa.com.br', 'email');
     const iDono = campo('Nome do administrador', 'Como aparece na lista');
+    const iSenha = campo('Senha inicial (opcional)', 'em branco = o sistema sorteia uma', 'password');
+    const notaSenha = el('div', 'hint'); notaSenha.style.marginTop = '-4px';
+    notaSenha.textContent = 'Pelo menos 6 caracteres. Seja você ou o sorteio, ela é provisória: '
+      + 'no primeiro acesso o sistema exige que a pessoa troque por uma senha dela.';
+    body.appendChild(notaSenha);
     const nota = el('div', 'hint'); nota.style.marginTop = '-4px'; body.appendChild(nota);
     iEmail.addEventListener('input', () => {
       nota.textContent = chaveEmail(iEmail.value) === chaveEmail(ST.userEmail)
@@ -5656,8 +5677,10 @@ function modalEmpresa() {
     const bOk = el('button', 'btn primary', 'Criar empresa');
     bOk.addEventListener('click', async () => {
       const nome = iNome.value.trim(), email = chaveEmail(iEmail.value);
+      const senhaEscolhida = iSenha.value.trim();
       if (!nome) { toast('Informe o nome da empresa.'); return; }
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { toast('E-mail do administrador inválido.'); return; }
+      if (senhaEscolhida && senhaEscolhida.length < 6) { toast('A senha inicial precisa ter pelo menos 6 caracteres.'); return; }
       close();
       const dias = Number(spz.value);
       const expira = dias ? Date.now() + dias * 86400000 : 0;
@@ -5666,7 +5689,8 @@ function modalEmpresa() {
         ST.orgs = null; renderPlataforma();
         await provisionarAcesso(email, null, {
           titulo: nome + ' criada',
-          intro: (dias ? 'Acesso liberado por ' + dias + ' dias. ' : 'Acesso sem prazo. ')
+          intro: (dias ? 'Acesso liberado por ' + dias + ' dias. ' : 'Acesso sem prazo. '),
+          senha: senhaEscolhida
         });
         ST.orgs = null; renderPlataforma();
       }

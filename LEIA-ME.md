@@ -5,7 +5,7 @@ report gerencial, portfólio, apontamento de horas e documentos. Roda no Firebas
 Hosting com Firestore e entrada por e-mail e senha.
 
 - **Projeto Firebase:** `milest-app`
-- **Versão atual:** `2026-09-14.2`
+- **Versão atual:** `2026-09-14.3`
 - **Domínios:** `app.milest.com.br` (sistema) e `milest.com.br` (landing)
 
 ---
@@ -264,9 +264,11 @@ vez, apague a linha marcada no `app.src.html` (busque por `google=1`) e o bloco
 ### Criar acessos
 
 Quem cria um acesso — você, na aba **Plataforma**, ou o administrador de uma
-empresa, na aba **Usuários** — recebe na tela uma **senha temporária** para
-entregar à pessoa. Ela aparece uma vez só: não fica guardada em lugar nenhum, e
-nem você consegue lê-la de volta depois. É assim que uma senha deve se comportar.
+empresa, na aba **Usuários** — pode **digitar a senha inicial** no campo
+"Senha inicial (opcional)", ou deixar em branco e o sistema sorteia uma. Nos
+dois casos a senha aparece na tela para você entregar à pessoa, uma vez só:
+não fica guardada em lugar nenhum, e nem você consegue lê-la de volta depois.
+É assim que uma senha deve se comportar.
 
 O cadastro nasce marcado como `senhaProvisoria`. No primeiro acesso o sistema
 abre a janela de troca e não deixa passar sem trocar — a senha que você escolheu
