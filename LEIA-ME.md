@@ -1,10 +1,12 @@
 # MILEST — publicação e operação
 
-Sistema de gestão de projetos e marcos: cronograma CPM, curva S, status report
-e report gerencial. Roda no Firebase Hosting com login Google e Firestore.
+Sistema de gestão de projetos e marcos: cronograma CPM, curva S, status report,
+report gerencial, portfólio, apontamento de horas e documentos. Roda no Firebase
+Hosting com Firestore e entrada por e-mail e senha.
 
 - **Projeto Firebase:** `milest-app`
-- **Domínio previsto:** `app.milest.com.br` (a landing page fica em `milest.com.br`)
+- **Versão atual:** `2026-09-14.2`
+- **Domínios:** `app.milest.com.br` (sistema) e `milest.com.br` (landing)
 
 ---
 
@@ -237,7 +239,7 @@ caminhos chegam ao mesmo cadastro, porque a chave é sempre o e-mail.
 
 ### Entrada: e-mail e senha, só isso
 
-A partir de `2026-09-09.16` existe **um caminho de entrada**: e-mail e senha.
+Existe **um caminho de entrada**: e-mail e senha.
 O botão do Google e o link de acesso por e-mail saíram da tela.
 
 | situação | o que a pessoa faz |
