@@ -5,7 +5,7 @@ report gerencial, portfólio, apontamento de horas e documentos. Roda no Firebas
 Hosting com Firestore e entrada por e-mail e senha.
 
 - **Projeto Firebase:** `milest-app`
-- **Versão atual:** `2026-09-14.3`
+- **Versão atual:** `2026-09-14.4`
 - **Domínios:** `app.milest.com.br` (sistema) e `milest.com.br` (landing)
 
 ---
@@ -287,6 +287,12 @@ que uma porta fechada.
 
 - **Definir ou estender:** aba **Plataforma** → botão **Prazo** na linha da
   empresa. Vale na hora, sem republicar nada.
+- **Editar o cadastro:** botão **Editar** na mesma linha — nome, CNPJ, plano e
+  um campo de observações para o que você quiser lembrar depois. A janela também
+  reúne a ficha da empresa (identificador, data, contadores, situação e prazo) e
+  o e-mail dos administradores, para você saber a quem ligar quando o prazo
+  vencer. Continua sem nada de cronograma: editar o cliente não é entrar nos
+  dados dele.
 - **Ao criar a empresa:** o padrão é 15 dias, e a lista traz 7, 15, 30 e sem prazo.
 - **Cortar tudo** (inadimplência, encerramento) continua sendo **Suspender**.
 

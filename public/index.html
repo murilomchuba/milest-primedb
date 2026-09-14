@@ -857,7 +857,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-14.3';
+const VERSAO = '2026-09-14.4';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -5122,6 +5122,81 @@ function modalMigracao(orgs) {
   }, []);
 }
 
+/* O cadastro comercial da empresa. Só a plataforma grava estes campos — as
+   regras não deixam a própria empresa mexer em plano nem em prazo.
+
+   O que NÃO está aqui é de propósito: nada de cronograma, atividade ou recurso.
+   Este painel continua vendo só o cadastro e os contadores que a empresa grava
+   sobre si mesma. Editar o cliente não é entrar nos dados dele. */
+function modalEditarEmpresa(org) {
+  modal('Editar ' + (org.nome || org.id), (body, close) => {
+    const campo = (rot, valor, dica) => {
+      const f = el('div', 'field'); f.appendChild(el('label', '', rot));
+      const i = el('input', 'inp'); i.value = valor || ''; i.placeholder = dica || '';
+      f.appendChild(i); body.appendChild(f); return i;
+    };
+    const iNome = campo('Nome da empresa', org.nome, 'Ex.: Unimed Uberaba');
+    const iCnpj = campo('CNPJ', org.cnpj, '00.000.000/0001-00');
+
+    const fp = el('div', 'field'); fp.appendChild(el('label', '', 'Plano'));
+    const sp = el('select', 'inp');
+    for (const v of ['Avaliação', 'Padrão', 'Corporativo']) { const o2 = el('option', '', v); o2.value = v; sp.appendChild(o2); }
+    sp.value = ['Avaliação', 'Padrão', 'Corporativo'].includes(org.plano) ? org.plano : 'Padrão';
+    fp.appendChild(sp); body.appendChild(fp);
+
+    const fo = el('div', 'field'); fo.appendChild(el('label', '', 'Observações'));
+    const iObs = el('textarea', 'inp'); iObs.value = org.observacoes || '';
+    iObs.placeholder = 'Contato, combinados comerciais, o que você quiser lembrar depois';
+    iObs.style.minHeight = '74px'; iObs.style.resize = 'vertical';
+    fo.appendChild(iObs); body.appendChild(fo);
+
+    // ficha de leitura: o que o painel já sabe, reunido num lugar só
+    const ficha = el('div', 'hint'); ficha.style.cssText = 'margin-top:4px;line-height:1.8';
+    const dias = diasDePrazo(org.expiraEm);
+    ficha.textContent = 'Identificador: ' + org.id
+      + ' · Criada em ' + (org.criadoEm ? new Date(org.criadoEm).toLocaleDateString('pt-BR') : '—')
+      + ' · ' + (org.projetos == null ? '—' : org.projetos) + ' projeto(s)'
+      + ' · ' + (org.usuarios == null ? '—' : org.usuarios) + ' usuário(s)'
+      + ' · ' + (org.ativo === false ? 'suspensa' : 'ativa')
+      + ' · ' + (dias == null ? 'sem prazo' : (dias <= 0 ? 'prazo vencido' : 'faltam ' + dias + ' dia(s)'));
+    body.appendChild(ficha);
+
+    const contatos = el('div', 'hint'); contatos.style.marginTop = '2px';
+    contatos.textContent = 'Carregando os administradores…';
+    body.appendChild(contatos);
+    (ST.db ? ST.db.collection(dOrg(org.id) + '/members').get() : Promise.reject())
+      .then(q => {
+        const adms = q.docs.map(d => d.data() || {}).filter(m => m.papel === 'admin' && m.ativo !== false);
+        contatos.textContent = adms.length
+          ? 'Administrador(es): ' + adms.map(m => (m.nome ? m.nome + ' <' + m.email + '>' : m.email)).join(', ')
+          : 'Esta empresa não tem administrador ativo.';
+      })
+      .catch(() => { contatos.textContent = 'Não consegui ler a lista de administradores.'; });
+
+    const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;margin-top:10px';
+    const bC = el('button', 'btn', 'Cancelar'); bC.addEventListener('click', close);
+    const bOk = el('button', 'btn primary', 'Salvar');
+    bOk.addEventListener('click', async () => {
+      const nome = iNome.value.trim();
+      if (!nome) { toast('O nome da empresa não pode ficar vazio.'); return; }
+      bOk.disabled = true; bOk.textContent = 'Salvando…';
+      try {
+        await ST.db.doc(dOrg(org.id)).update({
+          nome: nome, cnpj: iCnpj.value.trim(), plano: sp.value,
+          observacoes: iObs.value.trim(), atualizadoEm: Date.now()
+        });
+        close(); ST.orgs = null; renderPlataforma();
+        toast('Cadastro atualizado.');
+      } catch (e) {
+        toast('Não consegui salvar: ' + ((e && e.message) || 'erro'));
+        bOk.disabled = false; bOk.textContent = 'Salvar';
+      }
+    });
+    linha.appendChild(bC); linha.appendChild(bOk); body.appendChild(linha);
+    setTimeout(() => { try { iNome.focus(); } catch (e) { } }, 30);
+  }, []);
+}
+
 /* O prazo de acesso de uma empresa. É o campo que as regras do Firestore leem
    para decidir se ela ainda escreve — mudar aqui vale imediatamente, sem
    republicar nada. Quando a cobrança entrar, é este mesmo campo que o webhook
@@ -5259,6 +5334,11 @@ function renderPlataforma() {
       bP.title = 'Definir ou estender o prazo de acesso desta empresa';
       bP.addEventListener('click', () => modalPrazo(o));
       tdA.appendChild(bP);
+      const bE = el('button', 'btn', 'Editar');
+      bE.style.marginLeft = '5px';
+      bE.title = 'Alterar nome, CNPJ, plano e observações desta empresa';
+      bE.addEventListener('click', () => modalEditarEmpresa(o));
+      tdA.appendChild(bE);
       const bX = el('button', 'btn icon danger', '✕');
       bX.style.marginLeft = '5px';
       bX.title = 'Excluir esta empresa';
