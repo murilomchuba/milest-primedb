@@ -825,6 +825,38 @@ body.embutido .view{height:100%}
 .tip .l i{width:8px;height:8px;border-radius:2px;flex:none}
 .tip .l span:last-child{font-family:var(--f-mono);font-size:11px}
 .chleg{display:flex;gap:14px;padding:0 14px 12px;flex-wrap:wrap;font-size:11.5px;color:var(--ink-2)}
+/* ---- mapa de calor da capacidade ----
+   Rampa sequencial de uma cor só, clara->escura, validada contra a superfície
+   nos dois temas: a extremidade fraca ainda se distingue do fundo. Acima da
+   capacidade sai da rampa e vira cor de estado, com marcador, nunca só a cor. */
+:root{ --cap1:#8FBCD9; --cap2:#4F90BD; --cap3:#1F6796; --cap4:#013A65;
+       --capT12:#12202E; --capT34:#FFFFFF; --capOver:#B23324; --capOverT:#FFFFFF }
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --cap1:#1A5074; --cap2:#26769F; --cap3:#3EA6CE; --cap4:#7FD3EA;
+  --capT12:#E7EEEC; --capT34:#06222F; --capOver:#E0836F; --capOverT:#2A120C } }
+:root[data-theme="dark"]{
+  --cap1:#1A5074; --cap2:#26769F; --cap3:#3EA6CE; --cap4:#7FD3EA;
+  --capT12:#E6EEF5; --capT34:#05202D; --capOver:#E0836F; --capOverT:#2A120C }
+.hmwrap{position:relative;overflow-x:auto;padding:0 14px 6px}
+.hmgrid{display:grid;gap:2px;min-width:max-content}
+.hmnome{font-size:12px;color:var(--ink);padding-right:10px;display:flex;align-items:center;
+  white-space:nowrap;position:sticky;left:0;background:var(--surface);z-index:2}
+.hmnome small{color:var(--ink-3);font-family:var(--f-mono);font-size:10.5px;margin-left:7px}
+.hmtopo{font-family:var(--f-mono);font-size:10px;color:var(--ink-3);text-align:center;
+  padding-bottom:2px;white-space:nowrap}
+.hmcel{min-height:26px;min-width:30px;border-radius:4px;display:flex;align-items:center;
+  justify-content:center;font-family:var(--f-mono);font-size:10.5px;cursor:default;
+  background:transparent;box-shadow:inset 0 0 0 1px var(--line)}
+.hmcel.n1{background:var(--cap1);color:var(--capT12);box-shadow:none}
+.hmcel.n2{background:var(--cap2);color:var(--capT12);box-shadow:none}
+.hmcel.n3{background:var(--cap3);color:var(--capT34);box-shadow:none}
+.hmcel.n4{background:var(--cap4);color:var(--capT34);box-shadow:none}
+.hmcel.ov{background:var(--capOver);color:var(--capOverT);box-shadow:none;font-weight:600}
+.hmcel:focus-visible{outline:2px solid var(--accent-2);outline-offset:1px}
+.capleg{display:flex;gap:12px;flex-wrap:wrap;align-items:center;padding:8px 14px 0;font-size:11.5px;color:var(--ink-2)}
+.capleg i{width:13px;height:13px;border-radius:3px;display:inline-block;vertical-align:-2px;margin-right:5px}
+.capver{font-size:13.5px;line-height:1.5;color:var(--ink);padding:2px 14px 0;max-width:80ch}
+.capver b{font-family:var(--f-display)}
 .chleg span{display:flex;align-items:center;gap:6px}
 .chleg i{width:14px;height:3px;border-radius:2px;display:block}
 .rescard{border-bottom:1px solid var(--line);padding:10px 14px}
@@ -848,7 +880,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-14.4';
+const VERSAO = '2026-09-15.1';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -6666,6 +6698,214 @@ function pizzasPortfolio(lista, r) {
   return p;
 }
 
+/* ============ capacidade da equipe ============ */
+/* Agrupa por semana a carga que cargaTodosProjetos() já soma de todos os
+   projetos do portfólio. A pergunta que isso responde não é "quem está
+   estourado" — o topo já avisa — e sim "onde sobra espaço e em que semana",
+   que é o que decide realocar ou contratar. */
+function capacidadePorSemana(nSemanas) {
+  const { carga, projetos } = cargaTodosProjetos();
+  const cal = ST.sch.cal;
+  const segundaDe = (iso) => addDays(iso, -(((dowOf(iso) + 6) % 7)));
+  const ini = segundaDe(todayISO());
+  const semanas = [], uteis = [];
+  for (let i = 0; i < nSemanas; i++) {
+    const s0 = addDays(ini, i * 7);
+    semanas.push(s0);
+    let n = 0; for (let k = 0; k < 7; k++) if (cal.isWork(addDays(s0, k))) n++;
+    uteis.push(n);
+  }
+  const linhas = [];
+  for (const r of ST.P.resources) {
+    const m = carga.get(r.id);
+    const cap = r.capacity == null ? 100 : r.capacity;
+    let total = 0;
+    const cel = semanas.map((s0, i) => {
+      let atual = 0, outros = 0;
+      if (m) for (let k = 0; k < 7; k++) {
+        const v = m.get(addDays(s0, k)); if (v) { atual += v.atual; outros += v.outros; }
+      }
+      const den = uteis[i] * cap;
+      const pct = den > 0 ? ((atual + outros) / den) * 100 : null;
+      if (pct != null) total += pct;
+      // em pessoa-semana: quanto sobra e quanto estoura nesta semana
+      const livre = (pct == null || uteis[i] === 0) ? 0 : Math.max(0, (100 - pct)) / 100;
+      const sobre = (pct == null) ? 0 : Math.max(0, (pct - 100)) / 100;
+      return { pct, atual, outros, uteis: uteis[i], livre, sobre };
+    });
+    linhas.push({ res: r, cap, cel, total });
+  }
+  linhas.sort((a, b) => b.total - a.total);        // quem está mais cheio primeiro
+  const porSemana = semanas.map((_, i) => {
+    let livre = 0, sobre = 0;
+    for (const L of linhas) { livre += L.cel[i].livre; sobre += L.cel[i].sobre; }
+    return { livre, sobre, realocavel: Math.min(livre, sobre), falta: Math.max(0, sobre - livre) };
+  });
+  return { semanas, uteis, linhas, porSemana, projetos };
+}
+
+const CAP_FAIXAS = [
+  { ate: 35, cls: 'n1', rot: 'até 35%' },
+  { ate: 70, cls: 'n2', rot: '36 a 70%' },
+  { ate: 95, cls: 'n3', rot: '71 a 95%' },
+  { ate: 100, cls: 'n4', rot: '96 a 100%' }
+];
+const capClasse = (pct) => {
+  if (pct == null || pct <= 0.01) return '';
+  if (pct > 100.01) return 'ov';
+  return (CAP_FAIXAS.find(f => pct <= f.ate + 0.01) || CAP_FAIXAS[3]).cls;
+};
+
+function painelCapacidade() {
+  const p = el('div', 'panel');
+  const cab = el('h3', '', 'Capacidade da equipe');
+  cab.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap';
+  const acoes = el('div'); acoes.style.cssText = 'display:flex;gap:7px;align-items:center;flex-wrap:wrap';
+  const sel = el('select', 'inp'); sel.style.cssText = 'width:auto;padding:5px 8px;font-size:12px';
+  for (const [rot, n] of [['próximas 8 semanas', 8], ['próximas 12 semanas', 12], ['próximas 26 semanas', 26]]) {
+    const o = el('option', '', rot); o.value = String(n); sel.appendChild(o);
+  }
+  sel.value = String(ST.capSemanas || 12);
+  sel.addEventListener('change', () => { ST.capSemanas = Number(sel.value); renderPainel(); });
+  acoes.appendChild(sel);
+  const bTab = el('button', 'btn', 'Ver como tabela');
+  acoes.appendChild(bTab);
+  cab.appendChild(acoes); p.appendChild(cab);
+
+  const n = Number(sel.value);
+  const d = capacidadePorSemana(n);
+  if (!d.linhas.length) {
+    p.appendChild(el('div', 'empty', 'Cadastre a equipe na aba Recursos e aloque pessoas às atividades para ver a capacidade.'));
+    return p;
+  }
+
+  const somaLivre = d.porSemana.reduce((a, x) => a + x.livre, 0);
+  const somaSobre = d.porSemana.reduce((a, x) => a + x.sobre, 0);
+  const somaFalta = d.porSemana.reduce((a, x) => a + x.falta, 0);
+  const realoc = d.porSemana.reduce((a, x) => a + x.realocavel, 0);
+  const capTotal = d.linhas.length * n;
+  const num = (v) => fmtNum(Math.round(v * 10) / 10);
+
+  /* ---- a leitura em uma frase: é o que o gestor lê ---- */
+  const ver = el('div', 'capver');
+  if (somaSobre < 0.05) {
+    ver.innerHTML = 'Ninguém está acima da capacidade no período. Há <b>' + num(somaLivre)
+      + ' pessoa-semana(s) livres</b> — cerca de ' + Math.round(somaLivre / Math.max(1, capTotal) * 100)
+      + '% da capacidade da equipe — para absorver trabalho novo.';
+  } else if (somaFalta < 0.05) {
+    ver.innerHTML = 'Há <b>' + num(somaSobre) + ' pessoa-semana(s) de sobrecarga</b>, e toda ela cabe na folga '
+      + 'das <em>mesmas</em> semanas. É caso de <b>realocar</b>, não de contratar: a equipe tem o tamanho certo, '
+      + 'o trabalho é que está mal distribuído.';
+  } else {
+    ver.innerHTML = 'Há <b>' + num(somaSobre) + ' pessoa-semana(s) de sobrecarga</b>. Realocando dá para cobrir '
+      + num(realoc) + ', mas <b>faltam ' + num(somaFalta) + ' pessoa-semana(s)</b> mesmo com todo mundo realocado — '
+      + 'nessas semanas não existe folga em lugar nenhum. Aí é contratar, terceirizar ou esticar o prazo.';
+  }
+  p.appendChild(ver);
+
+  /* ---- o mapa ---- */
+  const wrap = el('div', 'hmwrap');
+  const tip = el('div', 'tip'); wrap.appendChild(tip);
+  const g = el('div', 'hmgrid');
+  g.style.gridTemplateColumns = 'max-content repeat(' + n + ', minmax(30px, 1fr))';
+  const mostrarNum = n <= 12;
+
+  g.appendChild(el('div', 'hmnome', ''));                   // canto vazio
+  for (const s0 of d.semanas) {
+    const c = el('div', 'hmtopo', fmtBR(s0).slice(0, 5));
+    c.title = 'Semana de ' + fmtBR(s0);
+    g.appendChild(c);
+  }
+  for (const L of d.linhas) {
+    const nm = el('div', 'hmnome', L.res.name || 'Sem nome');
+    if (L.cap !== 100) nm.appendChild(el('small', '', L.cap + '%'));
+    g.appendChild(nm);
+    L.cel.forEach((c, i) => {
+      const cel = el('div', 'hmcel ' + capClasse(c.pct));
+      cel.tabIndex = 0;
+      if (c.pct != null && c.pct > 0.01) {
+        const txt = Math.round(c.pct) + (c.pct > 100.01 ? '!' : '');
+        if (mostrarNum) cel.textContent = txt;
+        cel.setAttribute('aria-label', (L.res.name || '') + ', semana de ' + fmtBR(d.semanas[i]) + ', ' + Math.round(c.pct) + '% da capacidade');
+      } else {
+        cel.setAttribute('aria-label', (L.res.name || '') + ', semana de ' + fmtBR(d.semanas[i]) + ', sem alocação');
+      }
+      const mostra = () => {
+        const pct = c.pct == null ? 0 : c.pct;
+        tip.innerHTML = '<b>' + (L.res.name || 'Sem nome') + '</b>'
+          + 'Semana de ' + fmtBR(d.semanas[i]) + ' · ' + c.uteis + ' dia(s) útil(eis)<br>'
+          + Math.round(pct) + '% da capacidade'
+          + (pct > 100.01 ? ' — acima do limite' : (pct < 99.99 ? ' · sobram ' + Math.round(100 - pct) + '%' : ''))
+          + (d.projetos > 1 && (c.atual || c.outros)
+             ? '<br>neste projeto ' + Math.round(c.atual / Math.max(1, c.uteis * L.cap) * 100) + '%'
+               + ' · outros ' + Math.round(c.outros / Math.max(1, c.uteis * L.cap) * 100) + '%'
+             : '');
+        const r0 = wrap.getBoundingClientRect(), r1 = cel.getBoundingClientRect();
+        tip.style.left = Math.max(4, Math.min(r1.left - r0.left + wrap.scrollLeft - 60, wrap.scrollWidth - 180)) + 'px';
+        tip.style.top = (r1.top - r0.top - 8) + 'px';
+        tip.classList.add('on');
+      };
+      cel.addEventListener('mouseenter', mostra);
+      cel.addEventListener('focus', mostra);
+      cel.addEventListener('mouseleave', () => tip.classList.remove('on'));
+      cel.addEventListener('blur', () => tip.classList.remove('on'));
+      g.appendChild(cel);
+    });
+  }
+  wrap.appendChild(g); p.appendChild(wrap);
+
+  /* ---- legenda ---- */
+  const leg = el('div', 'capleg');
+  const item = (cor, rot) => {
+    const sp = el('span', '', ''); const i = el('i', '', '');
+    i.style.background = cor; i.style.boxShadow = cor === 'transparent' ? 'inset 0 0 0 1px var(--line)' : 'none';
+    sp.appendChild(i); sp.appendChild(document.createTextNode(rot)); return sp;
+  };
+  leg.appendChild(item('transparent', 'sem alocação'));
+  leg.appendChild(item('var(--cap1)', 'até 35%'));
+  leg.appendChild(item('var(--cap2)', '36 a 70%'));
+  leg.appendChild(item('var(--cap3)', '71 a 95%'));
+  leg.appendChild(item('var(--cap4)', '96 a 100%'));
+  leg.appendChild(item('var(--capOver)', 'acima da capacidade (!)'));
+  p.appendChild(leg);
+  p.appendChild(el('div', 'tagline',
+    'A carga soma ' + d.projetos + ' projeto(s) do portfólio. A porcentagem é do que a pessoa tem disponível '
+    + 'na semana: 50% quer dizer meia semana ocupada, contando só os dias úteis do calendário.'));
+
+  bTab.addEventListener('click', () => tabelaCapacidade(d));
+  return p;
+}
+
+/* A leitura sem depender de cor — e o que se copia para uma planilha. */
+function tabelaCapacidade(d) {
+  modal('Capacidade da equipe — tabela', (body) => {
+    body.appendChild(el('div', 'hint',
+      'Porcentagem da capacidade de cada pessoa por semana, somando todos os projetos. '
+      + 'Acima de 100% está sobrecarregada.'));
+    const tb = el('table', 'data'); const th = el('thead'), tr = el('tr');
+    tr.appendChild(el('th', '', 'Pessoa'));
+    for (const s0 of d.semanas) tr.appendChild(el('th', '', fmtBR(s0).slice(0, 5)));
+    tr.appendChild(el('th', '', 'Livre (pessoa-sem.)'));
+    th.appendChild(tr); tb.appendChild(th);
+    const tbody = el('tbody');
+    for (const L of d.linhas) {
+      const l = el('tr');
+      l.appendChild(el('td', '', L.res.name || 'Sem nome'));
+      for (const c of L.cel) l.appendChild(el('td', '', c.pct == null || c.pct <= 0.01 ? '—' : Math.round(c.pct) + '%'));
+      l.appendChild(el('td', '', fmtNum(Math.round(L.cel.reduce((a, c) => a + c.livre, 0) * 10) / 10)));
+      tbody.appendChild(l);
+    }
+    const tot = el('tr');
+    tot.appendChild(el('td', '', 'Folga da equipe'));
+    for (const s of d.porSemana) tot.appendChild(el('td', '', fmtNum(Math.round(s.livre * 10) / 10)));
+    tot.appendChild(el('td', '', fmtNum(Math.round(d.porSemana.reduce((a, x) => a + x.livre, 0) * 10) / 10)));
+    tbody.appendChild(tot);
+    tb.appendChild(tbody);
+    const cx = el('div'); cx.style.cssText = 'overflow-x:auto'; cx.appendChild(tb);
+    body.appendChild(cx);
+  }, []);
+}
+
 function renderPainel() {
   const host = $('#kpiView'); host.textContent = '';
   const topo = el('div', 'panel');
@@ -6725,6 +6965,7 @@ function renderPainel() {
       '; o seletor no alto desta tela troca para o outro.'));
 
     /* ---- a distribuição, em anéis ---- */
+    depois.appendChild(painelCapacidade());
     depois.appendChild(pizzasPortfolio(lista, r));
 
 

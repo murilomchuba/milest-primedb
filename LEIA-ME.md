@@ -5,7 +5,7 @@ report gerencial, portfólio, apontamento de horas e documentos. Roda no Firebas
 Hosting com Firestore e entrada por e-mail e senha.
 
 - **Projeto Firebase:** `milest-app`
-- **Versão atual:** `2026-09-14.4`
+- **Versão atual:** `2026-09-15.1`
 - **Domínios:** `app.milest.com.br` (sistema) e `milest.com.br` (landing)
 
 ---
@@ -321,6 +321,30 @@ A tela apenas evita que a pessoa perca tempo. A barreira real está no
 publicar só o hosting, o sistema continua com as regras antigas.
 
 ---
+
+### Capacidade da equipe
+
+Na aba **Portfólio**, o painel **Capacidade da equipe** mostra um mapa de calor
+de pessoas × semanas, somando a carga de **todos os projetos** — é a mesma conta
+que já alimenta o alerta de superalocação, agrupada por semana em vez de por dia.
+
+A porcentagem é da capacidade da própria pessoa: quem tem 50% de capacidade e
+está alocado 100% aparece como 200%. Contam só os dias úteis do calendário.
+
+A frase no topo é o que responde à pergunta de gestão. Ela separa três casos:
+
+- **sem sobrecarga** — diz quanta folga existe para trabalho novo;
+- **sobrecarga que cabe na folga da mesma semana** — é caso de realocar, e o
+  texto diz isso com todas as letras;
+- **sobrecarga que não cabe** — diz quantas pessoa-semanas faltam mesmo
+  realocando todo mundo. Esse é o número que justifica contratar.
+
+A distinção importa: folga em novembro não resolve sobrecarga em setembro, e
+somar os dois períodos daria uma resposta errada. A conta é feita semana a
+semana e só depois somada.
+
+**Ver como tabela** abre os mesmos números sem depender de cor — para copiar
+para uma planilha, e para quem não distingue as faixas.
 
 ## 5. Backup
 

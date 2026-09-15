@@ -10,7 +10,7 @@ report gerencial), vendido como SaaS para outras empresas. Um arquivo HTML só,
 publicado no Firebase Hosting, com Firestore e login por e-mail.
 
 - **Projeto Firebase:** `milest-app`
-- **Versão atual:** `2026-09-14.4` (o número aparece na tela de entrada)
+- **Versão atual:** `2026-09-15.1` (o número aparece na tela de entrada)
 - **Domínios previstos:** `app.milest.com.br` (sistema) e `milest.com.br` (landing)
 
 ## Onde está cada coisa
