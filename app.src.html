@@ -894,7 +894,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-16.1';
+const VERSAO = '2026-09-16.2';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -9494,6 +9494,11 @@ function erroAuth(e) {
   if (c === 'auth/invalid-action-code' || c === 'auth/expired-action-code')
     return 'o link já foi usado ou expirou; peça um novo.';
   if (c === 'auth/too-many-requests') return 'muitos pedidos seguidos; espere alguns minutos.';
+  if (c === 'auth/network-request-failed')
+    return 'não consegui falar com o servidor de autenticação do Google — o pedido nem chegou lá, '
+      + 'então não é questão de senha. Quase sempre é um bloqueador de anúncios, extensão de privacidade '
+      + 'ou antivírus barrando googleapis.com. Teste numa janela anônima: se lá funcionar, é extensão — '
+      + 'libere este site nela. Também pode ser o firewall da empresa, uma VPN, ou uma queda momentânea da conexão.';
   return (e && e.message) || 'erro desconhecido.';
 }
 /** Manda o link de acesso para quem acabou de ser cadastrado. */
