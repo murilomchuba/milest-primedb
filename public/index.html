@@ -860,7 +860,7 @@ body.embutido .view{height:100%}
 .hmcel.n2{background:var(--cap2);color:var(--capT12);box-shadow:none}
 .hmcel.n3{background:var(--cap3);color:var(--capT34);box-shadow:none}
 .hmcel.n4{background:var(--cap4);color:var(--capT34);box-shadow:none}
-.hmcel.ov{background:var(--capOver);color:var(--capOverT);box-shadow:none;font-weight:600}
+.hmcel.ov{background:var(--capOver);color:var(--capOverT);box-shadow:none;font-weight:600;text-decoration:underline;text-underline-offset:2px;text-decoration-thickness:1.5px}
 .hmcel:focus-visible{outline:2px solid var(--accent-2);outline-offset:1px}
 .capleg{display:flex;gap:12px;flex-wrap:wrap;align-items:center;padding:8px 14px 0;font-size:11.5px;color:var(--ink-2)}
 .capleg i{width:13px;height:13px;border-radius:3px;display:inline-block;vertical-align:-2px;margin-right:5px}
@@ -7167,7 +7167,7 @@ function painelCapacidade() {
       const cel = el('div', 'hmcel ' + capClasse(c.pct));
       cel.tabIndex = 0;
       if (c.pct != null && c.pct > 0.01) {
-        const txt = Math.round(c.pct) + (c.pct > 100.01 ? '!' : '');
+        const txt = Math.round(c.pct) + '%';
         if (mostrarNum) cel.textContent = txt;
         cel.setAttribute('aria-label', (L.res.name || '') + ', semana de ' + fmtBR(d.semanas[i]) + ', ' + Math.round(c.pct) + '% da capacidade');
       } else {
@@ -7209,7 +7209,7 @@ function painelCapacidade() {
   leg.appendChild(item('var(--cap2)', '36 a 70%'));
   leg.appendChild(item('var(--cap3)', '71 a 95%'));
   leg.appendChild(item('var(--cap4)', '96 a 100%'));
-  leg.appendChild(item('var(--capOver)', 'acima da capacidade (!)'));
+  leg.appendChild(item('var(--capOver)', 'acima da capacidade (valor sublinhado)'));
   p.appendChild(leg);
   p.appendChild(el('div', 'tagline',
     'A carga soma ' + d.projetos + ' projeto(s) do portfólio. A porcentagem é do que a pessoa tem disponível '
