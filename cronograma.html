@@ -355,6 +355,17 @@ textarea.inp{font-family:var(--f-mono);font-size:11.5px;min-height:180px;resize:
 }
 .toast.on{opacity:1}
 .empty{padding:40px 16px;text-align:center;color:var(--ink-3);font-size:12.5px}
+/* alternador "Em andamento / Concluídos" dentro do Portfólio */
+.segs{display:flex;gap:2px;padding:0 14px 10px;align-items:center}
+.seg{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--surface);
+  color:var(--ink-2);font:inherit;font-size:12.5px;padding:6px 12px;cursor:pointer}
+.seg:first-child{border-radius:6px 0 0 6px}
+.seg:last-child{border-radius:0 6px 6px 0;border-left:0}
+.seg:hover{background:var(--surface-2)}
+.seg.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+.seg .cont{display:inline-block;min-width:18px;padding:0 5px;border-radius:9px;font-size:11px;
+  background:var(--surface-2);color:var(--ink-3);text-align:center}
+.seg.on .cont{background:rgba(255,255,255,.22);color:#fff}
 .userchip{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--ink-3);font-family:var(--f-mono);white-space:nowrap;flex:0 0 auto}
 #userEmail{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px;min-width:0;flex:0 20 auto}
 .userchip .btn{padding:3px 8px;font-size:11px;flex:none}
@@ -902,7 +913,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-16.2';
+const VERSAO = '2026-09-16.3';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -1275,7 +1286,8 @@ function newMeta(name) {
     holidays: [], hoursPerDay: 8, currency: 'R$',
     statusDate: todayISO(), statusFixa: false, baselineAt: null, updatedAt: Date.now(),
     resumo: '', riscos: '', conquistas: '', andamento: '', statusManual: null, replanejamentos: [],
-    horasPrev: 0, horas: []
+    horasPrev: 0, horas: [],
+    encerradoEm: null, encerradoPor: '', encerramento: null
   };
 }
 /** A data em que o projeto está sendo medido — o "até quando" do % planejado,
@@ -1375,7 +1387,12 @@ function markTask(id) { if (!podeEditar()) return; ST.P.meta.updatedAt = Date.no
 function markRes(id) { if (!podeEditar()) return; dirty.delR.delete(id); dirty.res.add(id); queueSave(); }
 function markDelTask(id) { if (!podeEditar()) return; ST.P.meta.updatedAt = Date.now(); dirty.meta = true; dirty.delT.add(id); dirty.tasks.delete(id); queueSave(); }
 function markDelRes(id) { if (!podeEditar()) return; dirty.delR.add(id); dirty.res.delete(id); queueSave(); }
-function queueSave() { ST.portfolioEm = 0; clearTimeout(saveTimer); saveTimer = setTimeout(flushSave, 350); }
+/* Salvar NÃO invalida mais a carteira lida. Cada tecla digitada zerava o
+   carimbo, e a próxima ida ao Portfólio ou à Visão geral relia tudo do banco
+   — era isso que fazia as duas abas parecerem lentas depois de qualquer
+   edição. A linha do projeto aberto já é recalculada na hora, em memória,
+   pelos dois renders; os outros projetos não mudaram porque eu digitei. */
+function queueSave() { clearTimeout(saveTimer); saveTimer = setTimeout(flushSave, 350); }
 
 async function flushSave() {
   const d = dirty; dirty = { meta: false, tasks: new Set(), res: new Set(), delT: new Set(), delR: new Set() };
@@ -2684,7 +2701,7 @@ let cacheCarga = null;                     // recalculado uma vez por render
 function cargaTodosProjetos() {
   if (cacheCarga) return cacheCarga;
   const fontes = (ST.portfolio && ST.portfolio.length)
-    ? ST.portfolio.filter(it => it.P && it.ind && it.ind.sch)
+    ? ST.portfolio.filter(it => it.P && it.ind && it.ind.sch && !ehEncerrado(it.meta))
     : [{ id: ST.pid, P: ST.P, ind: { sch: ST.sch } }];
   const m = new Map();
   for (const it of fontes) {
@@ -2734,7 +2751,7 @@ function overallocations() {
    Sem saber de onde veio e quanta folga tem, não dá para dizer o que adiar. */
 function alocacoesDoRecurso(rid) {
   const fontes = (ST.portfolio && ST.portfolio.length)
-    ? ST.portfolio.filter(it => it.P && it.ind && it.ind.sch)
+    ? ST.portfolio.filter(it => it.P && it.ind && it.ind.sch && !ehEncerrado(it.meta))
     : [{ id: ST.pid, meta: ST.P.meta, P: ST.P, ind: { sch: ST.sch } }];
   const out = [];
   for (const it of fontes) {
@@ -3513,6 +3530,134 @@ function indicadoresDe(P, schPronto) {
 }
 function indicadores() { return indicadoresDe(ST.P, ST.sch); }
 
+/* ============ projetos encerrados ============
+   Um projeto que acabou continua contando enquanto estiver na lista ativa, e
+   conta errado: a data de status anda com o dia de hoje, então o % planejado
+   sobe para sempre e o IDP de um projeto entregue vai afundando sozinho. Ele
+   também segue puxando a média da carteira e ocupando gente no mapa de carga.
+
+   Encerrar resolve as duas coisas. Os números do dia do encerramento ficam
+   CRAVADOS em meta.encerramento — é esse retrato que a lista de concluídos
+   mostra, e ele não se mexe mais. O cronograma continua inteiro, aberto para
+   leitura, e reabrir devolve tudo ao lugar.
+
+   Quem encerra é sempre uma pessoa. O sistema só levanta a mão quando todas
+   as atividades estão concluídas: 100% técnico não quer dizer projeto
+   fechado — falta aceite, medição, nota. */
+function ehEncerrado(m) { return !!(m && m.encerradoEm); }
+function soAtivos(lista) { return (lista || []).filter(it => !ehEncerrado(it.meta)); }
+function soEncerrados(lista) { return (lista || []).filter(it => ehEncerrado(it.meta)); }
+
+/* A Visão geral responde "como está a carteira", no presente: por padrão os
+   encerrados ficam de fora, senão um projeto entregue há dois anos continua
+   puxando o IDP médio para baixo. A caixinha existe para a leitura histórica. */
+const LS_INC_ENC = 'milest.visao.incluirEncerrados';
+function incluirEncerrados() { try { return localStorage.getItem(LS_INC_ENC) === '1'; } catch (e) { return false; } }
+function incluirEncerradosDefinir(v) { try { localStorage.setItem(LS_INC_ENC, v ? '1' : '0'); } catch (e) { } }
+
+/** Vale sugerir o encerramento? Só para quem terminou tudo e tem o que terminar. */
+function mereceEncerrar(meta, ind) {
+  return !ehEncerrado(meta) && !!ind && ind.folhas > 0 && ind.feitas >= ind.folhas;
+}
+
+/** O retrato que fica congelado. Só escalares: nada de cronograma dentro. */
+function retratoDoEncerramento(ind) {
+  const h = (ind && ind.horas) || { prev: 0, feitas: 0, saldo: 0 };
+  return {
+    real: ind ? ind.real : 0,
+    plan: ind && ind.plan ? ind.plan.pct : 0,
+    IDP: ind ? ind.IDP : null,
+    IDC: ind ? ind.IDC : null,
+    IDCbase: ind ? ind.IDCbase : null,
+    horas: { prev: h.prev || 0, feitas: h.feitas || 0, saldo: h.saldo || 0 },
+    folhas: ind ? ind.folhas : 0, feitas: ind ? ind.feitas : 0,
+    inicio: ind ? ind.inicio : '', fim: ind ? ind.fim : '',
+    dur: ind ? ind.dur : 0, varDias: ind ? ind.varDias : null
+  };
+}
+
+/** Escreve (ou apaga) o encerramento, no projeto aberto ou em qualquer outro. */
+async function salvarEncerramento(pid, campos) {
+  if (semPermissao()) return false;
+  try {
+    if (pid === ST.pid) {
+      Object.assign(ST.P.meta, campos);
+      markMeta();
+    } else if (ST.mode === 'db') {
+      await ST.db.doc(dProjeto(pid)).update(Object.assign({ updatedAt: Date.now() }, campos));
+    } else {
+      const all = localLoad() || { projects: {} };
+      const pr = all.projects[pid];
+      if (pr) { pr.meta = Object.assign({}, pr.meta, campos); localStorage.setItem(LSKEY, JSON.stringify(all)); }
+    }
+  } catch (e) { toast('Não consegui salvar: ' + ((e && e.message) || 'erro')); return false; }
+  ST.portfolio = null; ST.portfolioEm = 0; esquecerCarteira();
+  return true;
+}
+
+function encerrarProjeto(pid, meta, ind) {
+  if (semPermissao()) return;
+  const nome = (meta && meta.name) || 'Projeto';
+  modal('Encerrar projeto', (body, close) => {
+    body.appendChild(el('div', 'hint',
+      'O cronograma não é apagado nem alterado: ele sai da carteira ativa e passa para a lista de concluídos, ' +
+      'com os números de hoje congelados. Deixa de contar nas médias da Visão geral, no sino de atrasos e no mapa de carga. ' +
+      'Dá para reabrir quando quiser.'));
+    const alvo = el('div', 'panel'); alvo.style.cssText = 'padding:11px 13px;box-shadow:none;margin-bottom:10px';
+    if (meta && meta.client) { const c = el('div', '', meta.client); c.style.cssText = 'color:var(--ink-3);font-size:11.5px'; alvo.appendChild(c); }
+    const n = el('div', '', nome); n.style.cssText = 'font-weight:600;font-size:14px'; alvo.appendChild(n);
+    if (ind) {
+      const r = el('div', '', fmtNum(ind.feitas) + ' de ' + fmtNum(ind.folhas) + ' atividades concluídas · ' +
+        fmtNum(ind.real, 1).replace('.', ',') + '% realizado' +
+        (ind.varDias != null ? ' · ' + (ind.varDias > 0 ? '+' : '') + fmtNum(ind.varDias) + ' dias vs. linha de base' : ''));
+      r.style.cssText = 'color:var(--ink-2);font-size:12px;margin-top:4px';
+      alvo.appendChild(r);
+      if (ind.folhas > 0 && ind.feitas < ind.folhas) {
+        const av = el('div', '', '⚠ Ainda há ' + fmtNum(ind.folhas - ind.feitas) + ' atividade(s) não concluída(s). ' +
+          'Encerrar assim mesmo congela o projeto como está.');
+        av.style.cssText = 'color:var(--critical);font-size:11.5px;margin-top:6px';
+        alvo.appendChild(av);
+      }
+    }
+    body.appendChild(alvo);
+    const f = el('div', 'field'); f.appendChild(el('label', '', 'Data de encerramento'));
+    const iData = el('input', 'inp'); iData.type = 'date'; iData.value = todayISO();
+    f.appendChild(iData); body.appendChild(f);
+    const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
+    const bC = el('button', 'btn', 'Cancelar'); bC.addEventListener('click', close);
+    const bOk = el('button', 'btn primary', 'Encerrar projeto');
+    bOk.addEventListener('click', async () => {
+      const quando = iData.value || todayISO();
+      close();
+      const ok = await salvarEncerramento(pid, {
+        encerradoEm: quando,
+        encerradoPor: ST.userEmail || '',
+        encerramento: retratoDoEncerramento(ind)
+      });
+      if (ok) { toast('Projeto encerrado.'); renderProjectList(); refresh(); }
+    });
+    linha.appendChild(bC); linha.appendChild(bOk); body.appendChild(linha);
+  }, []);
+}
+
+function reabrirProjeto(pid, meta) {
+  if (semPermissao()) return;
+  modal('Reabrir projeto', (body, close) => {
+    body.appendChild(el('div', 'hint',
+      '“' + ((meta && meta.name) || 'Projeto') + '” volta para a carteira ativa e passa a contar de novo nas médias, ' +
+      'no sino e na carga. Os números voltam a ser calculados pela data de hoje.'));
+    const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
+    const bC = el('button', 'btn', 'Cancelar'); bC.addEventListener('click', close);
+    const bOk = el('button', 'btn primary', 'Reabrir');
+    bOk.addEventListener('click', async () => {
+      close();
+      const ok = await salvarEncerramento(pid, { encerradoEm: null, encerradoPor: '', encerramento: null });
+      if (ok) { toast('Projeto reaberto.'); renderProjectList(); refresh(); }
+    });
+    linha.appendChild(bC); linha.appendChild(bOk); body.appendChild(linha);
+  }, []);
+}
+
 /* Carrega os demais projetos só quando a aba é aberta, com cache curto:
    a visão geral roda de novo a cada sincronização e não pode reler tudo sempre.
 
@@ -3524,7 +3669,97 @@ function indicadores() { return indicadoresDe(ST.P, ST.sch); }
       outra. Antes era um ida-e-volta por projeto, em fila: com dez projetos
       eram dez esperas somadas, e é isso que fazia a aba demorar a abrir. */
 const MEMO_CARTEIRA = new Map();          // chave: org + projeto -> retrato já calculado
-function esquecerCarteira() { MEMO_CARTEIRA.clear(); }
+/* Esquecer é para valer: restaurar um backup, trocar de empresa ou mexer na
+   lista de projetos pode reescrever atividades sem que o carimbo do projeto
+   ande. Nesses pontos o cache em disco também vai embora — são operações
+   raras, e ler de novo é melhor do que mostrar o que já não existe. */
+function esquecerCarteira() {
+  MEMO_CARTEIRA.clear();
+  CACHE_DISCO_ESCRITO.clear();
+  cacheDiscoLimpar();
+}
+
+/* O mesmo retrato, guardado no navegador entre uma sessão e outra.
+   O cache de memória resolve a segunda visita à aba; ele morre a cada F5, e
+   aí a carteira inteira descia do banco de novo — uma coleção de atividades
+   por projeto. Aqui as atividades ficam guardadas em disco com o carimbo de
+   quando o projeto mudou: se o carimbo bater com o que o banco diz, o
+   projeto é remontado localmente e não desce nada. O que muda continua
+   descendo, então nunca se lê dado velho. */
+const CACHE_DISCO_BANCO = 'milest-carteira';
+const CACHE_DISCO_LOJA = 'projetos';
+const CACHE_DISCO_ESCRITO = new Map();    // chave -> carimbo já gravado, para não regravar igual
+let cacheDiscoConn = null;
+
+function cacheDiscoAbrir() {
+  if (cacheDiscoConn) return cacheDiscoConn;
+  cacheDiscoConn = new Promise(ok => {
+    let req;
+    try { req = indexedDB.open(CACHE_DISCO_BANCO, 1); } catch (e) { return ok(null); }
+    req.onupgradeneeded = () => {
+      try { req.result.createObjectStore(CACHE_DISCO_LOJA); } catch (e) { }
+    };
+    req.onsuccess = () => ok(req.result);
+    req.onerror = () => ok(null);
+    req.onblocked = () => ok(null);
+  }).catch(() => null);
+  return cacheDiscoConn;
+}
+
+/** Lê várias chaves de uma vez. Devolve Map(chave -> {carimbo, tasks}). */
+async function cacheDiscoLer(chaves) {
+  const out = new Map();
+  if (!chaves.length) return out;
+  const db = await cacheDiscoAbrir(); if (!db) return out;
+  try {
+    const tx = db.transaction(CACHE_DISCO_LOJA, 'readonly');
+    const st = tx.objectStore(CACHE_DISCO_LOJA);
+    await Promise.all(chaves.map(k => new Promise(ok => {
+      const r = st.get(k);
+      r.onsuccess = () => { if (r.result) out.set(k, r.result); ok(); };
+      r.onerror = () => ok();
+    })));
+  } catch (e) { }
+  return out;
+}
+
+/** Grava sem segurar a tela: quem chama não espera. Projeto gigante fica de
+ *  fora — não vale gastar a cota do navegador com ele. */
+function cacheDiscoGravar(chave, carimbo, tasks) {
+  if (!carimbo || !tasks || tasks.length > 3000) return;
+  if (CACHE_DISCO_ESCRITO.get(chave) === carimbo) return;
+  CACHE_DISCO_ESCRITO.set(chave, carimbo);
+  cacheDiscoAbrir().then(db => {
+    if (!db) return;
+    try {
+      const tx = db.transaction(CACHE_DISCO_LOJA, 'readwrite');
+      tx.objectStore(CACHE_DISCO_LOJA).put({ carimbo: carimbo, tasks: tasks }, chave);
+    } catch (e) { }
+  }).catch(() => { });
+}
+
+/** Tira do disco o que não é mais da carteira (projeto excluído, outra
+ *  empresa), para o cache não crescer para sempre. */
+function cacheDiscoLimpar() {
+  cacheDiscoAbrir().then(db => {
+    if (!db) return;
+    try { db.transaction(CACHE_DISCO_LOJA, 'readwrite').objectStore(CACHE_DISCO_LOJA).clear(); } catch (e) { }
+  }).catch(() => { });
+}
+
+function cacheDiscoPodar(vivas) {
+  cacheDiscoAbrir().then(db => {
+    if (!db) return;
+    try {
+      const tx = db.transaction(CACHE_DISCO_LOJA, 'readwrite');
+      const st = tx.objectStore(CACHE_DISCO_LOJA);
+      const r = st.getAllKeys();
+      r.onsuccess = () => {
+        for (const k of (r.result || [])) if (!vivas.has(k)) { try { st.delete(k); } catch (e) { } }
+      };
+    } catch (e) { }
+  }).catch(() => { });
+}
 
 async function emParalelo(itens, largura, fn) {
   const fila = itens.slice();
@@ -3536,7 +3771,15 @@ async function emParalelo(itens, largura, fn) {
 }
 
 async function carregarPortfolio() {
-  const doAberto = () => ({ id: ST.pid, meta: ST.P.meta, P: ST.P, ind: indicadoresDe(ST.P, ST.sch) });
+  /* O projeto aberto nunca vem do cache — ele está em memória, já calculado.
+     Deixo o retrato guardado assim mesmo: quando você troca de projeto, o que
+     estava aberto vira "mais um da carteira" e, sem isso, desceria de novo. */
+  const doAberto = () => {
+    const ind = indicadoresDe(ST.P, ST.sch);
+    const carimbo = (ST.P.meta && ST.P.meta.updatedAt) || 0;
+    if (carimbo && ST.mode === 'db') MEMO_CARTEIRA.set(pre() + ST.pid, { carimbo: carimbo, P: ST.P, ind: ind });
+    return { id: ST.pid, meta: ST.P.meta, P: ST.P, ind: ind };
+  };
 
   if (ST.mode !== 'db') {
     const all = localLoad() || { projects: {} };
@@ -3564,6 +3807,12 @@ async function carregarPortfolio() {
   } catch (e) { }
 
   const chave = pid => pre() + pid;
+  const montar = (p, cab, tasks) => ({
+    meta: Object.assign(newMeta(p.name), cab || {}),
+    tasks: sortTasks(tasks),
+    resources: ST.P.resources
+  });
+
   const pendentes = [];
   const saida = ST.projects.map(p => {
     if (p.id === ST.pid) return doAberto();
@@ -3579,7 +3828,25 @@ async function carregarPortfolio() {
     return lugar;
   });
 
-  // 2) o que sobrou desce em paralelo; o CPM de cada projeto roda assim que ele chega
+  // 2) antes de ir à rede, o cache em disco: o que não mudou desde a última
+  //    sessão é remontado aqui mesmo, sem baixar nada
+  if (pendentes.length) {
+    const doDisco = await cacheDiscoLer(pendentes.map(it => chave(it.p.id)));
+    for (let i = pendentes.length - 1; i >= 0; i--) {
+      const it = pendentes[i];
+      const g = doDisco.get(chave(it.p.id));
+      if (!it.carimbo || !g || g.carimbo !== it.carimbo) continue;
+      try {
+        const P = montar(it.p, it.cab, g.tasks.map(t2 => Object.assign(newTask(), t2)));
+        const ind = indicadoresDe(P);
+        it.lugar.meta = P.meta; it.lugar.P = P; it.lugar.ind = ind;
+        MEMO_CARTEIRA.set(chave(it.p.id), { carimbo: it.carimbo, P: P, ind: ind });
+        pendentes.splice(i, 1);
+      } catch (e) { }
+    }
+  }
+
+  // 3) o que sobrou desce em paralelo; o CPM de cada projeto roda assim que ele chega
   await emParalelo(pendentes, 8, async (it) => {
     try {
       // se a consulta de cabeçalhos não veio (regra, rede), busca o do projeto junto
@@ -3588,19 +3855,21 @@ async function carregarPortfolio() {
         it.cab ? Promise.resolve(null) : ST.db.doc(dProjeto(it.p.id)).get()
       ]);
       const cab = it.cab || (m && m.exists ? m.data() : null);
-      const P = {
-        meta: Object.assign(newMeta(it.p.name), cab || {}),
-        tasks: sortTasks(t.docs.map(d => Object.assign(newTask(), d.data(), { id: d.id }))),
-        resources: ST.P.resources
-      };
+      const crus = t.docs.map(d => Object.assign(newTask(), d.data(), { id: d.id }));
+      const P = montar(it.p, cab, crus);
       const ind = indicadoresDe(P);
       it.lugar.meta = P.meta; it.lugar.P = P; it.lugar.ind = ind;
-      if (it.carimbo) MEMO_CARTEIRA.set(chave(it.p.id), { carimbo: it.carimbo, P: P, ind: ind });
+      const carimbo = it.carimbo || (cab && cab.updatedAt) || 0;
+      if (carimbo) {
+        MEMO_CARTEIRA.set(chave(it.p.id), { carimbo: carimbo, P: P, ind: ind });
+        cacheDiscoGravar(chave(it.p.id), carimbo, crus.map(x => JSON.parse(JSON.stringify(x))));
+      }
     } catch (e) {
       it.lugar.erro = true; it.lugar.meta = { name: it.p.name };
     }
   });
 
+  cacheDiscoPodar(new Set(ST.projects.map(p => chave(p.id))));
   aoLerCarteira(saida);     // único ponto por onde a carteira inteira passa
   return saida;
 }
@@ -3632,6 +3901,7 @@ function levantamentoDoDia(lista, hojeISO) {
   const s = { hoje: hoje, atrasadas: [], comecam: [], terminam: [], projetos: 0, comAtraso: 0, util: false };
   for (const it of (lista || [])) {
     if (!it || it.erro || !it.P || !it.ind || !it.ind.sch) continue;
+    if (ehEncerrado(it.meta)) continue;          // o que acabou não atrasa mais
     s.projetos++;
     const sch = it.ind.sch, cal = sch.cal;
     // hoje é dia de trabalho em algum projeto? num sábado nada começa nem
@@ -3834,15 +4104,117 @@ function renderOverview() {
     bEdit.title = 'Editar cliente e nome do projeto';
     bEdit.style.marginRight = '5px';
     bEdit.addEventListener('click', ev => { ev.stopPropagation(); editarProjeto(it.id, it.meta); });
+    if (ehEncerrado(it.meta)) {
+      const bRe = el('button', 'btn icon reqedit', '↺');
+      bRe.title = 'Reabrir: volta para a carteira ativa';
+      bRe.style.marginRight = '5px';
+      bRe.addEventListener('click', ev => { ev.stopPropagation(); reabrirProjeto(it.id, it.meta); });
+      td.appendChild(bRe);
+    } else {
+      const bEnc = el('button', 'btn icon reqedit', '🏁');
+      bEnc.title = 'Encerrar: guarda os números de hoje e tira o projeto da carteira ativa';
+      bEnc.style.marginRight = '5px';
+      bEnc.addEventListener('click', ev => { ev.stopPropagation(); encerrarProjeto(it.id, it.meta, it.ind); });
+      td.appendChild(bEnc);
+    }
     const b = el('button', 'btn icon danger reqedit', '✕');
     b.title = 'Excluir este cronograma';
     b.addEventListener('click', ev => { ev.stopPropagation(); confirmarExclusao(it.id, it.meta, it.ind); });
     td.appendChild(bEdit); td.appendChild(b); return td;
   };
 
+  /* A lista de concluídos não repete as colunas de acompanhamento — ninguém
+     acompanha o que acabou. Ela mostra o registro de fechamento: quando
+     encerrou, quanto durou, quanto escorregou da linha de base e como as
+     horas fecharam. Tudo vem do retrato congelado no dia do encerramento. */
+  const tabelaEncerrados = (alvo) => {
+    if (!alvo.length) {
+      corpo.appendChild(el('div', 'empty',
+        'Nenhum projeto concluído ainda. Use o 🏁 na linha de um projeto para encerrá-lo.'));
+      return;
+    }
+    const tb = el('table', 'data');
+    const hr = el('tr');
+    const cols = [['Cliente', ''], ['Projeto', ''], ['Encerrado em', 'num'], ['Início', 'num'], ['Término', 'num'],
+    ['Duração', 'num'], ['vs. base', 'num'], ['% Realiz.', 'num'], ['IDP', 'num'], ['IDC', 'num'],
+    ['H. prev.', 'num'], ['H. real.', 'num'], ['Saldo', 'num'], ['', '']];
+    for (const c of cols) hr.appendChild(el('th', c[1], c[0]));
+    const th = el('thead'); th.appendChild(hr); tb.appendChild(th);
+    const tbo = el('tbody');
+    const ordenados = alvo.slice().sort((a, b2) =>
+      ((b2.meta && b2.meta.encerradoEm) || '') < ((a.meta && a.meta.encerradoEm) || '') ? -1 : 1);
+    for (const it of ordenados) {
+      const m = it.meta, f = m.encerramento || retratoDoEncerramento(it.ind);
+      const tr = el('tr', 'projrow');
+      tr.title = 'Abrir este cronograma';
+      tr.addEventListener('click', async () => {
+        if (it.id !== ST.pid) { await openProject(it.id); $('#projSel').value = it.id; }
+        setView('schedule');
+      });
+      const tdc = el('td', '', m.client || '—'); tdc.style.color = m.client ? 'var(--ink-2)' : 'var(--ink-3)';
+      tr.appendChild(tdc);
+      const tdn = el('td', '', m.name || 'Projeto'); tdn.style.fontWeight = '600';
+      tr.appendChild(tdn);
+      const tde = el('td', 'num', fmtBR(m.encerradoEm));
+      if (m.encerradoPor) tde.title = 'Encerrado por ' + m.encerradoPor;
+      tr.appendChild(tde);
+      tr.appendChild(el('td', 'num', fmtBR(f.inicio)));
+      tr.appendChild(el('td', 'num', fmtBR(f.fim)));
+      tr.appendChild(el('td', 'num', fmtNum(f.dur) + ' du'));
+      const tdv = el('td', 'num', f.varDias == null ? '—' : (f.varDias > 0 ? '+' : '') + fmtNum(f.varDias) + ' d');
+      if (f.varDias != null) {
+        tdv.style.color = f.varDias > 0 ? 'var(--critical)' : 'var(--ok)';
+        tdv.title = f.varDias > 0 ? 'Terminou ' + fmtNum(f.varDias) + ' dias depois da linha de base'
+          : f.varDias < 0 ? 'Terminou ' + fmtNum(-f.varDias) + ' dias antes da linha de base'
+            : 'Terminou exatamente na linha de base';
+      } else tdv.title = 'Sem linha de base para comparar';
+      tr.appendChild(tdv);
+      const tdr = el('td', 'num', fmtNum(f.real, 1).replace('.', ',') + '%');
+      if (f.real < 99.5) { tdr.style.color = 'var(--critical)'; tdr.title = 'Encerrado com atividades em aberto'; }
+      tr.appendChild(tdr);
+      tr.appendChild(el('td', 'num', f.IDP == null ? '—' : f.IDP.toFixed(2).replace('.', ',')));
+      const tdi = el('td', 'num', f.IDC == null ? '—' : f.IDC.toFixed(2).replace('.', ','));
+      if (f.IDC != null) tdi.style.color = f.IDC >= 0.995 ? 'var(--ok)' : 'var(--critical)';
+      tr.appendChild(tdi);
+      const h = f.horas || { prev: 0, feitas: 0, saldo: 0 };
+      tr.appendChild(el('td', 'num', h.prev ? fmtH(h.prev) : '—'));
+      tr.appendChild(el('td', 'num', h.feitas ? fmtH(h.feitas) : '—'));
+      const tds = el('td', 'num', h.prev ? fmtH(h.saldo) : '—');
+      if (h.prev) tds.style.color = h.saldo < 0 ? 'var(--critical)' : 'var(--ok)';
+      tr.appendChild(tds);
+      tr.appendChild(acoesDaLinha(it));
+      tbo.appendChild(tr);
+    }
+    tb.appendChild(tbo);
+    const sc = el('div', 'tscroll'); sc.appendChild(tb); corpo.appendChild(sc);
+    corpo.appendChild(el('div', 'tagline',
+      'Os números são os do dia do encerramento e não mudam mais — é por isso que servem de histórico. ' +
+      '“vs. base” é quanto o término real escorregou da linha de base: é a pergunta que a próxima proposta faz. ' +
+      'Clique numa linha para abrir o cronograma; ↺ devolve o projeto à carteira ativa.'));
+  };
+
   const desenhar = (lista) => {
     corpo.textContent = '';
     if (!lista || !lista.length) { corpo.appendChild(el('div', 'empty', 'Nenhum projeto ainda. Use “＋ Novo projeto”.')); return; }
+    const ativos = soAtivos(lista), fechados = soEncerrados(lista);
+    if (fechados.length) {
+      const nav = el('div', 'segs');
+      const bota = (id, rot, n) => {
+        const b2 = el('button', 'seg' + (ABA_PORT === id ? ' on' : ''), rot);
+        b2.appendChild(el('span', 'cont', fmtNum(n)));
+        b2.addEventListener('click', () => { ABA_PORT = id; desenhar(lista); });
+        nav.appendChild(b2);
+      };
+      bota('ativos', 'Em andamento', ativos.length);
+      bota('encerrados', 'Concluídos', fechados.length);
+      corpo.appendChild(nav);
+    } else if (ABA_PORT === 'encerrados') ABA_PORT = 'ativos';
+    if (ABA_PORT === 'encerrados') { tabelaEncerrados(fechados); return; }
+    const alvo = ativos;
+    if (!alvo.length) {
+      corpo.appendChild(el('div', 'empty', 'Todos os projetos estão concluídos. Veja a lista em “Concluídos”.'));
+      return;
+    }
     const tb = el('table', 'data');
     const hr = el('tr');
     const cols = [['Cliente', ''], ['Projeto', ''], ['Início', 'num'], ['Término', 'num'], ['Duração', 'num'],
@@ -3851,7 +4223,7 @@ function renderOverview() {
     for (const c of cols) hr.appendChild(el('th', c[1], c[0]));
     const th = el('thead'); th.appendChild(hr); tb.appendChild(th);
     const tbo = el('tbody');
-    for (const it of lista) {
+    for (const it of alvo) {
       const tr = el('tr', 'projrow' + (it.id === ST.pid ? ' atual' : ''));
       tr.title = 'Abrir este cronograma';
       tr.addEventListener('click', async () => {
@@ -3870,6 +4242,15 @@ function renderOverview() {
       const tdc = el('td', '', m.client || '—'); tdc.style.color = m.client ? 'var(--ink-2)' : 'var(--ink-3)';
       tr.appendChild(tdc);
       const tdn = el('td', '', m.name || 'Projeto'); tdn.style.fontWeight = '600';
+      if (mereceEncerrar(m, i2)) {
+        // terminou tudo: o sistema levanta a mão, mas não encerra sozinho —
+        // 100% técnico não quer dizer aceite, medição e nota emitida
+        const su = el('button', 'btn icon reqedit', '🏁');
+        su.style.cssText = 'margin-left:6px;border-color:var(--ok);color:var(--ok)';
+        su.title = 'Todas as atividades estão concluídas — encerrar este projeto?';
+        su.addEventListener('click', ev => { ev.stopPropagation(); encerrarProjeto(it.id, m, i2); });
+        tdn.appendChild(su);
+      }
       tr.appendChild(tdn);
       tr.appendChild(el('td', 'num', fmtBR(i2.inicio)));
       const tdf = el('td', 'num', fmtBR(i2.fim));
@@ -6488,6 +6869,7 @@ function renderSettings() {
 
 /* ============ orquestração ============ */
 let VIEW = 'overview';
+let ABA_PORT = 'ativos';          // qual lista o Portfólio está mostrando
 let toastT = null;
 function toast(msg) {
   const t = $('#toast'); t.textContent = msg; t.classList.add('on');
@@ -7265,15 +7647,30 @@ function renderPainel() {
   });
   acoes.appendChild(bAtu); acoes.appendChild(bPdf);
   cab.appendChild(acoes); topo.appendChild(cab);
+  const cxInc = el('label');
+  cxInc.style.cssText = 'display:none;align-items:center;gap:6px;font-size:12px;color:var(--ink-2);cursor:pointer';
+  cxInc.title = 'Por padrão os números falam só da carteira ativa. Marque para somar também o que já foi entregue.';
+  const chkInc = el('input'); chkInc.type = 'checkbox'; chkInc.checked = incluirEncerrados();
+  chkInc.addEventListener('change', () => { incluirEncerradosDefinir(chkInc.checked); renderPainel(); });
+  cxInc.appendChild(chkInc); cxInc.appendChild(document.createTextNode('incluir concluídos'));
+  acoes.appendChild(cxInc);
   const corpo = el('div'); topo.appendChild(corpo);
   host.appendChild(topo);
   const depois = el('div'); depois.style.cssText = 'display:flex;flex-direction:column;gap:16px';
   host.appendChild(depois);
 
-  const desenhar = (lista) => {
+  const desenhar = (todos) => {
     corpo.textContent = ''; depois.textContent = '';
+    const fechados = soEncerrados(todos);
+    cxInc.style.display = fechados.length ? 'inline-flex' : 'none';
+    const lista = incluirEncerrados() ? todos : soAtivos(todos);
     const r = resumoPortfolio(lista);
-    if (!r.n) { corpo.appendChild(el('div', 'empty', 'Nenhum projeto para somar ainda.')); return; }
+    if (!r.n) {
+      corpo.appendChild(el('div', 'empty', fechados.length
+        ? 'Todos os projetos estão concluídos. Marque “incluir concluídos” para somá-los.'
+        : 'Nenhum projeto para somar ainda.'));
+      return;
+    }
 
     /* ---- os números ---- */
     const g = el('div', 'kpigrid');
@@ -7284,7 +7681,10 @@ function renderPainel() {
       d.appendChild(el('div', 'n', n || ' '));
       g.appendChild(d);
     };
-    tile('Projetos', fmtNum(r.n), r.comErro ? r.comErro + ' não puderam ser lidos' : 'no portfólio');
+    tile('Projetos', fmtNum(r.n), r.comErro ? r.comErro + ' não puderam ser lidos'
+      : incluirEncerrados() ? 'carteira ativa + concluídos'
+        : fechados.length ? 'na carteira ativa · ' + fmtNum(fechados.length) + ' concluído(s) de fora'
+          : 'no portfólio');
     const bs = semBase();
     tile('Saudáveis', fmtNum(r.cont.saudavel), bs + ' a partir de 1,00', r.cont.saudavel ? 'ok' : '');
     tile('Em atenção', fmtNum(r.cont.atencao), bs + ' de 0,80 a 0,99', r.cont.atencao ? 'warn' : '');
@@ -7636,7 +8036,7 @@ function desenharListaPortfolioSVG(bloco, pag, totPag, LW, LH) {
 /** A apresentação do portfólio: capa, a Visão geral e — se pedido — a folha de
  *  status de cada projeto, tudo em 16:9, no tamanho das folhas de status. */
 function janelaPDFPortfolio() {
-  const lista = ST.portfolio || [];
+  const lista = incluirEncerrados() ? (ST.portfolio || []) : soAtivos(ST.portfolio || []);
   const comAtiv = lista.filter(it => it && it.P && !it.erro && it.ind && it.ind.folhas > 0);
   modal('Apresentação do portfólio', (body, close) => {
     body.appendChild(el('div', 'hint',
