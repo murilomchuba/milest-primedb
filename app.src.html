@@ -857,6 +857,20 @@ body.embutido .view{height:100%}
 .capleg i{width:13px;height:13px;border-radius:3px;display:inline-block;vertical-align:-2px;margin-right:5px}
 .capver{font-size:13.5px;line-height:1.5;color:var(--ink);padding:2px 14px 0;max-width:80ch}
 .capver b{font-family:var(--f-display)}
+.sugres{border:1px solid var(--line);border-radius:8px;margin:12px 0;overflow:hidden}
+.sugcab{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:9px 12px;background:var(--surface-2)}
+.sugcab b{font-family:var(--f-display);font-size:13.5px}
+.sugmeta{font-family:var(--f-mono);font-size:10.5px;color:var(--ink-3)}
+.sugjan{padding:8px 12px 10px;border-top:1px solid var(--line)}
+.sugjancab{font-family:var(--f-mono);font-size:10.5px;letter-spacing:.04em;color:var(--ink-3);margin-bottom:6px}
+.sugacao{display:flex;align-items:flex-start;gap:10px;padding:7px 0;border-top:1px dotted var(--line)}
+.sugacao:first-of-type{border-top:0}
+.sugacao .btn{flex:0 0 auto;padding:3px 9px;font-size:11px}
+.sugtxt{font-size:13px;line-height:1.5;color:var(--ink);max-width:78ch}
+.sugtxt i{color:var(--ink-3);font-style:normal;font-family:var(--f-mono);font-size:11px}
+.sugacao.sugfalta .sugtxt{color:var(--critical)}
+.sugacao.sugfalta .sugtxt b{color:var(--critical)}
+.sugnota{margin-top:7px;font-size:12px;line-height:1.45;color:var(--ink-2);background:var(--warn-soft);border-radius:6px;padding:7px 9px}
 .chleg span{display:flex;align-items:center;gap:6px}
 .chleg i{width:14px;height:3px;border-radius:2px;display:block}
 .rescard{border-bottom:1px solid var(--line);padding:10px 14px}
@@ -880,7 +894,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-15.1';
+const VERSAO = '2026-09-16.1';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -1349,9 +1363,9 @@ function semPermissao() {
 }
 
 function markMeta() { if (!podeEditar()) return; ST.P.meta.updatedAt = Date.now(); dirty.meta = true; queueSave(); }
-function markTask(id) { if (!podeEditar()) return; dirty.delT.delete(id); dirty.tasks.add(id); queueSave(); }
+function markTask(id) { if (!podeEditar()) return; ST.P.meta.updatedAt = Date.now(); dirty.meta = true; dirty.delT.delete(id); dirty.tasks.add(id); queueSave(); }
 function markRes(id) { if (!podeEditar()) return; dirty.delR.delete(id); dirty.res.add(id); queueSave(); }
-function markDelTask(id) { if (!podeEditar()) return; dirty.delT.add(id); dirty.tasks.delete(id); queueSave(); }
+function markDelTask(id) { if (!podeEditar()) return; ST.P.meta.updatedAt = Date.now(); dirty.meta = true; dirty.delT.add(id); dirty.tasks.delete(id); queueSave(); }
 function markDelRes(id) { if (!podeEditar()) return; dirty.delR.add(id); dirty.res.delete(id); queueSave(); }
 function queueSave() { ST.portfolioEm = 0; clearTimeout(saveTimer); saveTimer = setTimeout(flushSave, 350); }
 
@@ -2697,6 +2711,261 @@ function overallocations() {
   }
   return out;
 }
+
+/* ============ o que fazer com quem está sobrecarregado ============
+   O mapa de capacidade responde "quem está acima do limite". A pergunta
+   seguinte do gestor é sempre a mesma: e agora? Aqui o sistema faz a conta
+   que ele faria no papel — para cada janela estourada, quais atividades
+   estão em cima da pessoa, qual delas tem folga para andar para a frente
+   sem empurrar o projeto, e quem, na MESMA janela, tem capacidade sobrando
+   para receber parte do trabalho. O que não fecha por realocação é, aí sim,
+   tamanho de equipe: sai em pessoa-dia, que é o número que se leva para
+   pedir contratação. */
+
+/* Todas as alocações de uma pessoa na carteira inteira, com folga e projeto.
+   Sem saber de onde veio e quanta folga tem, não dá para dizer o que adiar. */
+function alocacoesDoRecurso(rid) {
+  const fontes = (ST.portfolio && ST.portfolio.length)
+    ? ST.portfolio.filter(it => it.P && it.ind && it.ind.sch)
+    : [{ id: ST.pid, meta: ST.P.meta, P: ST.P, ind: { sch: ST.sch } }];
+  const out = [];
+  for (const it of fontes) {
+    const sch = it.ind.sch;
+    for (const t of it.P.tasks) {
+      const o = sch.out.get(t.id); if (!o || o.sum || o.D === 0) continue;
+      const a = (t.res || []).find(x => x.rid === rid); if (!a) continue;
+      out.push({
+        pid: it.id,
+        projeto: (it.meta && it.meta.name) || (it.P.meta && it.P.meta.name) || 'Projeto',
+        t: t, o: o, units: (a.units == null ? 100 : a.units),
+        tf: Math.max(0, o.tf || 0), crit: !!o.crit,
+        ini: o.start, fim: o.finish, ehAtual: it.id === ST.pid
+      });
+    }
+  }
+  return out;
+}
+
+/* Dias acima da capacidade, agrupados em janelas. Buracos de até 4 dias não
+   quebram a janela: quem resolve uma semana estourada resolve a seguinte. */
+function janelasDeSobrecarga(rid, cap) {
+  const { carga } = cargaTodosProjetos();
+  const m = carga.get(rid); if (!m || !m.size) return [];
+  const dias = [...m.entries()].filter(e => e[1].atual + e[1].outros > cap + .01).map(e => e[0]).sort();
+  const jan = [];
+  for (const d of dias) {
+    const u = jan[jan.length - 1];
+    if (u && diffDays(u.fim, d) <= 4) { u.fim = d; u.dias.push(d); }
+    else jan.push({ ini: d, fim: d, dias: [d] });
+  }
+  for (const j of jan) {
+    j.excesso = j.dias.reduce((a, d) => {
+      const v = m.get(d); return a + Math.max(0, (v.atual + v.outros) - cap);
+    }, 0) / 100;                                   // em pessoa-dia
+    j.pico = Math.max.apply(null, j.dias.map(d => { const v = m.get(d); return v.atual + v.outros; }));
+  }
+  return jan;
+}
+
+/* Quanto cada pessoa tem livre dentro de uma janela, em pessoa-dia.
+   É o teto do que dá para repassar sem estourar outra agenda. */
+function folgaNaJanela(ini, fim) {
+  const { carga } = cargaTodosProjetos();
+  const cal = ST.sch.cal, saida = [];
+  for (const r of ST.P.resources) {
+    const cap = r.capacity == null ? 100 : r.capacity;
+    const m = carga.get(r.id);
+    let livre = 0, uteis = 0;
+    for (let d = ini; d <= fim; d = addDays(d, 1)) {
+      if (!cal.isWork(d)) continue;
+      uteis++;
+      const v = m ? m.get(d) : null;
+      livre += Math.max(0, cap - (v ? v.atual + v.outros : 0));
+    }
+    saida.push({ res: r, livre: livre / 100, uteis: uteis });
+  }
+  return saida;
+}
+
+/* Adiar só resolve se o lugar para onde a atividade vai estiver vazio. Aqui
+   se mede quanta capacidade a pessoa tem livre nos dias úteis imediatamente
+   depois da atividade, dentro da folga dela. Sem esse espaço, empurrar a
+   atividade só muda o dia do problema — e o sistema não sugere. */
+function folgaAposAtividade(a, rid, cap) {
+  const { carga } = cargaTodosProjetos();
+  const m = carga.get(rid), cal = ST.sch.cal;
+  let livre = 0, uteis = 0, d = addDays(a.fim, 1), guarda = 0;
+  while (uteis < a.tf && guarda++ < 800) {
+    if (cal.isWork(d)) {
+      uteis++;
+      const v = m ? m.get(d) : null;
+      livre += Math.max(0, cap - (v ? v.atual + v.outros : 0));
+    }
+    d = addDays(d, 1);
+  }
+  return livre / 100;                              // em pessoa-dia
+}
+
+/* Quanto uma alocação pesa exatamente nos dias estourados da janela. */
+function pesoNaJanela(a, j) {
+  let s = 0;
+  for (const d of j.dias) if (d >= a.ini && d <= a.fim) s += a.units / 100;
+  return s;
+}
+
+/* O plano, janela por janela: adiar o que tem folga, repassar o que couber
+   na folga dos outros, e só então dizer que falta gente. A ordem não é
+   estética — é a ordem de custo: mexer na data é de graça, dividir trabalho
+   custa combinação, contratar custa dinheiro. */
+function sugestoesDeAlocacao() {
+  const fora = overallocations();
+  const saida = [];
+  for (const ov of fora) {
+    const r = ov.res, cap = r.capacity == null ? 100 : r.capacity;
+    const janelas = janelasDeSobrecarga(r.id, cap);
+    const aloc = alocacoesDoRecurso(r.id);
+    const blocos = [];
+    for (const j of janelas) {
+      const naJanela = aloc.filter(a => a.ini <= j.fim && a.fim >= j.ini)
+        .map(a => Object.assign({}, a, { peso: pesoNaJanela(a, j) }))
+        .filter(a => a.peso > 0)
+        .sort((a, b) => b.peso - a.peso);
+      const livres = folgaNaJanela(j.ini, j.fim)
+        .filter(x => x.res.id !== r.id && x.livre > .4)
+        .sort((a, b) => b.livre - a.livre);
+      const acoes = [];
+      let resta = j.excesso;
+
+      // 1) adiar: só o que tem folga própria — não custa prazo de projeto
+      for (const a of naJanela.filter(x => !x.crit && x.tf >= 1).sort((x, y) => y.tf - x.tf)) {
+        if (resta <= .05) break;
+        const espaco = folgaAposAtividade(a, r.id, cap);
+        const ganho = Math.min(resta, a.peso, espaco);
+        if (ganho <= .05) continue;                // sem espaço adiante, adiar só muda o dia do problema
+        acoes.push({ tipo: 'adiar', aloc: a, dias: a.tf, espaco: espaco, ganho: ganho });
+        resta -= ganho;
+      }
+      // 2) repassar: parte da alocação mais pesada para quem tem folga na MESMA janela
+      if (resta > .05 && livres.length) {
+        const jaMexidas = new Set(acoes.map(x => x.aloc && x.aloc.t.id));
+        const alvo = naJanela.find(x => !jaMexidas.has(x.t.id)) || naJanela[0];
+        for (const x of livres.slice(0, 3)) {
+          if (resta <= .05) break;
+          const ganho = Math.min(resta, x.livre, alvo ? alvo.peso : resta);
+          if (ganho <= .05) continue;
+          acoes.push({ tipo: 'repassar', para: x.res, livre: x.livre, aloc: alvo, ganho: ganho });
+          resta -= ganho;
+        }
+      }
+      // 3) o que sobrou não é distribuição, é tamanho de equipe
+      if (resta > .05) {
+        const uteis = (livres[0] && livres[0].uteis) || j.dias.length;
+        acoes.push({ tipo: 'contratar', ganho: resta, uteis: uteis, fte: resta / Math.max(1, uteis) });
+      }
+      blocos.push({ janela: j, acoes: acoes, naJanela: naJanela, livres: livres });
+    }
+    saida.push({
+      res: r, cap: cap, pico: ov.peak, diasAcima: ov.days.length, blocos: blocos,
+      excesso: janelas.reduce((a, j) => a + j.excesso, 0)
+    });
+  }
+  saida.sort((a, b) => b.excesso - a.excesso);
+  return saida;
+}
+
+/* A janela de sugestões. Cada linha é uma frase que o gestor pode levar para
+   a reunião: o que mexer, de quanto, e o que acontece se mexer. */
+function janelaSugestoes() {
+  const lista = sugestoesDeAlocacao();
+  const pd = v => fmtNum(Math.round(v * 10) / 10, 1);
+  modal('Como resolver a sobrecarga', (body, fechar) => {
+    if (!lista.length) {
+      body.appendChild(el('div', 'empty',
+        'Ninguém está acima da capacidade nos projetos carregados. Não há o que realocar.'));
+      return;
+    }
+    const totalExc = lista.reduce((a, x) => a + x.excesso, 0);
+    const cont = lista.reduce((a, x) => a + x.blocos.reduce((b, bl) =>
+      b + bl.acoes.filter(ac => ac.tipo === 'contratar').reduce((c, ac) => c + ac.ganho, 0), 0), 0);
+    const top = el('div', 'hint');
+    top.innerHTML = '<b>' + lista.length + ' pessoa(s)</b> acima da capacidade, somando <b>' + pd(totalExc)
+      + ' pessoa-dia</b> de excesso. ' + (cont > .05
+        ? 'Realocando dá para cobrir ' + pd(totalExc - cont) + '; <b>' + pd(cont)
+          + ' pessoa-dia não cabem em ninguém</b> nas mesmas datas.'
+        : '<b>Tudo cabe na folga da própria equipe</b> — é caso de realocar, não de contratar.');
+    body.appendChild(top);
+
+    for (const s of lista) {
+      const p = el('div', 'sugres');
+      const h = el('div', 'sugcab');
+      h.appendChild(el('b', '', s.res.name || 'Sem nome'));
+      h.appendChild(el('span', 'sugmeta', 'pico ' + Math.round(s.pico) + '% · capacidade ' + s.cap
+        + '% · ' + s.diasAcima + ' dia(s) acima · excesso de ' + pd(s.excesso) + ' pessoa-dia'));
+      p.appendChild(h);
+
+      for (const bl of s.blocos) {
+        const j = bl.janela;
+        const cx = el('div', 'sugjan');
+        cx.appendChild(el('div', 'sugjancab',
+          'De ' + fmtBR(j.ini) + ' a ' + fmtBR(j.fim) + ' · pico ' + Math.round(j.pico)
+          + '% · excesso de ' + pd(j.excesso) + ' pessoa-dia'));
+
+        for (const ac of bl.acoes) {
+          const li = el('div', 'sugacao ' + (ac.tipo === 'contratar' ? 'sugfalta' : ''));
+          const txt = el('div', 'sugtxt');
+          if (ac.tipo === 'adiar') {
+            txt.innerHTML = '<b>Adiar</b> “' + escaparHTML(ac.aloc.t.name) + '” <i>(' + escaparHTML(ac.aloc.projeto) + ')</i>'
+              + ' em até <b>' + ac.dias + ' dia(s)</b>. A atividade tem ' + ac.aloc.tf
+              + ' dia(s) de folga total: empurrar dentro dela tira <b>' + pd(ac.ganho)
+              + ' pessoa-dia</b> da janela <b>sem mudar a data de término do projeto</b>.';
+          } else if (ac.tipo === 'repassar') {
+            txt.innerHTML = '<b>Repassar parte</b> de “' + escaparHTML(ac.aloc.t.name) + '” <i>('
+              + escaparHTML(ac.aloc.projeto) + ')</i> para <b>' + escaparHTML(ac.para.name || 'outro recurso')
+              + '</b>, que tem ' + pd(ac.livre) + ' pessoa-dia livres nessas mesmas datas. Alivia <b>'
+              + pd(ac.ganho) + ' pessoa-dia</b>.'
+              + (ac.aloc.crit ? ' A atividade está no caminho crítico — dividir o trabalho é preferível a adiar.' : '');
+          } else {
+            txt.innerHTML = '<b>Não fecha por dentro:</b> faltam <b>' + pd(ac.ganho)
+              + ' pessoa-dia</b> nesta janela — ninguém da equipe tem folga nessas datas. '
+              + 'Equivale a cerca de <b>' + fmtNum(Math.round(ac.fte * 100) / 100, 2)
+              + ' pessoa em tempo integral</b> durante os ' + ac.uteis + ' dia(s) úteis do período. '
+              + 'As saídas são contratar/terceirizar, tirar escopo, ou negociar o prazo de um dos projetos.';
+          }
+          li.appendChild(txt);
+          if (ac.aloc && ac.aloc.t) {
+            const b = el('button', 'btn', 'Abrir');
+            b.title = 'Ir para a atividade no cronograma';
+            b.addEventListener('click', () => { fechar(); irParaAtividade(ac.aloc.pid, ac.aloc.t.id); });
+            li.appendChild(b);
+          }
+          cx.appendChild(li);
+        }
+
+        const criticas = bl.naJanela.filter(a => a.crit);
+        if (criticas.length) {
+          cx.appendChild(el('div', 'sugnota',
+            'No caminho crítico nesta janela: ' + criticas.slice(0, 4).map(a => '“' + a.t.name + '”').join(', ')
+            + (criticas.length > 4 ? ' e mais ' + (criticas.length - 4) : '')
+            + '. Adiar qualquer uma delas atrasa o projeto dia por dia — prefira dividir o trabalho ou reduzir escopo.'));
+        }
+        p.appendChild(cx);
+      }
+      body.appendChild(p);
+    }
+
+    body.appendChild(el('div', 'tagline',
+      'As contas somam ' + ((ST.portfolio && ST.portfolio.length) || 1) + ' projeto(s) da carteira e usam o '
+      + 'calendário do projeto aberto para contar dias úteis. “Folga total” é quanto a atividade pode atrasar '
+      + 'sem mexer no término do projeto — por isso adiar dentro da folga é a primeira saída. Reduzir a '
+      + 'dedicação (%) alivia a carga mas não encurta a atividade: se a pessoa é necessária em tempo integral, '
+      + 'alongue a duração junto.'));
+  }, [{ label: 'Fechar', primary: true, fn: f => f() }]);
+}
+
+function escaparHTML(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
 /* ============ gráficos ============ */
 const CW = 760, CH = 230, CM = { t: 14, r: 16, b: 26, l: 56 };
 function niceMax(v) { if (v <= 0) return 1; const p = Math.pow(10, Math.floor(Math.log10(v))); const n = v / p; const s = n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10; return s * p; }
@@ -2949,7 +3218,13 @@ function renderResources() {
   p1.appendChild(el('div', 'tagline', 'A equipe é a mesma em todos os cronogramas: alterar aqui vale para o sistema inteiro. A coluna Projetos mostra em quantos deles cada pessoa está alocada.'));
 
   const p2 = el('div', 'panel');
-  p2.appendChild(el('h3', '', 'Alocação diária vs. capacidade'));
+  const h2r = el('h3', '', 'Alocação diária vs. capacidade');
+  h2r.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px';
+  const bSugR = el('button', 'btn', '💡 Como resolver');
+  bSugR.title = 'Sugestões para desfazer a sobrecarga';
+  bSugR.addEventListener('click', () => janelaSugestoes());
+  h2r.appendChild(bSugR);
+  p2.appendChild(h2r);
   if (!ST.P.resources.length || !carga.size) {
     p2.appendChild(el('div', 'empty', 'Aloque recursos às atividades para ver o histograma de carga.'));
   } else {
@@ -3231,38 +3506,93 @@ function indicadoresDe(P, schPronto) {
 function indicadores() { return indicadoresDe(ST.P, ST.sch); }
 
 /* Carrega os demais projetos só quando a aba é aberta, com cache curto:
-   a visão geral roda de novo a cada sincronização e não pode reler tudo sempre. */
-async function carregarPortfolio() {
-  const saida = [];
-  for (const p of ST.projects) {
-    if (p.id === ST.pid) { saida.push({ id: p.id, meta: ST.P.meta, P: ST.P, ind: indicadoresDe(ST.P, ST.sch) }); continue; }
-    let P = null;
-    try {
-      if (ST.mode === 'db') {
-        const base = dProjeto(p.id);
-        const [m, t, r] = await Promise.all([
-          ST.db.doc(base).get(),
-          ST.db.collection(base + '/tasks').get(),
-          Promise.resolve(null)
-        ]);
-        P = {
-          meta: Object.assign(newMeta(p.name), m.exists ? m.data() : {}),
-          tasks: sortTasks(t.docs.map(d => Object.assign(newTask(), d.data(), { id: d.id }))),
-          resources: ST.P.resources
-        };
-      } else {
-        const all = localLoad() || { projects: {} }, pr = all.projects[p.id] || {};
-        P = {
-          meta: Object.assign(newMeta(p.name), pr.meta || {}),
-          tasks: (pr.tasks || []).map(t2 => Object.assign(newTask(), t2)),
-          resources: ST.P.resources
-        };
-      }
-      saida.push({ id: p.id, meta: P.meta, P: P, ind: indicadoresDe(P) });
-    } catch (e) {
-      saida.push({ id: p.id, meta: { name: p.name }, erro: true });
-    }
+   a visão geral roda de novo a cada sincronização e não pode reler tudo sempre.
+
+   A leitura é feita em duas idas ao banco, não em uma por projeto:
+   1) uma única consulta traz o cabeçalho de TODOS os projetos — é dali que sai
+      o carimbo de quando cada um mudou pela última vez;
+   2) as atividades só são baixadas dos projetos cujo carimbo mudou desde a
+      última leitura, e essas baixas saem todas juntas, não uma esperando a
+      outra. Antes era um ida-e-volta por projeto, em fila: com dez projetos
+      eram dez esperas somadas, e é isso que fazia a aba demorar a abrir. */
+const MEMO_CARTEIRA = new Map();          // chave: org + projeto -> retrato já calculado
+function esquecerCarteira() { MEMO_CARTEIRA.clear(); }
+
+async function emParalelo(itens, largura, fn) {
+  const fila = itens.slice();
+  const linhas = [];
+  for (let i = 0; i < Math.min(largura, fila.length); i++) {
+    linhas.push((async () => { while (fila.length) await fn(fila.shift()); })());
   }
+  await Promise.all(linhas);
+}
+
+async function carregarPortfolio() {
+  const doAberto = () => ({ id: ST.pid, meta: ST.P.meta, P: ST.P, ind: indicadoresDe(ST.P, ST.sch) });
+
+  if (ST.mode !== 'db') {
+    const all = localLoad() || { projects: {} };
+    const saida = ST.projects.map(p => {
+      if (p.id === ST.pid) return doAberto();
+      try {
+        const pr = all.projects[p.id] || {};
+        const P = {
+          meta: Object.assign(newMeta(p.name), pr.meta || {}),
+          tasks: sortTasks((pr.tasks || []).map(t2 => Object.assign(newTask(), t2))),
+          resources: ST.P.resources
+        };
+        return { id: p.id, meta: P.meta, P: P, ind: indicadoresDe(P) };
+      } catch (e) { return { id: p.id, meta: { name: p.name }, erro: true }; }
+    });
+    aoLerCarteira(saida);
+    return saida;
+  }
+
+  // 1) um único ida-e-volta traz o cabeçalho de todos os projetos
+  const cabecalhos = new Map();
+  try {
+    const snap = await ST.db.collection(cProjetos()).get();
+    for (const d of snap.docs) cabecalhos.set(d.id, d.data() || {});
+  } catch (e) { }
+
+  const chave = pid => pre() + pid;
+  const pendentes = [];
+  const saida = ST.projects.map(p => {
+    if (p.id === ST.pid) return doAberto();
+    const cab = cabecalhos.get(p.id) || null;
+    const carimbo = (cab && cab.updatedAt) || 0;
+    const guardado = MEMO_CARTEIRA.get(chave(p.id));
+    if (carimbo && guardado && guardado.carimbo === carimbo) {
+      guardado.P.resources = ST.P.resources;      // o cadastro de equipe é único e vive fora do projeto
+      return { id: p.id, meta: guardado.P.meta, P: guardado.P, ind: guardado.ind };
+    }
+    const lugar = { id: p.id, meta: Object.assign(newMeta(p.name), cab || {}), P: null, ind: null };
+    pendentes.push({ p: p, cab: cab, carimbo: carimbo, lugar: lugar });
+    return lugar;
+  });
+
+  // 2) o que sobrou desce em paralelo; o CPM de cada projeto roda assim que ele chega
+  await emParalelo(pendentes, 8, async (it) => {
+    try {
+      // se a consulta de cabeçalhos não veio (regra, rede), busca o do projeto junto
+      const [t, m] = await Promise.all([
+        ST.db.collection(dProjeto(it.p.id) + '/tasks').get(),
+        it.cab ? Promise.resolve(null) : ST.db.doc(dProjeto(it.p.id)).get()
+      ]);
+      const cab = it.cab || (m && m.exists ? m.data() : null);
+      const P = {
+        meta: Object.assign(newMeta(it.p.name), cab || {}),
+        tasks: sortTasks(t.docs.map(d => Object.assign(newTask(), d.data(), { id: d.id }))),
+        resources: ST.P.resources
+      };
+      const ind = indicadoresDe(P);
+      it.lugar.meta = P.meta; it.lugar.P = P; it.lugar.ind = ind;
+      if (it.carimbo) MEMO_CARTEIRA.set(chave(it.p.id), { carimbo: it.carimbo, P: P, ind: ind });
+    } catch (e) {
+      it.lugar.erro = true; it.lugar.meta = { name: it.p.name };
+    }
+  });
+
   aoLerCarteira(saida);     // único ponto por onde a carteira inteira passa
   return saida;
 }
@@ -6768,6 +7098,10 @@ function painelCapacidade() {
   sel.value = String(ST.capSemanas || 12);
   sel.addEventListener('change', () => { ST.capSemanas = Number(sel.value); renderPainel(); });
   acoes.appendChild(sel);
+  const bSug = el('button', 'btn primary', '💡 Como resolver');
+  bSug.title = 'Sugestões para desfazer a sobrecarga';
+  bSug.addEventListener('click', () => janelaSugestoes());
+  acoes.appendChild(bSug);
   const bTab = el('button', 'btn', 'Ver como tabela');
   acoes.appendChild(bTab);
   cab.appendChild(acoes); p.appendChild(cab);
@@ -6784,7 +7118,7 @@ function painelCapacidade() {
   const somaFalta = d.porSemana.reduce((a, x) => a + x.falta, 0);
   const realoc = d.porSemana.reduce((a, x) => a + x.realocavel, 0);
   const capTotal = d.linhas.length * n;
-  const num = (v) => fmtNum(Math.round(v * 10) / 10);
+  const num = (v) => fmtNum(Math.round(v * 10) / 10, 1);
 
   /* ---- a leitura em uma frase: é o que o gestor lê ---- */
   const ver = el('div', 'capver');
@@ -6892,13 +7226,13 @@ function tabelaCapacidade(d) {
       const l = el('tr');
       l.appendChild(el('td', '', L.res.name || 'Sem nome'));
       for (const c of L.cel) l.appendChild(el('td', '', c.pct == null || c.pct <= 0.01 ? '—' : Math.round(c.pct) + '%'));
-      l.appendChild(el('td', '', fmtNum(Math.round(L.cel.reduce((a, c) => a + c.livre, 0) * 10) / 10)));
+      l.appendChild(el('td', '', fmtNum(Math.round(L.cel.reduce((a, c) => a + c.livre, 0) * 10) / 10, 1)));
       tbody.appendChild(l);
     }
     const tot = el('tr');
     tot.appendChild(el('td', '', 'Folga da equipe'));
-    for (const s of d.porSemana) tot.appendChild(el('td', '', fmtNum(Math.round(s.livre * 10) / 10)));
-    tot.appendChild(el('td', '', fmtNum(Math.round(d.porSemana.reduce((a, x) => a + x.livre, 0) * 10) / 10)));
+    for (const s of d.porSemana) tot.appendChild(el('td', '', fmtNum(Math.round(s.livre * 10) / 10, 1)));
+    tot.appendChild(el('td', '', fmtNum(Math.round(d.porSemana.reduce((a, x) => a + x.livre, 0) * 10) / 10, 1)));
     tbody.appendChild(tot);
     tb.appendChild(tbody);
     const cx = el('div'); cx.style.cssText = 'overflow-x:auto'; cx.appendChild(tb);
@@ -7415,7 +7749,7 @@ function renderHoras() {
   iPrev.addEventListener('change', () => {
     if (semPermissao()) return;
     ST.P.meta.horasPrev = Math.max(0, Number(iPrev.value) || 0);
-    markMeta(); ST.portfolio = null; ST.portfolioEm = 0; renderHoras(); renderKPIs();
+    markMeta(); ST.portfolio = null; ST.portfolioEm = 0; esquecerCarteira(); renderHoras(); renderKPIs();
   });
   const bCsv = el('button', 'btn', '⤓ CSV');
   bCsv.title = 'Baixa os lançamentos como planilha';
@@ -7485,7 +7819,7 @@ function renderHoras() {
         id: uid('h'), data: iData.value, pessoa: iPessoa.value.trim(),
         tid: sAtiv.value || '', h: horas, obs: iObs.value.trim(), criadoEm: Date.now()
       });
-      markMeta(); ST.portfolio = null; ST.portfolioEm = 0;
+      markMeta(); ST.portfolio = null; ST.portfolioEm = 0; esquecerCarteira();
       iH.value = ''; iObs.value = '';
       renderHoras(); renderKPIs();
       toast(fmtH(horas) + ' lançadas.');
@@ -7526,7 +7860,7 @@ function renderHoras() {
         node.addEventListener('change', () => {
           if (semPermissao()) { renderHoras(); return; }
           x[campo] = conv ? conv(node.value) : node.value;
-          markMeta(); ST.portfolio = null; ST.portfolioEm = 0;
+          markMeta(); ST.portfolio = null; ST.portfolioEm = 0; esquecerCarteira();
           if (campo === 'h' || campo === 'data') { renderHoras(); renderKPIs(); }
         });
       };
@@ -7550,7 +7884,7 @@ function renderHoras() {
       bX.addEventListener('click', () => {
         if (semPermissao()) return;
         const i = lista.indexOf(x); if (i >= 0) lista.splice(i, 1);
-        markMeta(); ST.portfolio = null; ST.portfolioEm = 0; renderHoras(); renderKPIs();
+        markMeta(); ST.portfolio = null; ST.portfolioEm = 0; esquecerCarteira(); renderHoras(); renderKPIs();
       });
       tdX.appendChild(bX); tr.appendChild(tdX);
       tbo.appendChild(tr);
@@ -8895,7 +9229,7 @@ async function excluirProjeto(pid) {
   } catch (e) { toast('Não consegui excluir: ' + ((e && e.message) || 'erro')); return false; }
 
   ST.projects = ST.projects.filter(x => x.id !== pid);
-  ST.portfolio = null; ST.portfolioEm = 0; cacheCarga = null;
+  ST.portfolio = null; ST.portfolioEm = 0; esquecerCarteira(); cacheCarga = null;
   if (ST.pid === pid) {
     if (ST.projects.length) await openProject(ST.projects[0].id);
     else await createProject('Projeto sem título', todayISO(), '');
@@ -8931,7 +9265,7 @@ async function salvarIdentidade(pid, nome, cliente, resumo, horasPrev) {
   } catch (e) { toast('Não consegui salvar: ' + ((e && e.message) || 'erro')); return false; }
   const p2 = ST.projects.find(x => x.id === pid);
   if (p2) { p2.name = nome; p2.client = cliente; }
-  ST.portfolio = null; ST.portfolioEm = 0;
+  ST.portfolio = null; ST.portfolioEm = 0; esquecerCarteira();
   renderProjectList(); refresh();
   return true;
 }
@@ -9534,7 +9868,7 @@ function arqTrocar(id) {
       resources: (all.resources || []).slice()
     };
   }
-  ST.sel.clear(); ST.portfolio = null; ST.portfolioEm = 0;
+  ST.sel.clear(); ST.portfolio = null; ST.portfolioEm = 0; esquecerCarteira();
   renderProjectList(); refresh();
 }
 /** A faixa do topo: o que é este arquivo, de quando, de qual empresa. */
