@@ -914,7 +914,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-16.3';
+const VERSAO = '2026-09-16.4';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -4130,8 +4130,14 @@ function renderOverview() {
      horas fecharam. Tudo vem do retrato congelado no dia do encerramento. */
   const tabelaEncerrados = (alvo) => {
     if (!alvo.length) {
-      corpo.appendChild(el('div', 'empty',
-        'Nenhum projeto concluído ainda. Use o 🏁 na linha de um projeto para encerrá-lo.'));
+      const vaz = el('div', 'empty');
+      vaz.appendChild(el('div', '', 'Nenhum projeto concluído ainda.'));
+      const como = el('div', '', 'Para encerrar um projeto: volte em “Em andamento” e clique no 🏁 ' +
+        'na última coluna da linha dele. Os números daquele dia ficam guardados aqui, e o projeto ' +
+        'deixa de contar nas médias da Visão geral, no sino de atrasos e no mapa de carga.');
+      como.style.cssText = 'margin-top:8px;max-width:60ch;margin-left:auto;margin-right:auto;line-height:1.5';
+      vaz.appendChild(como);
+      corpo.appendChild(vaz);
       return;
     }
     const tb = el('table', 'data');
@@ -4198,18 +4204,19 @@ function renderOverview() {
     corpo.textContent = '';
     if (!lista || !lista.length) { corpo.appendChild(el('div', 'empty', 'Nenhum projeto ainda. Use “＋ Novo projeto”.')); return; }
     const ativos = soAtivos(lista), fechados = soEncerrados(lista);
-    if (fechados.length) {
-      const nav = el('div', 'segs');
-      const bota = (id, rot, n) => {
-        const b2 = el('button', 'seg' + (ABA_PORT === id ? ' on' : ''), rot);
-        b2.appendChild(el('span', 'cont', fmtNum(n)));
-        b2.addEventListener('click', () => { ABA_PORT = id; desenhar(lista); });
-        nav.appendChild(b2);
-      };
-      bota('ativos', 'Em andamento', ativos.length);
-      bota('encerrados', 'Concluídos', fechados.length);
-      corpo.appendChild(nav);
-    } else if (ABA_PORT === 'encerrados') ABA_PORT = 'ativos';
+    /* O alternador aparece sempre, mesmo com zero concluídos. Escondê-lo até
+       existir o primeiro deixava a funcionalidade invisível justamente para
+       quem ainda não a conhece — e a lista vazia é quem explica como encerrar. */
+    const nav = el('div', 'segs');
+    const bota = (id, rot, n) => {
+      const b2 = el('button', 'seg' + (ABA_PORT === id ? ' on' : ''), rot);
+      b2.appendChild(el('span', 'cont', fmtNum(n)));
+      b2.addEventListener('click', () => { ABA_PORT = id; desenhar(lista); });
+      nav.appendChild(b2);
+    };
+    bota('ativos', 'Em andamento', ativos.length);
+    bota('encerrados', 'Concluídos', fechados.length);
+    corpo.appendChild(nav);
     if (ABA_PORT === 'encerrados') { tabelaEncerrados(fechados); return; }
     const alvo = ativos;
     if (!alvo.length) {
