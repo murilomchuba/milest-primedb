@@ -348,6 +348,7 @@ textarea.inp{font-family:var(--f-mono);font-size:11.5px;min-height:180px;resize:
 .toast.on{opacity:1}
 .empty{padding:40px 16px;text-align:center;color:var(--ink-3);font-size:12.5px}
 /* alternador "Em andamento / Concluídos" dentro do Portfólio */
+td.ordem{color:var(--ink-3);font-family:var(--f-mono);font-size:11.5px;width:34px}
 .segs{display:flex;gap:2px;padding:0 14px 10px;align-items:center}
 .seg{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--surface);
   color:var(--ink-2);font:inherit;font-size:12.5px;padding:6px 12px;cursor:pointer}
@@ -905,7 +906,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-16.4';
+const VERSAO = '2026-09-17.1';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -3538,6 +3539,18 @@ function indicadores() { return indicadoresDe(ST.P, ST.sch); }
    fechado — falta aceite, medição, nota. */
 function ehEncerrado(m) { return !!(m && m.encerradoEm); }
 function soAtivos(lista) { return (lista || []).filter(it => !ehEncerrado(it.meta)); }
+
+/* Ordem alfabética de gente, não de computador: "Ângela" ao lado de "Angela",
+   maiúscula e minúscula juntas, e o número dentro do nome contado como número
+   ("Obra 2" antes de "Obra 10"). É o que localeCompare em pt-BR faz. */
+const COTEJO = (() => {
+  try { return new Intl.Collator('pt-BR', { sensitivity: 'base', numeric: true }); }
+  catch (e) { return { compare: (a, b) => a < b ? -1 : a > b ? 1 : 0 }; }
+})();
+function porNome(lista) {
+  return (lista || []).slice().sort((a, b) =>
+    COTEJO.compare((a.meta && a.meta.name) || '', (b.meta && b.meta.name) || ''));
+}
 function soEncerrados(lista) { return (lista || []).filter(it => ehEncerrado(it.meta)); }
 
 /* A Visão geral responde "como está a carteira", no presente: por padrão os
@@ -4133,18 +4146,19 @@ function renderOverview() {
     }
     const tb = el('table', 'data');
     const hr = el('tr');
-    const cols = [['Cliente', ''], ['Projeto', ''], ['Encerrado em', 'num'], ['Início', 'num'], ['Término', 'num'],
+    const cols = [['#', 'num'], ['Cliente', ''], ['Projeto', ''], ['Encerrado em', 'num'], ['Início', 'num'], ['Término', 'num'],
     ['Duração', 'num'], ['vs. base', 'num'], ['% Realiz.', 'num'], ['IDP', 'num'], ['IDC', 'num'],
     ['H. prev.', 'num'], ['H. real.', 'num'], ['Saldo', 'num'], ['', '']];
     for (const c of cols) hr.appendChild(el('th', c[1], c[0]));
     const th = el('thead'); th.appendChild(hr); tb.appendChild(th);
     const tbo = el('tbody');
-    const ordenados = alvo.slice().sort((a, b2) =>
-      ((b2.meta && b2.meta.encerradoEm) || '') < ((a.meta && a.meta.encerradoEm) || '') ? -1 : 1);
+    const ordenados = porNome(alvo);
+    let nLinha = 0;
     for (const it of ordenados) {
       const m = it.meta, f = m.encerramento || retratoDoEncerramento(it.ind);
       const tr = el('tr', 'projrow');
       tr.title = 'Abrir este cronograma';
+      tr.appendChild(el('td', 'num ordem', fmtNum(++nLinha)));
       tr.addEventListener('click', async () => {
         if (it.id !== ST.pid) { await openProject(it.id); $('#projSel').value = it.id; }
         setView('schedule');
@@ -4209,22 +4223,25 @@ function renderOverview() {
     bota('encerrados', 'Concluídos', fechados.length);
     corpo.appendChild(nav);
     if (ABA_PORT === 'encerrados') { tabelaEncerrados(fechados); return; }
-    const alvo = ativos;
+    const alvo = porNome(ativos);
     if (!alvo.length) {
       corpo.appendChild(el('div', 'empty', 'Todos os projetos estão concluídos. Veja a lista em “Concluídos”.'));
       return;
     }
     const tb = el('table', 'data');
     const hr = el('tr');
-    const cols = [['Cliente', ''], ['Projeto', ''], ['Início', 'num'], ['Término', 'num'], ['Duração', 'num'],
+    const cols = [['#', 'num'], ['Cliente', ''], ['Projeto', ''], ['Início', 'num'], ['Término', 'num'], ['Duração', 'num'],
     ['% Planej.', 'num'], ['% Realiz.', 'num'], ['IDP', 'num'], ['Situação', ''], ['IDC', 'num'],
     ['H. prev.', 'num'], ['H. real.', 'num'], ['Saldo', 'num'], ['Atividades', 'num'], ['', '']];
     for (const c of cols) hr.appendChild(el('th', c[1], c[0]));
     const th = el('thead'); th.appendChild(hr); tb.appendChild(th);
     const tbo = el('tbody');
+    let nLinha = 0;
     for (const it of alvo) {
       const tr = el('tr', 'projrow' + (it.id === ST.pid ? ' atual' : ''));
       tr.title = 'Abrir este cronograma';
+      const tdNum = el('td', 'num ordem', fmtNum(++nLinha));
+      tr.appendChild(tdNum);
       tr.addEventListener('click', async () => {
         if (it.id !== ST.pid) { await openProject(it.id); $('#projSel').value = it.id; }
         setView('schedule');
@@ -4232,6 +4249,7 @@ function renderOverview() {
       if (it.erro) {
         tr.appendChild(el('td', '', ''));
         tr.appendChild(el('td', '', it.meta.name || 'Projeto'));
+        // (# + cliente + nome + aviso com colSpan 12 + ações = as 16 colunas)
         const td = el('td', '', 'não foi possível ler este projeto'); td.colSpan = 12;
         td.style.color = 'var(--critical)'; tr.appendChild(td);
         tr.appendChild(acoesDaLinha(it));
