@@ -914,7 +914,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-17.2';
+const VERSAO = '2026-09-17.3';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -4525,20 +4525,45 @@ function desenharStatusReport() {
   });
 
   // ---- blocos de texto
-  const bloco = (x, y, w, h, titulo, itens, vazio) => {
+  /* O bloco aperta a fonte até o texto inteiro caber, em vez de cortar no meio
+     de uma frase. Um risco anotado que não aparece no status report é pior do
+     que um risco escrito miúdo: quem lê a folha precisa ver a lista toda.
+
+     A mesma ideia que a coluna da direita já usava para as entregas. O piso é
+     7pt — abaixo disso não se lê num 16:9 projetado, e aí sim o resto vira "…",
+     que é o sinal de que aquele campo virou texto corrido demais para um
+     quadro de uma folha só. */
+  const ESCALAS_BL = [10, 9.5, 9, 8.5, 8, 7.5, 7];
+  const linhasDoBloco = (itens, w, f) => {
+    const linhas = [];
+    for (const it of (itens || [])) envolver(it, w - 30, f).forEach((ln, i) => linhas.push({ txt: ln, primeira: i === 0 }));
+    return linhas;
+  };
+  const alturaUtilBloco = h => h - 10 - 7 - 6;
+  /** A maior fonte em que a lista inteira cabe na caixa. */
+  const fonteQueCabe = (itens, w, h) => {
+    const disp = alturaUtilBloco(h);
+    for (const f of ESCALAS_BL) {
+      if (linhasDoBloco(itens, w, f).length * (f * 1.5) <= disp) return f;
+    }
+    return ESCALAS_BL[ESCALAS_BL.length - 1];
+  };
+  const bloco = (x, y, w, h, titulo, itens, vazio, fonte) => {
     T(x, y, titulo.toUpperCase(), 9.5, 700, CORES_ST.planejado);
     L(x, y + 5, x + w, y + 5, CORES_ST.linha, 1);
     R(x, y + 10, w, h - 10, CORES_ST.caixa, 3);
-    let yy = y + 27;
+    const f = fonte || fonteQueCabe(itens, w, h);
+    const passo = f * 1.5;
+    let yy = y + 17 + f;
     const limite = y + h - 6;
-    const linhas = [];
-    for (const it of (itens || [])) envolver(it, w - 30, 10).forEach((ln, i) => linhas.push({ txt: ln, primeira: i === 0 }));
-    if (!linhas.length) { T(x + 12, yy, vazio || 'Nada registrado.', 10, 400, CORES_ST.tinta3); return; }
+    const linhas = linhasDoBloco(itens, w, f);
+    if (!linhas.length) { T(x + 12, yy, vazio || 'Nada registrado.', f, 400, CORES_ST.tinta3); return; }
+    const lado = Math.max(3, f * 0.4);
     for (const ln of linhas) {
-      if (yy > limite - 4) { T(x + 12, yy, '…', 10, 400, CORES_ST.tinta3); break; }
-      if (ln.primeira && ln.txt) { R(x + 12, yy - 6, 4, 4, CORES_ST.realizado, 1); T(x + 22, yy, ln.txt, 10, 400, CORES_ST.tinta); }
-      else T(x + 22, yy, ln.txt, 10, 400, CORES_ST.tinta);
-      yy += 15;
+      if (yy > limite) { T(x + 12, yy, '…', f, 400, CORES_ST.tinta3); break; }
+      if (ln.primeira && ln.txt) { R(x + 12, yy - f * 0.55, lado, lado, CORES_ST.realizado, 1); T(x + 22, yy, ln.txt, f, 400, CORES_ST.tinta); }
+      else T(x + 22, yy, ln.txt, f, 400, CORES_ST.tinta);
+      yy += passo;
     }
   };
   const listar = t => String(t || '').split(/\n/).map(x => x.trim()).filter(Boolean);
@@ -4603,11 +4628,14 @@ function desenharStatusReport() {
   const meia = (colE - M - 14) / 2;
   curvaNaFolha(M, yBlocos, colE - M, altCurva);
   const rpl = ultimoReplano();
-  bloco(M, yTextos, meia, altTexto, 'Riscos / Pontos de Atenção',
-    (rpl ? [fraseReplano(rpl)] : []).concat(listar(meta.riscos)), 'Nenhum risco registrado.');
-  bloco(M + meia + 14, yTextos, meia, altTexto, 'Atividades Realizadas',
-    listar(meta.conquistas).length ? listar(meta.conquistas) : sugestaoConquistas(),
-    'Nenhuma entrega concluída na última semana.');
+  const itensRisco = (rpl ? [fraseReplano(rpl)] : []).concat(listar(meta.riscos));
+  const itensFeito = listar(meta.conquistas).length ? listar(meta.conquistas) : sugestaoConquistas();
+  /* Os dois quadros ficam lado a lado: se cada um escolhesse a própria fonte,
+     um sairia visivelmente menor que o vizinho. Ganha a menor das duas. */
+  const fBlocos = Math.min(fonteQueCabe(itensRisco, meia, altTexto), fonteQueCabe(itensFeito, meia, altTexto));
+  bloco(M, yTextos, meia, altTexto, 'Riscos / Pontos de Atenção', itensRisco, 'Nenhum risco registrado.', fBlocos);
+  bloco(M + meia + 14, yTextos, meia, altTexto, 'Atividades Realizadas', itensFeito,
+    'Nenhuma entrega concluída na última semana.', fBlocos);
 
   // ---- direita: entregas (fases) e atividades em andamento
   const xd = colE + 20, wd = W - M - xd;
