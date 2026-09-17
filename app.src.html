@@ -906,7 +906,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-17.1';
+const VERSAO = '2026-09-17.2';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -3547,9 +3547,19 @@ const COTEJO = (() => {
   try { return new Intl.Collator('pt-BR', { sensitivity: 'base', numeric: true }); }
   catch (e) { return { compare: (a, b) => a < b ? -1 : a > b ? 1 : 0 }; }
 })();
-function porNome(lista) {
-  return (lista || []).slice().sort((a, b) =>
-    COTEJO.compare((a.meta && a.meta.name) || '', (b.meta && b.meta.name) || ''));
+/* Ordena pelo cliente e, dentro do mesmo cliente, pelo nome do projeto — é
+   assim que a carteira é lida na prática: primeiro de quem, depois o quê.
+   Projeto sem cliente vai para o fim: string vazia ordenaria antes de tudo e
+   os "—" abririam a lista, que não é o que se espera de uma lista por cliente. */
+function porCliente(lista) {
+  const cli = it => ((it.meta && it.meta.client) || '').trim();
+  const nom = it => (it.meta && it.meta.name) || '';
+  return (lista || []).slice().sort((a, b) => {
+    const ca = cli(a), cb = cli(b);
+    if (!ca !== !cb) return ca ? -1 : 1;          // sem cliente fica por último
+    const d = COTEJO.compare(ca, cb);
+    return d !== 0 ? d : COTEJO.compare(nom(a), nom(b));
+  });
 }
 function soEncerrados(lista) { return (lista || []).filter(it => ehEncerrado(it.meta)); }
 
@@ -4152,7 +4162,7 @@ function renderOverview() {
     for (const c of cols) hr.appendChild(el('th', c[1], c[0]));
     const th = el('thead'); th.appendChild(hr); tb.appendChild(th);
     const tbo = el('tbody');
-    const ordenados = porNome(alvo);
+    const ordenados = porCliente(alvo);
     let nLinha = 0;
     for (const it of ordenados) {
       const m = it.meta, f = m.encerramento || retratoDoEncerramento(it.ind);
@@ -4223,7 +4233,7 @@ function renderOverview() {
     bota('encerrados', 'Concluídos', fechados.length);
     corpo.appendChild(nav);
     if (ABA_PORT === 'encerrados') { tabelaEncerrados(fechados); return; }
-    const alvo = porNome(ativos);
+    const alvo = porCliente(ativos);
     if (!alvo.length) {
       corpo.appendChild(el('div', 'empty', 'Todos os projetos estão concluídos. Veja a lista em “Concluídos”.'));
       return;
