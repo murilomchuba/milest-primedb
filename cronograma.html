@@ -914,7 +914,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-17.3';
+const VERSAO = '2026-09-18.1';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -9983,7 +9983,7 @@ async function criarContaComSenha(email, senha) {
   const alvo = chaveEmail(email);
   try {
     const cred = await sec.auth().createUserWithEmailAndPassword(alvo, senha);
-    try { await cred.user.sendEmailVerification(); } catch (e) { }
+    try { await cred.user.sendEmailVerification(voltaParaOSistema()); } catch (e) { }
     try { await sec.auth().signOut(); } catch (e) { }
     return { ok: true, criada: true };
   } catch (e) {
@@ -9998,9 +9998,22 @@ async function criarContaComSenha(email, senha) {
 
 /** Manda a pessoa criar outra senha. É o caminho de quem esqueceu — e o único
     jeito, sem servidor, de repor a senha de uma conta que já existia. */
+/* Para onde a pessoa volta depois de confirmar o e-mail ou redefinir a senha.
+   Sem isto o Firebase mostra a própria página de confirmação e a conversa
+   morre ali: a pessoa fica sem saber que precisa voltar ao sistema. Com o
+   endereço, a página de ação oferece o caminho de volta para o MILEST.
+   O domínio precisa estar em Authentication → Settings → Authorized domains. */
+function voltaParaOSistema() {
+  try {
+    const o = location.origin;
+    if (/^https:/.test(o) && !/localhost|127\.0\.0\.1/.test(o)) return { url: o };
+  } catch (e) { }
+  return { url: 'https://app.milest.com.br' };
+}
+
 async function enviarRedefinicao(email) {
   if (!ST.auth) return { ok: false, motivo: 'este navegador não está conectado ao Firebase.' };
-  try { await ST.auth.sendPasswordResetEmail(chaveEmail(email)); return { ok: true }; }
+  try { await ST.auth.sendPasswordResetEmail(chaveEmail(email), voltaParaOSistema()); return { ok: true }; }
   catch (e) { return { ok: false, motivo: erroAuth(e) }; }
 }
 
@@ -10182,7 +10195,7 @@ async function bootFirebase(cfg) {
     if (!u) { ST.gate.aviso('Entre com o seu e-mail e a sua senha primeiro.', true); return; }
     botaoReenviar.disabled = true;
     try {
-      await u.sendEmailVerification();
+      await u.sendEmailVerification(voltaParaOSistema());
       ST.gate.aviso('Reenviamos a confirmação para ' + u.email + '. Vale olhar no lixo eletrônico.');
     } catch (e) { ST.gate.aviso('Não consegui reenviar: ' + erroAuth(e), true); }
     botaoReenviar.disabled = false;
