@@ -4,4 +4,18 @@ chave.json
 chave-*.json
 *-firebase-adminsdk-*.json
 node_modules/
+
+# As SAÍDAS do backup são dados de clientes. Elas nunca entram no
+# repositório — uma vez empurradas para o GitHub, ficariam no histórico
+# para sempre, mesmo apagadas depois.
+#
+# A regra é por pasta, não por nome de arquivo, porque o script cria uma
+# pasta por empresa e ninguém vai lembrar de vir aqui acrescentar cada
+# cliente novo. Nada de subpasta é versionado aqui: a ferramenta são os
+# arquivos soltos desta raiz.
 saidas/
+*/
+milest-backup-*.json
+
+# O pacote do próprio repositório não se versiona dentro dele.
+*.bundle
