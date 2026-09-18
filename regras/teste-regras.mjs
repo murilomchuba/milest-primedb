@@ -183,6 +183,71 @@ await caso('a pessoa NÃO se marca como provisória', () =>
 await caso('ninguém mexe na marca de outra pessoa', () =>
   assertFails(setDoc(doc(conta(CAIO), 'orgs/unimed/members', ANA), { senhaProvisoria: false }, { merge: true })));
 
+console.log('\nESCALADA DE PRIVILÉGIO DENTRO DA EMPRESA');
+// O leitor é o perfil mais perigoso: tem sessão válida e motivo para tentar.
+await caso('leitor NÃO se promove a admin', () =>
+  assertFails(updateDoc(doc(conta(CAIO), 'orgs/unimed/members', CAIO), { papel: 'admin' })));
+await caso('leitor NÃO se promove a gerente', () =>
+  assertFails(updateDoc(doc(conta(CAIO), 'orgs/unimed/members', CAIO), { papel: 'gerente' })));
+await caso('leitor NÃO rebaixa a administradora', () =>
+  assertFails(updateDoc(doc(conta(CAIO), 'orgs/unimed/members', ANA), { papel: 'leitor' })));
+await caso('leitor NÃO apaga o próprio cadastro de membro', () =>
+  assertFails(deleteDoc(doc(conta(CAIO), 'orgs/unimed/members', CAIO))));
+await caso('leitor NÃO se cadastra em empresa alheia', () =>
+  assertFails(setDoc(doc(conta(CAIO), 'orgs/varejo/members', CAIO), { email: CAIO, papel: 'admin', ativo: true })));
+await caso('membro desativado NÃO se reativa', async () => {
+  await env.withSecurityRulesDisabled(async ctx =>
+    setDoc(doc(ctx.firestore(), 'orgs/unimed/members', CAIO), { email: CAIO, papel: 'leitor', ativo: false }));
+  await assertFails(updateDoc(doc(conta(CAIO), 'orgs/unimed/members', CAIO), { ativo: true }));
+  await env.withSecurityRulesDisabled(async ctx =>
+    setDoc(doc(ctx.firestore(), 'orgs/unimed/members', CAIO), { email: CAIO, papel: 'leitor', ativo: true }));
+});
+
+console.log('\nE-MAIL NÃO VERIFICADO');
+// logado() exige email_verified: quem não confirmou o e-mail não existe para as regras.
+const naoVerificado = email => env.authenticatedContext(email, { email, email_verified: false }).firestore();
+await caso('e-mail não verificado NÃO lê projeto, mesmo sendo membro', () =>
+  assertFails(getDoc(doc(naoVerificado(ANA), 'orgs/unimed/projects', 'p1'))));
+await caso('e-mail não verificado NÃO grava', () =>
+  assertFails(setDoc(doc(naoVerificado(ANA), 'orgs/unimed/projects', 'pX'), { name: 'x' })));
+await caso('e-mail não verificado NÃO lê o próprio índice', () =>
+  assertFails(getDoc(doc(naoVerificado(ANA), 'users', ANA))));
+
+console.log('\nCADASTRO DA EMPRESA: O QUE O ADMIN NÃO PODE MEXER');
+// A fronteira comercial: o cliente administra a própria empresa, não o contrato.
+await caso('admin NÃO reativa a própria empresa suspensa', () =>
+  assertFails(updateDoc(doc(conta(BRUNO), 'orgs', 'suspensa'), { ativo: true })));
+await caso('admin NÃO marca a própria empresa como sem dono', () =>
+  assertFails(updateDoc(doc(conta(ANA), 'orgs', 'unimed'), { semDono: true })));
+await caso('admin NÃO marca a própria empresa como própria do operador', () =>
+  assertFails(updateDoc(doc(conta(ANA), 'orgs', 'unimed'), { propria: true })));
+await caso('admin NÃO apaga a própria empresa', () =>
+  assertFails(deleteDoc(doc(conta(ANA), 'orgs', 'unimed'))));
+
+console.log('\nÍNDICE DE CONTAS: OCUPAÇÃO DE E-MAIL');
+// Falha conhecida, de baixa gravidade: um admin aponta para a própria empresa
+// o índice de um e-mail que ainda não entrou no sistema, e o admin legítimo
+// daquela pessoa não consegue corrigir depois. Não vaza dado — atrapalha a entrada.
+await caso('[FALHA CONHECIDA] admin ocupa o índice de um e-mail de fora', () =>
+  assertSucceeds(setDoc(doc(conta(ANA), 'users', 'futuro@varejo.com.br'), { email: 'futuro@varejo.com.br', orgId: 'unimed' })));
+await caso('[FALHA CONHECIDA] o admin legítimo NÃO consegue desfazer a ocupação', () =>
+  assertFails(setDoc(doc(conta(BRUNO), 'users', 'futuro@varejo.com.br'), { email: 'futuro@varejo.com.br', orgId: 'varejo' })));
+
+console.log('\nAPAGAR E RECRIAR A EMPRESA (limite da promessa de não-acesso)');
+/* Apagar um documento no Firestore NÃO apaga as subcoleções dele. Então quem
+   opera a plataforma pode apagar orgs/{cliente}, recriar com semDono:true,
+   cadastrar um cúmplice como admin e ler os projetos que continuaram lá.
+   O teste existe para registrar o buraco; quando a regra de delete for
+   fechada, ele vira assertFails e passa a proteger a correção. */
+await caso('[FALHA CONHECIDA] plataforma apaga o cadastro de um cliente com dono', () =>
+  assertSucceeds(deleteDoc(doc(conta(PLATAFORMA), 'orgs', 'unimed'))));
+await caso('[FALHA CONHECIDA] ... recria a empresa com a janela reaberta', () =>
+  assertSucceeds(setDoc(doc(conta(PLATAFORMA), 'orgs', 'unimed'), { nome: 'Unimed Uberaba', ativo: true, semDono: true })));
+await caso('[FALHA CONHECIDA] ... cadastra um cúmplice como admin', () =>
+  assertSucceeds(setDoc(doc(conta(PLATAFORMA), 'orgs/unimed/members', FORA), { email: FORA, papel: 'admin', ativo: true })));
+await caso('[FALHA CONHECIDA] ... e o cúmplice lê o projeto que nunca foi apagado', () =>
+  assertSucceeds(getDoc(doc(conta(FORA), 'orgs/unimed/projects', 'p1'))));
+
 console.log('\n' + ok + ' passaram, ' + falhou + ' falharam.');
 await env.cleanup();
 process.exit(falhou ? 1 : 0);
