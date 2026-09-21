@@ -64,3 +64,20 @@ test('entradas inválidas', () => {
   assert.equal(senhaValida('123456'), true);
   assert.equal(senhaValida(123456), false);
 });
+
+const { decidirExclusao } = require('../regras-acesso');
+const org = (o) => ({ nome: 'Indústria Aurora', ativo: false, semDono: false, ...o });
+const plat = { quem: 'mmc.chuba@gmail.com', idxQuem: { plataforma: true } };
+test('exclusão: plataforma exclui empresa suspensa com o nome certo', () => {
+  assert.equal(decidirExclusao({ ...plat, org: org(), nomeDigitado: ' indústria aurora ' }).ok, true);
+});
+test('exclusão: empresa ativa precisa ser suspensa antes', () => {
+  assert.equal(decidirExclusao({ ...plat, org: org({ ativo: true }), nomeDigitado: 'Indústria Aurora' }).ok, false);
+  assert.equal(decidirExclusao({ ...plat, org: org({ ativo: true, semDono: true }), nomeDigitado: 'Indústria Aurora' }).ok, true);
+});
+test('exclusão: nome errado, empresa própria ou quem não é plataforma', () => {
+  assert.equal(decidirExclusao({ ...plat, org: org(), nomeDigitado: 'Aurora' }).ok, false);
+  assert.equal(decidirExclusao({ ...plat, org: org({ propria: true }), nomeDigitado: 'Indústria Aurora' }).ok, false);
+  assert.equal(decidirExclusao({ quem: 'ana@c.com', idxQuem: { orgId: 'o1' }, org: org(), nomeDigitado: 'Indústria Aurora' }).ok, false);
+  assert.equal(decidirExclusao({ ...plat, org: null, nomeDigitado: 'x' }).ok, false);
+});

@@ -66,4 +66,26 @@ function senhaValida(s) {
   return typeof s === 'string' && s.length >= 6 && s.length <= 128;
 }
 
-module.exports = { decidir, senhaValida, chave, DONO };
+/**
+ * Pode a plataforma apagar esta empresa inteira (cadastro, projetos, membros)?
+ *   quem, idxQuem  — quem chama e o índice dele
+ *   org            — orgs/{id} (ou null se não existe)
+ *   nomeDigitado   — confirmação: o nome da empresa, digitado
+ * Regras: só a plataforma; nunca a empresa própria do operador; a empresa
+ * precisa estar SUSPENSA antes (dois passos, para não apagar por engano).
+ */
+function decidirExclusao(p) {
+  const quem = chave(p.quem);
+  const souPlataforma = quem === DONO || (p.idxQuem && p.idxQuem.plataforma === true);
+  if (!souPlataforma) return { ok: false, motivo: 'só a plataforma exclui empresas.' };
+  if (!p.org) return { ok: false, motivo: 'empresa não encontrada.' };
+  if (p.org.propria === true) return { ok: false, motivo: 'a empresa do próprio operador não é excluída por aqui.' };
+  if (p.org.ativo !== false && p.org.semDono !== true)
+    return { ok: false, motivo: 'suspenda a empresa antes de excluir.' };
+  const alvo = String(p.org.nome || '').trim().toLowerCase();
+  if (!alvo || String(p.nomeDigitado || '').trim().toLowerCase() !== alvo)
+    return { ok: false, motivo: 'o nome digitado não confere com o da empresa.' };
+  return { ok: true };
+}
+
+module.exports = { decidir, decidirExclusao, senhaValida, chave, DONO };

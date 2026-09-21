@@ -59,6 +59,20 @@ service cloud.firestore {
     function editaOrg(org)  { return daOrg(org) && orgNoPrazo(org) && papelNa(org) in ['admin', 'gerente']; }
     function mandaNaOrg(org) { return daOrg(org) && orgNoPrazo(org) && papelNa(org) == 'admin'; }
 
+    // ---- modo suporte ------------------------------------------------------
+    // O administrador da empresa libera, por prazo, o acesso da plataforma aos
+    // dados dela (orgs/{org}/suporte/acesso). Vencido o prazo, o acesso cai
+    // aqui, nas regras — não depende de a tela lembrar de fechar.
+    // A plataforma NÃO grava esse documento: só quem manda na empresa.
+    function docSuporte(org) { return /databases/$(database)/documents/orgs/$(org)/suporte/acesso; }
+    function suporteAtivo(org) {
+      return souPlataforma() && exists(docSuporte(org))
+          && request.time.toMillis() < get(docSuporte(org)).data.ate;
+    }
+    function suporteEdita(org) {
+      return suporteAtivo(org) && get(docSuporte(org)).data.modo == 'edicao';
+    }
+
     function mexeuSomenteEm(campos) {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(campos);
     }
@@ -68,7 +82,13 @@ service cloud.firestore {
       // a empresa lê o próprio cadastro; a plataforma lê todos (é o painel de gestão)
       allow get: if daOrg(org) || souPlataforma();
       allow list: if souPlataforma();
-      allow create, delete: if souPlataforma();
+      allow create: if souPlataforma();
+      // Só empresa que nunca teve dono (criação que parou no meio). Apagar o
+      // cadastro de um cliente deixaria os projetos órfãos no banco, e a
+      // empresa poderia ser recriada com a janela de provisionamento aberta
+      // (achado 3 da auditoria). Cliente de verdade sai pela função
+      // `excluirEmpresa`, que apaga tudo de uma vez, no servidor.
+      allow delete: if souPlataforma() && resource.data.get('semDono', false) == true;
 
       // a plataforma cuida de plano e situação, mas NÃO pode reabrir a janela
       // de provisionamento depois de fechada — semDono só anda de true para false
@@ -117,18 +137,39 @@ service cloud.firestore {
       // ---- cronogramas: SÓ membros da empresa ----------------------------
       // (a plataforma não aparece em nenhuma destas linhas, de propósito)
       match /projects/{projeto} {
-        allow read: if daOrg(org);
-        allow write: if editaOrg(org);
+        allow read: if daOrg(org) || suporteAtivo(org);
+        allow write: if editaOrg(org) || suporteEdita(org);
         match /{documento=**} {
-          allow read: if daOrg(org);
-          allow write: if editaOrg(org);
+          allow read: if daOrg(org) || suporteAtivo(org);
+          allow write: if editaOrg(org) || suporteEdita(org);
         }
       }
 
       // ---- equipe: cadastro único dentro da empresa -----------------------
       match /resources/{recurso} {
-        allow read: if daOrg(org);
-        allow write: if editaOrg(org);
+        allow read: if daOrg(org) || suporteAtivo(org);
+        allow write: if editaOrg(org) || suporteEdita(org);
+      }
+
+      // ---- liberação do suporte: quem manda na empresa decide -------------
+      match /suporte/acesso {
+        allow get: if daOrg(org) || souPlataforma();
+        allow create, update: if mandaNaOrg(org)
+                              && request.resource.data.modo in ['leitura', 'edicao']
+                              && request.resource.data.ate is int
+                              // no máximo 7 dias por liberação
+                              && request.resource.data.ate <= request.time.toMillis() + 7 * 86400000
+                              && request.resource.data.por == eu();
+        allow delete: if mandaNaOrg(org);
+      }
+
+      // ---- histórico do suporte: só se acrescenta, ninguém apaga ----------
+      match /suporteLog/{registro} {
+        allow read: if daOrg(org) || souPlataforma();
+        allow create: if request.resource.data.por == eu()
+                      && request.resource.data.em is int
+                      && (mandaNaOrg(org) || suporteAtivo(org));
+        allow update, delete: if false;
       }
     }
 

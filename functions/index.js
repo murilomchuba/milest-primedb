@@ -1,4 +1,4 @@
-// versão 2026-09-21.2
+// versão 2026-09-21.5
 /* MILEST — funções do servidor.
 
    acesso: cria a conta de uma pessoa (ou refaz a senha dela) já com o e-mail
@@ -17,7 +17,7 @@
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { setGlobalOptions } = require('firebase-functions/v2');
 const admin = require('firebase-admin');
-const { decidir, senhaValida, chave } = require('./regras-acesso');
+const { decidir, decidirExclusao, senhaValida, chave } = require('./regras-acesso');
 
 admin.initializeApp();
 setGlobalOptions({ region: 'us-central1', maxInstances: 5 });
@@ -84,4 +84,39 @@ exports.acesso = onCall({ cors: ORIGENS }, async (req) => {
 
   console.log('acesso', { quem, alvo, modo, como: v.como, resultado });
   return { criada: true, resultado };
+});
+
+/* excluirEmpresa: apaga a empresa INTEIRA — cadastro, projetos com todas as
+   subcoleções, recursos, membros, liberações de suporte — e solta o índice de
+   quem apontava para ela. Existe porque apagar só o cadastro (o que o
+   navegador consegue) deixava os projetos órfãos no banco (achado 3 da
+   auditoria). As regras agora só deixam o navegador apagar empresa que nunca
+   teve dono; cliente de verdade sai por aqui.
+   As contas de login (Authentication) ficam: a mesma pessoa pode estar em
+   outra empresa, e sem índice ela não enxerga nada. */
+exports.excluirEmpresa = onCall({ cors: ORIGENS, timeoutSeconds: 300 }, async (req) => {
+  const tok = req.auth && req.auth.token;
+  if (!tok || !tok.email || tok.email_verified !== true)
+    throw new HttpsError('unauthenticated', 'entre com uma conta confirmada.');
+  const d = req.data || {};
+  const orgId = String(d.orgId || '');
+  if (!/^[A-Za-z0-9_-]{1,80}$/.test(orgId)) throw new HttpsError('invalid-argument', 'empresa inválida.');
+
+  const db = admin.firestore();
+  const quem = chave(tok.email);
+  const [idxQuem, org] = await Promise.all([ler(db.doc('users/' + quem)), ler(db.doc('orgs/' + orgId))]);
+  const v = decidirExclusao({ quem, idxQuem, org, nomeDigitado: d.nome });
+  if (!v.ok) throw new HttpsError('permission-denied', v.motivo);
+
+  const indices = await db.collection('users').where('orgId', '==', orgId).get();
+  await db.recursiveDelete(db.doc('orgs/' + orgId));
+  const lote = db.batch();
+  for (const x of indices.docs) lote.set(x.ref, { orgId: null }, { merge: true });
+  lote.set(db.collection('auditoria').doc(), {
+    tipo: 'exclusao-empresa', orgId, nome: org.nome || '', por: quem, em: Date.now(),
+    indicesSoltos: indices.size
+  });
+  await lote.commit();
+  console.log('excluirEmpresa', { quem, orgId, nome: org.nome, indices: indices.size });
+  return { ok: true, indices: indices.size };
 });

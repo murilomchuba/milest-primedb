@@ -413,6 +413,11 @@ body.soleitura .toolbar .btn:disabled{opacity:.35}
   background:var(--warn-soft);border:1px solid var(--line);border-radius:7px;padding:7px 12px;margin:9px 14px 0;
 }
 body.soleitura .avisoleitura{display:flex}
+.faixasuporte{margin:0 14px 8px;padding:9px 12px;border-radius:7px;font-size:12.5px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  background:var(--accent-soft);color:var(--ink);border:1px solid var(--line)}
+.faixasuporte.ativo{background:#B3261E;color:#fff;border-color:#8C1D18;font-weight:600}
+.faixasuporte .btn{padding:3px 10px;font-size:12px}
+.faixasuporte.ativo .btn{background:#fff;color:#B3261E;border-color:#fff}
 .faixaprazo{margin:0 14px 8px;padding:8px 12px;border-radius:7px;font-size:12.5px;
   background:var(--warn-soft);color:var(--warn);border:1px solid rgba(156,106,14,.25)}
 .tabuser td .inp{padding:3px 6px;font-size:12px}
@@ -703,6 +708,7 @@ body.embutido .view{height:100%}
 <div class="arqbar" id="arqBar"></div>
 
 <div class="faixaprazo" id="faixaPrazo" hidden></div>
+<div class="faixasuporte" id="faixaSuporte" hidden></div>
 
 <div class="avisoleitura" id="avisoLeitura"><span>🔒</span><span>Seu acesso é somente leitura: você consulta os cronogramas e baixa os relatórios, mas não altera dados.</span></div>
 
@@ -915,7 +921,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-21.3';
+const VERSAO = '2026-09-21.5';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -1363,6 +1369,8 @@ function papelAtual() {
   // sem login por conta (dados locais ou banco do artifact) quem está na
   // frente do sistema é o próprio dono, então pode tudo
   if (!ST.comLogin) return 'admin';
+  // em modo suporte o papel vem da liberação dada pelo cliente, não do cadastro
+  if (ST.suporte) return ST.suporte.modo === 'edicao' ? 'gerente' : 'leitor';
   return (ST.perfil && ST.perfil.papel) || 'leitor';
 }
 function podeEditar() {
@@ -1400,6 +1408,7 @@ async function flushSave() {
   const d = dirty; dirty = { meta: false, tasks: new Set(), res: new Set(), delT: new Set(), delR: new Set() };
   if (ST.mode === 'embed') { embedAvisar(); return; }
   if (ST.mode !== 'db') { localSave(); autoVersao(); return; }
+  if (ST.suporte && (d.meta || d.tasks.size || d.res.size || d.delT.size || d.delR.size)) registrarEdicaoSuporte();
   const db = ST.db, base = dProjeto(ST.pid);
   const jobs = [];
   try {
@@ -5573,8 +5582,9 @@ function renderUsuarios() {
   explica.appendChild(el('div', 'tagline',
     'A pessoa entra com a própria conta Google — o e-mail cadastrado aqui precisa ser exatamente o da conta. ' +
     'Todos os cadastrados aqui enxergam os cronogramas desta empresa, e só desta. Nenhuma outra empresa vê os seus dados, ' +
-    'nem o administrador da plataforma. Suspender mantém o cadastro e corta o acesso na hora.'));
+    'e o suporte do MILEST só os abre quando você libera, no quadro abaixo. Suspender mantém o cadastro e corta o acesso na hora.'));
   host.appendChild(explica);
+  host.appendChild(painelSuporteCliente());
 
   const desenhar = (lista) => {
     corpo.textContent = '';
@@ -5872,7 +5882,7 @@ async function criarEmpresa(nome, cnpj, emailDono, nomeDono, plano, expiraEm) {
 /** Números que a empresa grava sobre si mesma. É só isso que o painel da
  *  plataforma enxerga — quantos, nunca quais. */
 async function atualizarContadores(qtdUsuarios) {
-  if (ST.mode !== 'db' || !ST.comLogin || !ST.orgId) return;
+  if (ST.mode !== 'db' || !ST.comLogin || !ST.orgId || ST.suporte) return;
   const campos = { projetos: ST.projects.length, atualizadoEm: Date.now() };
   if (qtdUsuarios != null) campos.usuarios = qtdUsuarios;
   try { await ST.db.doc(dOrg(ST.orgId)).set(campos, { merge: true }); } catch (e) { }
@@ -6134,6 +6144,227 @@ function modalSenhaEmpresa(o) {
   }, []);
 }
 
+/* ============ modo suporte ============
+   O cliente (administrador da empresa) libera, por prazo, o acesso do suporte
+   do MILEST aos dados dele: só leitura, ou leitura e edição. Quem garante é a
+   regra do Firestore (suporteAtivo/suporteEdita) — vencido o prazo, o banco
+   recusa, esteja a tela aberta ou não. Tudo fica num histórico que o cliente
+   lê (orgs/{org}/suporteLog) e ninguém apaga. */
+const dSuporte = org => 'orgs/' + org + '/suporte/acesso';
+const cSuporteLog = org => 'orgs/' + org + '/suporteLog';
+const quandoCurto = ms => { try { return new Date(ms).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); } catch (e) { return '—'; } };
+
+async function lerSuporteDe(org) {
+  try {
+    const s = await ST.db.doc(dSuporte(org)).get();
+    const d = s.exists ? s.data() : null;
+    return d && d.ate > Date.now() ? d : null;
+  } catch (e) { return null; }
+}
+function registrarSuporte(org, tipo, extra) {
+  if (!ST.db || !org) return Promise.resolve();
+  return ST.db.collection(cSuporteLog(org)).add(Object.assign({ tipo: tipo, por: chaveEmail(ST.userEmail), em: Date.now() }, extra || {}))
+    .catch(() => { });
+}
+let SUP_ULT_EDICAO = {};
+function registrarEdicaoSuporte() {
+  if (!ST.suporte) return;
+  const k = ST.pid, agora = Date.now();
+  if (SUP_ULT_EDICAO[k] && agora - SUP_ULT_EDICAO[k] < 5 * 60000) return;   // um registro a cada 5 min por projeto
+  SUP_ULT_EDICAO[k] = agora;
+  registrarSuporte(ST.suporte.orgId, 'edicao', { projeto: (ST.P && ST.P.meta && ST.P.meta.name) || '' });
+}
+
+/* ---- lado do cliente ---- */
+async function lerLiberacaoSuporte() {
+  if (!ST.orgId || ST.suporte) return;
+  ST.suporteLiberado = await lerSuporteDe(ST.orgId);
+  desenharFaixaSuporte();
+}
+async function liberarSuporte(horas, modo) {
+  const ate = Date.now() + horas * 3600000;
+  try {
+    await ST.db.doc(dSuporte(ST.orgId)).set({ ate: ate, modo: modo, por: chaveEmail(ST.userEmail), em: Date.now() });
+    await registrarSuporte(ST.orgId, 'liberado', { modo: modo, ate: ate });
+    ST.suporteLiberado = { ate: ate, modo: modo };
+    toast('Acesso do suporte liberado até ' + quandoCurto(ate) + '.');
+  } catch (e) { toast('Não consegui liberar: ' + ((e && e.message) || 'erro')); }
+  desenharFaixaSuporte(); if (VIEW === 'users') renderUsuarios();
+}
+async function encerrarSuporte() {
+  try {
+    await ST.db.doc(dSuporte(ST.orgId)).delete();
+    await registrarSuporte(ST.orgId, 'encerrado');
+    ST.suporteLiberado = null;
+    toast('Acesso do suporte encerrado.');
+  } catch (e) { toast('Não consegui encerrar: ' + ((e && e.message) || 'erro')); }
+  desenharFaixaSuporte(); if (VIEW === 'users') renderUsuarios();
+}
+function painelSuporteCliente() {
+  const p = el('div', 'panel');
+  p.appendChild(el('h3', '', 'Acesso do suporte MILEST'));
+  const corpo = el('div'); corpo.style.padding = '12px 16px 4px'; p.appendChild(corpo);
+  const lib = ST.suporteLiberado;
+  if (lib && lib.ate > Date.now()) {
+    corpo.appendChild(el('div', 'hint', 'O suporte do MILEST pode ' + (lib.modo === 'edicao' ? 'ver e alterar' : 'ver') +
+      ' os cronogramas desta empresa até ' + quandoCurto(lib.ate) + '. Depois disso o acesso cai sozinho.'));
+    const b = el('button', 'btn danger', 'Encerrar agora'); b.style.marginTop = '8px';
+    b.addEventListener('click', encerrarSuporte); corpo.appendChild(b);
+  } else {
+    corpo.appendChild(el('div', 'hint', 'Precisa de ajuda com um cronograma? Libere o acesso do suporte por um prazo curto. ' +
+      'Sem essa liberação, ninguém do MILEST abre os seus projetos. Toda entrada e alteração fica registrada abaixo.'));
+    const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;align-items:end;flex-wrap:wrap;margin-top:8px';
+    const f1 = el('div', 'field'); f1.appendChild(el('label', '', 'Por quanto tempo'));
+    const sP = el('select', 'inp');
+    for (const [r, h] of [['24 horas', 24], ['3 dias', 72], ['7 dias', 168]]) { const o = el('option', '', r); o.value = h; sP.appendChild(o); }
+    f1.appendChild(sP);
+    const f2 = el('div', 'field'); f2.appendChild(el('label', '', 'O que o suporte pode fazer'));
+    const sM = el('select', 'inp');
+    for (const [r, m] of [['Somente ver', 'leitura'], ['Ver e alterar', 'edicao']]) { const o = el('option', '', r); o.value = m; sM.appendChild(o); }
+    f2.appendChild(sM);
+    const b = el('button', 'btn primary', '🛟 Liberar acesso');
+    b.addEventListener('click', () => liberarSuporte(Number(sP.value), sM.value));
+    linha.appendChild(f1); linha.appendChild(f2); linha.appendChild(b); corpo.appendChild(linha);
+  }
+  const hist = el('div'); hist.style.cssText = 'margin-top:10px;padding:0 16px 14px'; p.appendChild(hist);
+  const tHist = el('div', '', 'Histórico de acessos'); tHist.style.cssText = 'font-weight:600;font-size:13px;margin:6px 0 6px'; hist.appendChild(tHist);
+  const lista = el('div'); hist.appendChild(lista);
+  lista.appendChild(el('div', 'tagline', 'Carregando o histórico…'));
+  ST.db.collection(cSuporteLog(ST.orgId)).orderBy('em', 'desc').limit(20).get().then(snap => {
+    lista.textContent = ''; const hist2 = lista;
+    if (!snap.docs.length) { hist2.appendChild(el('div', 'tagline', 'Nenhum acesso do suporte registrado.')); return; }
+    const tb = el('table', 'data'); const tbody = el('tbody');
+    const rot = { liberado: 'Liberou o acesso', encerrado: 'Encerrou o acesso', entrada: 'Suporte entrou', saida: 'Suporte saiu', edicao: 'Suporte alterou' };
+    for (const d of snap.docs) {
+      const x = d.data() || {}; const l = el('tr');
+      l.appendChild(el('td', '', quandoCurto(x.em)));
+      l.appendChild(el('td', '', (rot[x.tipo] || x.tipo) + (x.projeto ? ' · ' + x.projeto : '') +
+        (x.tipo === 'liberado' ? ' (' + (x.modo === 'edicao' ? 'ver e alterar' : 'somente ver') + ', até ' + quandoCurto(x.ate) + ')' : '')));
+      l.appendChild(el('td', '', x.por || ''));
+      tbody.appendChild(l);
+    }
+    tb.appendChild(tbody); hist2.appendChild(tb);
+  }).catch(e => { lista.textContent = ''; hist2.appendChild(el('div', 'tagline', 'Não consegui ler o histórico: ' + ((e && e.message) || 'erro'))); });
+  return p;
+}
+
+/* ---- lado da plataforma ---- */
+let SUP_TIMER = null;
+async function entrarSuporte(o) {
+  if (ST.suporte) await sairSuporte(false);
+  const lib = await lerSuporteDe(o.id);
+  if (!lib) { toast('A empresa não liberou (ou o prazo já venceu).'); ST.orgs = null; renderPlataforma(); return; }
+  ST.suporte = {
+    orgId: o.id, nome: o.nome || o.id, modo: lib.modo, ate: lib.ate,
+    volta: { orgId: ST.orgId, nomeOrg: ST.perfil && ST.perfil.nomeOrg, expirado: ST.perfil && ST.perfil.expirado, expiraEm: ST.perfil && ST.perfil.expiraEm }
+  };
+  for (const u of ST.unsub) { try { u(); } catch (e) { } } ST.unsub = [];
+  ST.orgId = o.id;
+  if (ST.perfil) { ST.perfil.nomeOrg = ST.suporte.nome; ST.perfil.expirado = false; ST.perfil.expiraEm = 0; }
+  SUP_ULT_EDICAO = {};
+  zerarMemoria();
+  try {
+    await adoptSharedDb();
+  } catch (e) {
+    toast('Não consegui abrir os dados da empresa: ' + ((e && e.message) || 'erro'));
+    await sairSuporte(true); return;
+  }
+  await registrarSuporte(o.id, 'entrada', { modo: lib.modo });
+  clearInterval(SUP_TIMER);
+  SUP_TIMER = setInterval(() => { if (ST.suporte && Date.now() >= ST.suporte.ate) sairSuporte(false, 'O prazo liberado pela empresa terminou.'); }, 30000);
+  aplicarPermissoes(); desenharFaixaSuporte(); setView('overview');
+  setSync('live', podeEditar() ? 'Suporte · edição' : 'Suporte · leitura');
+}
+async function sairSuporte(semRegistro, motivo) {
+  if (!ST.suporte) return;
+  const s = ST.suporte;
+  clearInterval(SUP_TIMER); SUP_TIMER = null;
+  try { await flushSave(); } catch (e) { }
+  if (!semRegistro) await registrarSuporte(s.orgId, 'saida');
+  for (const u of ST.unsub) { try { u(); } catch (e) { } } ST.unsub = [];
+  // nada do cliente fica guardado no navegador do suporte depois da sessão
+  try { MEMO_CARTEIRA.clear(); cacheDiscoLimpar(); } catch (e) { }
+  ST.suporte = null;
+  ST.orgId = s.volta.orgId;
+  if (ST.perfil) { ST.perfil.nomeOrg = s.volta.nomeOrg || ''; ST.perfil.expirado = s.volta.expirado; ST.perfil.expiraEm = s.volta.expiraEm; }
+  zerarMemoria();
+  if (ST.orgId) { try { await adoptSharedDb(); } catch (e) { } }
+  else { ST.projects = []; }
+  aplicarPermissoes(); desenharFaixaSuporte();
+  setSync('live', ST.orgId ? (podeEditar() ? 'Sincronizado' : 'Somente leitura') : 'Plataforma');
+  ST.orgs = null; setView('plataforma');
+  if (motivo) toast(motivo);
+}
+function desenharFaixaSuporte() {
+  const f = $('#faixaSuporte'); if (!f) return;
+  f.textContent = ''; f.classList.remove('ativo');
+  if (ST.suporte) {
+    f.classList.add('ativo'); f.hidden = false;
+    f.appendChild(el('span', '', '🛟 Modo suporte — ' + ST.suporte.nome + ' · ' +
+      (ST.suporte.modo === 'edicao' ? 'leitura e edição' : 'somente leitura') + ' · até ' + quandoCurto(ST.suporte.ate) +
+      '. Tudo o que você fizer fica registrado para o cliente.'));
+    const b = el('button', 'btn', 'Sair do modo suporte'); b.addEventListener('click', () => sairSuporte(false));
+    f.appendChild(b); return;
+  }
+  const lib = ST.suporteLiberado;
+  if (lib && lib.ate > Date.now()) {
+    f.hidden = false;
+    f.appendChild(el('span', '', '🛟 O suporte do MILEST tem acesso a esta empresa (' +
+      (lib.modo === 'edicao' ? 'ver e alterar' : 'somente ver') + ') até ' + quandoCurto(lib.ate) + '.'));
+    if (ehAdmin()) { const b = el('button', 'btn', 'Encerrar'); b.addEventListener('click', encerrarSuporte); f.appendChild(b); }
+    return;
+  }
+  f.hidden = true;
+}
+
+/* ---- exclusão completa de empresa (função no servidor) ---- */
+async function chamarFuncao(nome, dados) {
+  const u = ST.auth && ST.auth.currentUser, url = urlFuncao(nome);
+  if (!u || !url || typeof fetch !== 'function') return { indisponivel: true };
+  let resp;
+  try {
+    const tk = await u.getIdToken();
+    resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + tk },
+      body: JSON.stringify({ data: dados }) });
+  } catch (e) { return { indisponivel: true }; }
+  if (resp.status === 404) return { indisponivel: true };
+  let j = null; try { j = await resp.json(); } catch (e) { }
+  if (j && j.result) return Object.assign({ ok: true }, j.result);
+  return { ok: false, motivo: (j && j.error && j.error.message) || ('erro ' + resp.status + ' no servidor.') };
+}
+function excluirEmpresaCompleta(o) {
+  const nome = o.nome || o.id;
+  modal('Excluir ' + nome, (body, close) => {
+    if (o.ativo !== false) {
+      body.appendChild(el('div', 'hint', 'Para excluir uma empresa, suspenda-a primeiro. São dois passos de propósito: ' +
+        'a exclusão apaga tudo — projetos, versões, documentos, equipe e usuários — e não tem volta.'));
+      const l = el('div'); l.style.cssText = 'display:flex;justify-content:flex-end;margin-top:12px';
+      const b = el('button', 'btn primary', 'Entendi'); b.addEventListener('click', close); l.appendChild(b); body.appendChild(l);
+      return;
+    }
+    body.appendChild(el('div', 'hint', 'Isto apaga DEFINITIVAMENTE a empresa e tudo o que está dentro dela: ' + (o.projetos || 0) +
+      ' projeto(s), versões, documentos, equipe e o cadastro dos usuários. Não tem como desfazer. ' +
+      'Se quiser guardar uma cópia, baixe o backup completo antes.'));
+    const f = el('div', 'field'); f.appendChild(el('label', '', 'Digite o nome da empresa para confirmar'));
+    const i = el('input', 'inp'); i.placeholder = nome; f.appendChild(i); body.appendChild(f);
+    const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
+    const bC = el('button', 'btn', 'Cancelar'); bC.addEventListener('click', close);
+    const bOk = el('button', 'btn primary danger', 'Excluir tudo'); bOk.disabled = true;
+    i.addEventListener('input', () => { bOk.disabled = i.value.trim().toLowerCase() !== nome.trim().toLowerCase(); });
+    bOk.addEventListener('click', async () => {
+      bOk.disabled = true; bOk.textContent = 'Excluindo…';
+      const r = await chamarFuncao('excluirEmpresa', { orgId: o.id, nome: i.value.trim() });
+      close();
+      if (r.indisponivel) { toast('A exclusão completa ainda não está ligada (falta publicar as funções do servidor).'); return; }
+      if (!r.ok) { toast('Não consegui excluir: ' + r.motivo); return; }
+      toast(nome + ' excluída, com todos os dados.');
+      ST.orgs = null; renderPlataforma();
+    });
+    linha.appendChild(bC); linha.appendChild(bOk); body.appendChild(linha);
+    setTimeout(() => i.focus(), 30);
+  }, []);
+}
+
 function renderPlataforma() {
   const host = $('#platView'); host.textContent = '';
   const p = el('div', 'panel');
@@ -6159,6 +6390,7 @@ function renderPlataforma() {
   nota.appendChild(el('div', 'tagline',
     'Só o cadastro das empresas e os números que elas mesmas gravam: quantos projetos, quantos usuários, quando entraram pela última vez. ' +
     'Nenhum conteúdo de cronograma passa por aqui, e não é uma escolha de tela — as regras do Firestore só liberam projeto para quem é membro da empresa. ' +
+    'A exceção é o modo suporte: quando o administrador de uma empresa libera, o botão 🛟 Suporte abre os dados dela até o prazo que ele escolheu, e cada entrada fica no histórico que o cliente vê. ' +
     'Ao criar uma empresa você cadastra o primeiro administrador dela; daí em diante quem gerencia os usuários é a própria empresa, ' +
     'e essa porta não reabre.'));
   host.appendChild(nota);
@@ -6217,6 +6449,16 @@ function renderPlataforma() {
       bE.title = 'Alterar nome, CNPJ, plano e observações desta empresa';
       bE.addEventListener('click', () => modalEditarEmpresa(o));
       tdA.appendChild(bE);
+      const bSup = el('button', 'btn', '🛟 Suporte');
+      bSup.style.marginLeft = '5px'; bSup.disabled = true;
+      bSup.title = 'A empresa não liberou acesso ao suporte';
+      if (o.id !== ST.orgId) lerSuporteDe(o.id).then(lib => {
+        if (!lib) return;
+        bSup.disabled = false; bSup.classList.add('primary');
+        bSup.title = 'Liberado pela empresa (' + (lib.modo === 'edicao' ? 'leitura e edição' : 'somente leitura') + ') até ' + quandoCurto(lib.ate);
+      });
+      bSup.addEventListener('click', () => entrarSuporte(o));
+      tdA.appendChild(bSup);
       const bS = el('button', 'btn', '🔑 Senha');
       bS.style.marginLeft = '5px';
       bS.title = 'Gerar nova senha para o administrador desta empresa';
@@ -6555,6 +6797,7 @@ function painelBackupPlataforma() {
    também o caminho para encerrar um cliente. Só apaga o cadastro e os
    usuários: os cronogramas dela a plataforma não alcança, por desenho. */
 function excluirEmpresa(o) {
+  if (o.semDono !== true) return excluirEmpresaCompleta(o);
   const nome = o.nome || o.id;
   const temDados = (o.projetos || 0) > 0;
   modal('Excluir ' + nome, (body, close) => {
@@ -10268,8 +10511,7 @@ async function adoptSharedDb() {
     // empresa). Era assim que um cronograma de um cliente aparecia numa
     // empresa recém-criada. Nada do que está na memória sobe mais por aqui.
     zerarMemoria();
-    dirty.meta = true;
-    await flushSave();
+    if (!ST.suporte) { dirty.meta = true; await flushSave(); }   // o suporte não cria projeto em empresa alheia
     ST.projects = [{ id: ST.pid, name: ST.P.meta.name, client: '' }];
   }
   subscribeProject(ST.pid);
@@ -10367,6 +10609,7 @@ async function bootFirebase(cfg) {
     if (!user) {
       ST.db = null; ST.mode = 'local'; ST.perfil = null; ST.usuarios = null; ST.orgId = null; ST.orgs = null; ST.comLogin = true;
       // quem sair não deixa o projeto dele na memória para a próxima conta
+      ST.suporte = null; ST.suporteLiberado = null; desenharFaixaSuporte();
       zerarMemoria(); try { renderProjectList(); refresh(); } catch (e) { }
       chip.hidden = true; gate.hidden = false;
       $('#btnGateOut').hidden = true; botaoReenviar.hidden = true;
@@ -10390,6 +10633,11 @@ async function bootFirebase(cfg) {
       aplicarPermissoes();
       return;
     }
+    // Entrou uma conta: nada do que estava na memória (ou no cache local deste
+    // navegador, de um uso anterior) pode seguir junto. A conta começa limpa e
+    // só enxerga o que vier do banco da empresa dela.
+    zerarMemoria();
+    try { localStorage.removeItem(LSKEY); } catch (e) { }
     ST.db = fs; ST.mode = 'db'; ST.comLogin = true; ST.userEmail = (user.email || '').toLowerCase();
     ST.perfil = null; ST.usuarios = null; ST.orgId = null; ST.orgs = null;
     const recusar = (msg) => {
@@ -10427,6 +10675,7 @@ async function bootFirebase(cfg) {
       if (ST.orgId) {
         await adoptSharedDb();
         setSync('live', podeEditar() ? 'Sincronizado' : 'Somente leitura');
+        lerLiberacaoSuporte();
       } else {
         // gestor da plataforma sem empresa própria: abre direto o painel
         ST.projects = []; setSync('live', 'Plataforma');

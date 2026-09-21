@@ -233,20 +233,71 @@ await caso('[FALHA CONHECIDA] admin ocupa o índice de um e-mail de fora', () =>
 await caso('[FALHA CONHECIDA] o admin legítimo NÃO consegue desfazer a ocupação', () =>
   assertFails(setDoc(doc(conta(BRUNO), 'users', 'futuro@varejo.com.br'), { email: 'futuro@varejo.com.br', orgId: 'varejo' })));
 
-console.log('\nAPAGAR E RECRIAR A EMPRESA (limite da promessa de não-acesso)');
-/* Apagar um documento no Firestore NÃO apaga as subcoleções dele. Então quem
-   opera a plataforma pode apagar orgs/{cliente}, recriar com semDono:true,
-   cadastrar um cúmplice como admin e ler os projetos que continuaram lá.
-   O teste existe para registrar o buraco; quando a regra de delete for
-   fechada, ele vira assertFails e passa a proteger a correção. */
-await caso('[FALHA CONHECIDA] plataforma apaga o cadastro de um cliente com dono', () =>
-  assertSucceeds(deleteDoc(doc(conta(PLATAFORMA), 'orgs', 'unimed'))));
-await caso('[FALHA CONHECIDA] ... recria a empresa com a janela reaberta', () =>
-  assertSucceeds(setDoc(doc(conta(PLATAFORMA), 'orgs', 'unimed'), { nome: 'Unimed Uberaba', ativo: true, semDono: true })));
-await caso('[FALHA CONHECIDA] ... cadastra um cúmplice como admin', () =>
-  assertSucceeds(setDoc(doc(conta(PLATAFORMA), 'orgs/unimed/members', FORA), { email: FORA, papel: 'admin', ativo: true })));
-await caso('[FALHA CONHECIDA] ... e o cúmplice lê o projeto que nunca foi apagado', () =>
-  assertSucceeds(getDoc(doc(conta(FORA), 'orgs/unimed/projects', 'p1'))));
+console.log('\nAPAGAR E RECRIAR A EMPRESA (achado 3 — fechado)');
+/* Apagar um documento no Firestore NÃO apaga as subcoleções. Antes, quem
+   operava a plataforma podia apagar orgs/{cliente}, recriar com semDono:true,
+   cadastrar um cúmplice como admin e ler os projetos que ficaram. Agora o
+   navegador só apaga empresa que nunca teve dono; cliente de verdade sai pela
+   função excluirEmpresa, que apaga tudo no servidor. */
+await caso('plataforma NÃO apaga o cadastro de um cliente com dono', () =>
+  assertFails(deleteDoc(doc(conta(PLATAFORMA), 'orgs', 'unimed'))));
+await caso('plataforma NÃO recria por cima de uma empresa existente', () =>
+  assertFails(setDoc(doc(conta(PLATAFORMA), 'orgs', 'unimed'), { nome: 'Unimed Uberaba', ativo: true, semDono: true })));
+await caso('... nem cadastra um cúmplice como admin', () =>
+  assertFails(setDoc(doc(conta(PLATAFORMA), 'orgs/unimed/members', FORA), { email: FORA, papel: 'admin', ativo: true })));
+await caso('... e o cúmplice NÃO lê o projeto', () =>
+  assertFails(getDoc(doc(conta(FORA), 'orgs/unimed/projects', 'p1'))));
+await caso('plataforma apaga empresa que nunca teve dono', () =>
+  assertSucceeds(deleteDoc(doc(conta(PLATAFORMA), 'orgs', 'nova'))));
+
+console.log('\nMODO SUPORTE');
+const AGORA = Date.now();
+await caso('sem liberação, plataforma NÃO lê projeto do cliente', () =>
+  assertFails(getDoc(doc(conta(PLATAFORMA), 'orgs/unimed/projects', 'p1'))));
+await caso('plataforma NÃO se libera sozinha', () =>
+  assertFails(setDoc(doc(conta(PLATAFORMA), 'orgs/unimed/suporte', 'acesso'), { ate: AGORA + DIA, modo: 'edicao', por: PLATAFORMA })));
+await caso('leitor NÃO libera o suporte', () =>
+  assertFails(setDoc(doc(conta(CAIO), 'orgs/unimed/suporte', 'acesso'), { ate: AGORA + DIA, modo: 'leitura', por: CAIO })));
+await caso('admin NÃO libera por mais de 7 dias', () =>
+  assertFails(setDoc(doc(conta(ANA), 'orgs/unimed/suporte', 'acesso'), { ate: AGORA + 8 * DIA, modo: 'leitura', por: ANA })));
+await caso('admin NÃO libera em nome de outra pessoa', () =>
+  assertFails(setDoc(doc(conta(ANA), 'orgs/unimed/suporte', 'acesso'), { ate: AGORA + DIA, modo: 'leitura', por: CAIO })));
+await caso('admin de OUTRA empresa NÃO libera a Unimed', () =>
+  assertFails(setDoc(doc(conta(BRUNO), 'orgs/unimed/suporte', 'acesso'), { ate: AGORA + DIA, modo: 'leitura', por: BRUNO })));
+await caso('admin libera leitura por 1 dia', () =>
+  assertSucceeds(setDoc(doc(conta(ANA), 'orgs/unimed/suporte', 'acesso'), { ate: AGORA + DIA, modo: 'leitura', por: ANA })));
+await caso('com leitura liberada, plataforma lê projeto, tarefa e recurso', async () => {
+  await assertSucceeds(getDoc(doc(conta(PLATAFORMA), 'orgs/unimed/projects', 'p1')));
+  await assertSucceeds(getDoc(doc(conta(PLATAFORMA), 'orgs/unimed/projects/p1/tasks', 't1')));
+  await assertSucceeds(getDocs(collection(conta(PLATAFORMA), 'orgs/unimed/projects')));
+  await assertSucceeds(getDoc(doc(conta(PLATAFORMA), 'orgs/unimed/resources', 'r1')));
+});
+await caso('com leitura liberada, plataforma NÃO grava', () =>
+  assertFails(setDoc(doc(conta(PLATAFORMA), 'orgs/unimed/projects', 'p1'), { name: 'mexido' })));
+await caso('liberação da Unimed NÃO abre o Varejo', () =>
+  assertFails(getDoc(doc(conta(PLATAFORMA), 'orgs/varejo/projects', 'p9'))));
+await caso('liberação NÃO vale para quem não é plataforma', () =>
+  assertFails(getDoc(doc(conta(FORA), 'orgs/unimed/projects', 'p1'))));
+await caso('plataforma registra a entrada no histórico', () =>
+  assertSucceeds(setDoc(doc(conta(PLATAFORMA), 'orgs/unimed/suporteLog', 'l1'), { tipo: 'entrada', por: PLATAFORMA, em: AGORA })));
+await caso('ninguém apaga o histórico, nem o admin', async () => {
+  await assertFails(deleteDoc(doc(conta(PLATAFORMA), 'orgs/unimed/suporteLog', 'l1')));
+  await assertFails(deleteDoc(doc(conta(ANA), 'orgs/unimed/suporteLog', 'l1')));
+});
+await caso('cliente lê o histórico', () =>
+  assertSucceeds(getDocs(collection(conta(CAIO), 'orgs/unimed/suporteLog'))));
+await caso('admin troca para edição e a plataforma grava', async () => {
+  await assertSucceeds(setDoc(doc(conta(ANA), 'orgs/unimed/suporte', 'acesso'), { ate: AGORA + DIA, modo: 'edicao', por: ANA }));
+  await assertSucceeds(setDoc(doc(conta(PLATAFORMA), 'orgs/unimed/projects/p1/tasks', 't1'), { name: 'Levantamento (ajustado)' }));
+});
+await caso('prazo vencido: plataforma volta a NÃO ler', async () => {
+  await env.withSecurityRulesDisabled(async ctx =>
+    setDoc(doc(ctx.firestore(), 'orgs/unimed/suporte', 'acesso'), { ate: AGORA - 1000, modo: 'edicao', por: ANA }));
+  await assertFails(getDoc(doc(conta(PLATAFORMA), 'orgs/unimed/projects', 'p1')));
+  await assertFails(setDoc(doc(conta(PLATAFORMA), 'orgs/unimed/suporteLog', 'l2'), { tipo: 'entrada', por: PLATAFORMA, em: AGORA }));
+});
+await caso('admin encerra a liberação', () =>
+  assertSucceeds(deleteDoc(doc(conta(ANA), 'orgs/unimed/suporte', 'acesso'))));
 
 console.log('\n' + ok + ' passaram, ' + falhou + ' falharam.');
 await env.cleanup();

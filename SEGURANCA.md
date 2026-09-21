@@ -4,6 +4,34 @@
 > `regras/teste-regras.mjs`. O objetivo era responder a duas perguntas: **um
 > cliente consegue ver os dados de outro?** e **o sistema aguenta ser vendido?**
 
+
+## Atualização de 21/09/26: achado 3 fechado e modo suporte
+
+**Achado 3 (apagar e recriar empresa): corrigido nas regras.** A plataforma
+só apaga pelo navegador uma empresa que nunca teve dono (`semDono == true`).
+Um cliente de verdade sai pela função `excluirEmpresa` (servidor), que exige a
+empresa suspensa antes e o nome digitado. Ela apaga **tudo** com
+`recursiveDelete` e solta o índice de quem apontava para ela, sem deixar nada
+órfão para ser lido depois. A exclusão fica registrada na coleção
+`auditoria`, que só o Admin SDK e o console enxergam. Os quatro testes que
+documentavam o buraco agora exigem que ele esteja fechado.
+
+**Modo suporte.** O administrador da empresa libera, na aba Usuários, o
+acesso do suporte por 24 h, 3 dias ou 7 dias, em modo "só ver" ou "ver e
+alterar" (`orgs/{org}/suporte/acesso`). As regras (`suporteAtivo` e
+`suporteEdita`) só abrem projetos e recursos para a plataforma enquanto o
+prazo vale. Vencido, o banco recusa, com a tela aberta ou não. A plataforma
+não consegue gravar a liberação: só `mandaNaOrg`. O limite de 7 dias por
+liberação também é garantido pela regra. Entradas, saídas e alterações ficam
+em `orgs/{org}/suporteLog`, que o cliente lê e ninguém apaga. Ao sair do modo
+suporte, o navegador do operador descarta o cache local da carteira.
+
+**Limite que continua valendo:** as regras protegem o aplicativo, não o dono
+do projeto Google, que enxerga tudo pelo Console do Firebase. Isso é
+compromisso contratual, não técnico. Para registrar também as *leituras*
+feitas fora do app, ligue os Data Access audit logs do Firestore (IAM →
+Registros de auditoria → Cloud Firestore API → Leitura de dados).
+
 ## Resumo
 
 O isolamento entre empresas está **bem construído**, e isso não é elogio de
