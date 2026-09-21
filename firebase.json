@@ -60,9 +60,21 @@
         {
           "source": "/img/**",
           "headers": [{ "key": "Cache-Control", "value": "public, max-age=2592000" }]
+        },
+        {
+          "source": "/video/**",
+          "headers": [{ "key": "Cache-Control", "value": "public, max-age=2592000" }]
         }
       ]
     }
   ],
-  "firestore": { "rules": "firestore.rules", "indexes": "firestore.indexes.json" }
+  "firestore": { "rules": "firestore.rules", "indexes": "firestore.indexes.json" },
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default",
+      "runtime": "nodejs22",
+      "ignore": ["node_modules", ".git", "test", "*.log"]
+    }
+  ]
 }

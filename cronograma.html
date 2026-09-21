@@ -914,7 +914,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-18.1';
+const VERSAO = '2026-09-21.1';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -5624,6 +5624,12 @@ function renderUsuarios() {
       l.appendChild(el('td', '', u.ultimoAcesso ? dataHora(u.ultimoAcesso) : 'nunca entrou'));
 
       const tdA = el('td'); tdA.style.whiteSpace = 'nowrap';
+      if (!souEu) {
+        const bK = el('button', 'btn icon', '🔑'); bK.title = 'Gerar nova senha temporária (sem e-mail)';
+        bK.style.marginRight = '5px';
+        bK.addEventListener('click', () => confirmarNovaSenha(email, () => { ST.usuarios = null; renderUsuarios(); }));
+        tdA.appendChild(bK);
+      }
       const bMail = el('button', 'btn icon', '✉'); bMail.title = 'Enviar e-mail para esta pessoa criar uma nova senha';
       bMail.style.marginRight = '5px';
       bMail.addEventListener('click', async () => {
@@ -5661,7 +5667,7 @@ function modalUsuario(atual) {
     body.appendChild(el('div', 'hint', editando
       ? 'O e-mail não muda: ele é a chave da conta.'
       : 'Vale qualquer e-mail corporativo. Ao cadastrar, o MILEST cria a conta e mostra uma senha temporária para você passar à pessoa. '
-        + 'Ela recebe um e-mail para confirmar o endereço e, no primeiro acesso, escolhe a senha dela.'));
+        + 'Você mesmo repassa a senha; no primeiro acesso a pessoa escolhe a dela. Nenhum e-mail é enviado.'));
     const f1 = el('div', 'field'); f1.appendChild(el('label', '', 'E-mail'));
     const iEm = el('input', 'inp'); iEm.type = 'email'; iEm.placeholder = 'pessoa@empresa.com.br';
     iEm.value = editando ? atual.email : ''; iEm.disabled = editando;
@@ -5723,9 +5729,12 @@ function modalCredenciais(email, senha, opts) {
     if (senha) {
       body.appendChild(el('div', 'hint', (o.intro || '') +
         (o.escolhida ? 'Esta é a senha que você definiu. ' : '') +
-        'Passe estes dados para a pessoa (WhatsApp, telefone, o que for). ' +
-        'Ela recebeu também um e-mail para confirmar o endereço — esse clique é obrigatório, ' +
-        'e só depois dele a senha funciona. No primeiro acesso o MILEST pede que ela troque esta senha por uma dela.'));
+        (o.semEmail
+          ? 'Passe estes dados para a pessoa (e-mail, WhatsApp, o que for). O MILEST não envia e-mail nenhum: '
+            + 'ela já pode entrar com esta senha, e no primeiro acesso o sistema pede que troque por uma dela.'
+          : 'Passe estes dados para a pessoa (WhatsApp, telefone, o que for). ' +
+            'Ela recebeu também um e-mail para confirmar o endereço — esse clique é obrigatório, ' +
+            'e só depois dele a senha funciona. No primeiro acesso o MILEST pede que ela troque esta senha por uma dela.')));
       const cx = el('div'); cx.style.cssText =
         'font-family:var(--f-mono);font-size:13px;background:var(--surface-2);border:1px solid var(--line);' +
         'border-radius:7px;padding:11px 13px;margin:10px 0;user-select:all;line-height:1.7';
@@ -5741,12 +5750,16 @@ function modalCredenciais(email, senha, opts) {
       body.appendChild(bCp);
       body.appendChild(el('div', 'hint',
         'Esta senha não fica guardada em lugar nenhum: fechando esta janela, ela some. ' +
-        'Se perder, use o ✉ na lista para a pessoa criar outra.'));
+        'Se perder, use o 🔑 na lista de usuários para gerar outra.'));
     } else {
       body.appendChild(el('div', 'hint',
-        'A conta ' + email + ' já existia no MILEST, então a senha dela continua sendo a de antes — ' +
-        'ninguém, nem você, consegue trocá-la por aqui. O cadastro nesta empresa está feito. ' +
-        'Se a pessoa não lembra a senha, mande o e-mail para ela criar outra.'));
+        'A conta ' + email + ' já existia no MILEST, então a senha dela continua a mesma. ' +
+        'O cadastro nesta empresa está feito. ' +
+        'Se a pessoa não lembra a senha, gere uma nova senha temporária ou mande o e-mail para ela criar outra.'));
+      const bN = el('button', 'btn', '🔑 Gerar nova senha temporária');
+      bN.style.marginRight = '8px';
+      bN.addEventListener('click', () => { close(); confirmarNovaSenha(email); });
+      body.appendChild(bN);
       const bR = el('button', 'btn', 'Enviar e-mail para criar nova senha');
       bR.addEventListener('click', async () => {
         bR.disabled = true;
@@ -5773,7 +5786,7 @@ async function provisionarAcesso(email, marcarProvisoria, opts) {
     return false;
   }
   if (r.criada && marcarProvisoria) { try { await marcarProvisoria(); } catch (e) { } }
-  modalCredenciais(email, r.criada ? senha : null, Object.assign({}, o, { escolhida: !!escolhida }));
+  modalCredenciais(email, r.criada ? senha : null, Object.assign({}, o, { escolhida: !!escolhida, semEmail: !!r.semEmail }));
   return true;
 }
 
@@ -9978,9 +9991,15 @@ function erroAuth(e) {
     A confirmação não é burocracia: as regras do Firestore exigem e-mail
     verificado, então sem esse clique a pessoa entraria e não leria nada. */
 async function criarContaComSenha(email, senha) {
+  const alvo = chaveEmail(email);
+  // caminho novo: pelo servidor, sem e-mail. Só cai no antigo se a função não existir.
+  const via = await chamarAcesso(alvo, senha, 'criar');
+  if (!via.indisponivel) {
+    if (!via.ok) return { ok: false, motivo: via.motivo };
+    return { ok: true, criada: via.criada, semEmail: true };
+  }
   const sec = firebaseSecundario();
   if (!sec) return { ok: false, semAuth: true, motivo: 'este navegador não está conectado ao Firebase.' };
-  const alvo = chaveEmail(email);
   try {
     const cred = await sec.auth().createUserWithEmailAndPassword(alvo, senha);
     try { await cred.user.sendEmailVerification(voltaParaOSistema()); } catch (e) { }
@@ -9994,6 +10013,59 @@ async function criarContaComSenha(email, senha) {
     }
     return { ok: false, motivo: erroAuth(e) };
   }
+}
+
+/* ---- função `acesso` do servidor (functions/index.js) ----------------------
+   Cria a conta já com o e-mail confirmado, ou refaz a senha, sem mandar e-mail
+   nenhum: quem cadastra passa a senha temporária e a pessoa troca no primeiro
+   acesso. Chamada direta pelo protocolo das funções "callable" (POST com o
+   token de quem está logado), para não precisar de mais uma biblioteca.
+   Se a função ainda não foi publicada, devolve `indisponivel` e o sistema cai
+   no caminho antigo (conta criada pelo navegador + e-mail de confirmação). */
+function urlFuncao(nome) {
+  const p = (window.__FIREBASE_CONFIG__ || {}).projectId;
+  return p ? 'https://us-central1-' + p + '.cloudfunctions.net/' + nome : null;
+}
+async function chamarAcesso(email, senha, modo) {
+  const u = ST.auth && ST.auth.currentUser, url = urlFuncao('acesso');
+  if (!u || !url || typeof fetch !== 'function') return { indisponivel: true };
+  let resp;
+  try {
+    const tk = await u.getIdToken();
+    resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + tk },
+      body: JSON.stringify({ data: { email: chaveEmail(email), senha: senha, modo: modo } })
+    });
+  } catch (e) { return { indisponivel: true }; }   // não publicada (sem CORS) ou sem rede
+  if (resp.status === 404) return { indisponivel: true };
+  let j = null; try { j = await resp.json(); } catch (e) { }
+  if (j && j.result) return { ok: true, criada: j.result.criada !== false, resultado: j.result.resultado };
+  return { ok: false, motivo: (j && j.error && j.error.message) || ('erro ' + resp.status + ' no servidor.') };
+}
+
+/** Gera outra senha temporária para quem esqueceu, sem e-mail. A senha antiga
+    para de valer na hora e as sessões abertas caem. */
+function confirmarNovaSenha(email, depois) {
+  modal('Gerar nova senha temporária', (body, close) => {
+    body.appendChild(el('div', 'hint', 'A senha atual de ' + email + ' deixa de funcionar agora, '
+      + 'e quem estiver com o MILEST aberto com ela sai em alguns minutos. Você passa a nova senha para a pessoa; '
+      + 'no primeiro acesso ela escolhe uma dela. Nenhum e-mail é enviado.'));
+    const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
+    const bC = el('button', 'btn', 'Cancelar'); bC.addEventListener('click', close);
+    const bOk = el('button', 'btn primary', 'Gerar senha');
+    bOk.addEventListener('click', async () => {
+      bOk.disabled = true; bOk.textContent = 'Gerando…';
+      const senha = senhaTemporaria();
+      const r = await chamarAcesso(email, senha, 'redefinir');
+      close();
+      if (r.indisponivel) { toast('Gerar senha pelo sistema ainda não está ligado (falta publicar as funções do servidor). Use o envio por e-mail.'); return; }
+      if (!r.ok) { toast('Não consegui gerar: ' + r.motivo); return; }
+      modalCredenciais(email, senha, { titulo: 'Nova senha para ' + email, intro: 'A senha anterior deixou de valer. ', semEmail: true });
+      if (depois) depois();
+    });
+    linha.appendChild(bC); linha.appendChild(bOk); body.appendChild(linha);
+  }, []);
 }
 
 /** Manda a pessoa criar outra senha. É o caminho de quem esqueceu — e o único

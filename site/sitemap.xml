@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:image="http://www.google.com/schemas/sitemap-image/1.1"
+        xmlns:video="http://www.google.com/schemas/sitemap-video/1.1">
+  <url>
+    <loc>https://milest.com.br/</loc>
+    <lastmod>2026-09-21</lastmod>
+    <image:image><image:loc>https://milest.com.br/img/cronograma.png</image:loc></image:image>
+    <image:image><image:loc>https://milest.com.br/img/status.png</image:loc></image:image>
+    <image:image><image:loc>https://milest.com.br/img/curva.png</image:loc></image:image>
+    <video:video>
+      <video:thumbnail_loc>https://milest.com.br/video/milest-tour-poster.jpg</video:thumbnail_loc>
+      <video:title>MILEST em um minuto: como funciona o software de gestão de projetos</video:title>
+      <video:description>Tour pelo MILEST: portfólio de projetos, capacidade da equipe, cronograma com caminho crítico, curva S e status report.</video:description>
+      <video:content_loc>https://milest.com.br/video/milest-tour.mp4</video:content_loc>
+      <video:duration>70</video:duration>
+    </video:video>
+  </url>
+</urlset>
