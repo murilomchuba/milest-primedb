@@ -447,6 +447,57 @@ body.soleitura .avisoleitura{display:flex}
 .semleg{display:flex;gap:10px;flex-wrap:wrap;padding:0 14px 13px}
 /* As pizzas: o SVG tem largura fixa para o texto não escalar junto com a
    janela; título, número do meio e legenda são HTML, no corpo do resto da tela. */
+.pq-tab td,.pq-tab th{font-size:12.5px}
+.pq-nps{font:700 13px var(--f-mono)}
+.pq-ed{display:flex;flex-direction:column;gap:8px;margin:6px 0 10px}
+.pq-lin{display:grid;grid-template-columns:120px 1fr 30px;gap:6px;align-items:center}
+.pq-resp{border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:0 0 10px}
+.pq-resp h5{margin:0 0 6px;font-size:12.5px}
+.pq-resp .q{font-size:12px;color:var(--ink-2);margin-top:6px}
+.pq-resp .a{font-size:13px;margin-top:2px}
+body.modopesquisa > *:not(#pesqPag){display:none!important}
+#pesqPag{min-height:100vh;background:var(--paper);display:flex;justify-content:center;padding:28px 16px}
+#pesqPag .caixa{width:100%;max-width:640px;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:26px 26px 22px;align-self:flex-start}
+#pesqPag .marcaTop{display:flex;align-items:center;gap:10px;font:800 18px var(--f-display);margin-bottom:18px}
+#pesqPag h1{font:700 21px/1.3 var(--f-display);margin:0 0 6px}
+#pesqPag .sub{color:var(--ink-2);font-size:14px;margin:0 0 18px}
+#pesqPag .perg{padding:14px 0;border-top:1px solid var(--line)}
+#pesqPag .perg label.t{display:block;font-weight:600;font-size:14.5px;margin-bottom:10px}
+#pesqPag .notas{display:flex;flex-wrap:wrap;gap:6px}
+#pesqPag .notas button{min-width:40px;height:40px;border:1px solid var(--line-strong);background:var(--surface);border-radius:8px;font:600 14px var(--f-mono);color:var(--ink);cursor:pointer}
+#pesqPag .notas button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+#pesqPag .extremos{display:flex;justify-content:space-between;font-size:11.5px;color:var(--ink-3);margin-top:6px}
+#pesqPag textarea{width:100%;min-height:90px;border:1px solid var(--line-strong);border-radius:8px;padding:10px;font:14px var(--f-body);background:var(--surface);color:var(--ink)}
+#pesqPag .enviar{margin-top:18px;width:100%;height:46px;border:0;border-radius:8px;background:var(--accent);color:#fff;font:700 15px var(--f-display);cursor:pointer}
+#pesqPag .enviar:disabled{opacity:.5;cursor:default}
+#pesqPag .aviso{margin-top:10px;font-size:13px;color:var(--critical)}
+#pesqPag .rod{margin-top:18px;font-size:11.5px;color:var(--ink-3);text-align:center}
+.avanco{padding:6px 16px 14px}
+.av-grade{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px 12px;margin-top:4px}
+.av-card{display:flex;flex-direction:column;align-items:center;text-align:center;padding:10px 6px 8px;border:1px solid var(--line);border-radius:10px;cursor:pointer;background:var(--surface)}
+.av-card:hover{border-color:var(--accent)}
+.av-anel{position:relative;width:132px;height:132px}
+.av-anel .c{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none}
+.av-anel .c b{font:800 22px var(--f-display);color:var(--ink)}
+.av-anel .c span{font-size:10.5px;color:var(--ink-3)}
+.av-card .nm{font-size:12.5px;font-weight:600;margin-top:6px;line-height:1.25;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.av-card .cl{font-size:11px;color:var(--ink-3)}
+.av-card .pl{font:500 11.5px var(--f-mono);color:var(--ink-2);margin-top:4px}
+.avanco .leg{display:flex;gap:18px;align-items:center;font-size:12px;color:var(--ink-2);margin:2px 0 10px}
+.avanco .leg i{display:inline-block;vertical-align:middle;margin-right:6px}
+.avanco .leg .br{width:12px;height:12px;border-radius:3px;background:var(--s1)}
+.avanco .leg .tk{width:2px;height:14px;background:var(--ink)}
+.av-lin{display:grid;grid-template-columns:minmax(140px,30%) 1fr 58px 64px;gap:10px;align-items:center;padding:5px 0;border-top:1px solid var(--line)}
+.av-lin:first-of-type{border-top:0}
+.av-nome{font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.av-nome small{color:var(--ink-3);margin-right:4px}
+.av-trilho{position:relative;height:18px;background:var(--surface-2);border-radius:0 5px 5px 0}
+.av-barra{position:absolute;left:0;top:4px;height:10px;background:var(--s1);border-radius:0 4px 4px 0}
+.av-marco{position:absolute;top:0;width:2px;height:18px;background:var(--ink);margin-left:-1px}
+.av-trilho:hover .av-barra{filter:brightness(1.12)}
+.av-val{font:600 12.5px var(--f-mono);text-align:right;color:var(--ink)}
+.av-dif{font:500 11.5px var(--f-mono);text-align:right;color:var(--ink-2)}
+.av-dif.bad{color:var(--critical)} .av-dif.ok{color:var(--ok)}
 .pizzas{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:6px 10px;padding:4px 14px 14px}
 .pizza{min-width:0;display:flex;flex-direction:column;align-items:center;padding:6px 4px 2px}
 .pizza h4{
@@ -912,7 +963,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-21.5';
+const VERSAO = '2026-09-21.8';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -7760,6 +7811,358 @@ function blocoPizza(titulo, fatias, valorCentro, rotCentro, unid, vazio) {
   return d;
 }
 
+/* ============ pesquisa de satisfação ============
+   Perguntas por projeto em orgs/{org}/projects/{pid}/config/pesquisa.
+   O envio é da função enviarPesquisa (servidor): uma pesquisa por
+   destinatário em orgs/{org}/pesquisas/{código}, com e-mail pelo Resend.
+   Quem recebe responde numa página pública (?pesquisa=org.código), sem login;
+   a regra do Firestore aceita uma resposta só, dentro de 30 dias. */
+const PESQUISA = (function () {
+  try {
+    const v = new URLSearchParams(location.search).get('pesquisa') || '';
+    const m = /^([A-Za-z0-9_-]{1,80})\.([A-Za-z0-9_-]{16,64})$/.exec(v);
+    return m ? { org: m[1], codigo: m[2] } : null;
+  } catch (e) { return null; }
+})();
+const PESQ_PADRAO = () => [
+  { id: 'nps', tipo: 'nps', texto: 'De 0 a 10, quanto você recomendaria o nosso trabalho neste projeto a um colega?' },
+  { id: 'geral', tipo: 'escala', texto: 'Satisfação geral com o projeto' },
+  { id: 'prazo', tipo: 'escala', texto: 'Cumprimento dos prazos combinados' },
+  { id: 'qualidade', tipo: 'escala', texto: 'Qualidade das entregas' },
+  { id: 'comunicacao', tipo: 'escala', texto: 'Comunicação e transparência da equipe' },
+  { id: 'melhorar', tipo: 'texto', texto: 'O que poderíamos ter feito melhor?' }
+];
+const PESQ_TIPOS = { nps: 'Nota 0 a 10', escala: 'Escala 1 a 5', texto: 'Texto livre' };
+const dPesqCfg = pid => dProjeto(pid) + '/config/pesquisa';
+const cPesquisas = () => pre() + 'pesquisas';
+
+/** NPS: % de notas 9–10 menos % de notas 0–6. */
+function npsDe(notas) {
+  const v = notas.filter(n => typeof n === 'number');
+  if (!v.length) return null;
+  return Math.round(100 * (v.filter(n => n >= 9).length - v.filter(n => n <= 6).length) / v.length);
+}
+function resumoPesquisas(itens) {
+  const resp = itens.filter(x => x.respondidaEm);
+  const notasNps = [], escalas = [];
+  for (const x of resp) for (const q of (x.perguntas || [])) {
+    const a = x.respostas && x.respostas[q.id];
+    if (q.tipo === 'nps' && typeof a === 'number') notasNps.push(a);
+    if (q.tipo === 'escala' && typeof a === 'number') escalas.push(a);
+  }
+  return { enviadas: itens.length, respondidas: resp.length, nps: npsDe(notasNps),
+    media: escalas.length ? escalas.reduce((a, b) => a + b, 0) / escalas.length : null };
+}
+
+function painelPesquisas(lista) {
+  const p = el('div', 'panel');
+  const cab = el('h3', '', 'Pesquisas de satisfação');
+  p.appendChild(cab);
+  const corpo = el('div'); corpo.style.padding = '6px 16px 14px'; p.appendChild(corpo);
+  corpo.appendChild(el('div', 'tagline', 'Carregando…'));
+  ST.db.collection(cPesquisas()).get().then(snap => {
+    corpo.textContent = '';
+    const todas = snap.docs.map(d => Object.assign({ codigo: d.id }, d.data() || {}));
+    const porProj = new Map();
+    for (const x of todas) { if (!porProj.has(x.projetoId)) porProj.set(x.projetoId, []); porProj.get(x.projetoId).push(x); }
+    const geral = resumoPesquisas(todas);
+    if (todas.length) corpo.appendChild(el('div', 'tagline',
+      'Carteira: ' + geral.respondidas + ' de ' + geral.enviadas + ' respondidas' +
+      (geral.nps == null ? '' : ' · NPS ' + geral.nps) + (geral.media == null ? '' : ' · nota média ' + geral.media.toFixed(1).replace('.', ',') + ' de 5')));
+    const tb = el('table', 'data pq-tab');
+    const th = el('thead'), trh = el('tr');
+    for (const c of ['Projeto', 'Enviadas', 'Respondidas', 'NPS', 'Nota média', '']) trh.appendChild(el('th', '', c));
+    th.appendChild(trh); tb.appendChild(th);
+    const tbody = el('tbody');
+    for (const x of (lista || []).filter(x => x && !x.erro)) {
+      const its = porProj.get(x.id) || [], r = resumoPesquisas(its);
+      const l = el('tr');
+      l.appendChild(el('td', '', (x.meta.client ? x.meta.client + ' · ' : '') + (x.meta.name || 'Projeto')));
+      l.appendChild(el('td', 'num', String(r.enviadas)));
+      l.appendChild(el('td', 'num', String(r.respondidas)));
+      l.appendChild(el('td', 'num pq-nps', r.nps == null ? '—' : String(r.nps)));
+      l.appendChild(el('td', 'num', r.media == null ? '—' : r.media.toFixed(1).replace('.', ',')));
+      const tdA = el('td'); tdA.style.whiteSpace = 'nowrap'; tdA.style.textAlign = 'right';
+      const bE = el('button', 'btn', '✉ Enviar pesquisa'); bE.disabled = !podeEditar();
+      bE.addEventListener('click', () => modalEnviarPesquisa(x));
+      const bR = el('button', 'btn', 'Respostas'); bR.style.marginLeft = '5px'; bR.disabled = !its.length;
+      bR.addEventListener('click', () => modalRespostas(x, its));
+      tdA.appendChild(bE); tdA.appendChild(bR); l.appendChild(tdA);
+      tbody.appendChild(l);
+    }
+    tb.appendChild(tbody); corpo.appendChild(tb);
+    corpo.appendChild(el('div', 'tagline', 'Cada destinatário recebe um link pessoal, que vale por 30 dias e só aceita uma resposta. ' +
+      'NPS: % de notas 9 e 10 menos % de notas de 0 a 6, na pergunta de 0 a 10.'));
+  }).catch(e => { corpo.textContent = ''; corpo.appendChild(el('div', 'tagline', 'Não consegui ler as pesquisas: ' + ((e && e.message) || 'erro'))); });
+  return p;
+}
+
+/** Aceita "Nome <email>", "Nome; email", "email" — um por linha ou separados por vírgula. */
+function lerDestinatarios(txt) {
+  const out = [], vistos = new Set();
+  for (let lin of String(txt || '').split(/[\n,]+/)) {
+    lin = lin.trim(); if (!lin) continue;
+    let nome = '', email = '';
+    const m = /^(.*?)<([^>]+)>$/.exec(lin) || /^(.*?)[;\t]\s*(\S+@\S+)$/.exec(lin);
+    if (m) { nome = m[1].trim().replace(/^"|"$/g, ''); email = m[2].trim(); } else email = lin;
+    email = chaveEmail(email);
+    if (vistos.has(email)) continue; vistos.add(email);
+    out.push({ nome: nome, email: email, ok: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) });
+  }
+  return out;
+}
+
+async function modalEnviarPesquisa(x) {
+  let perguntas = PESQ_PADRAO();
+  try {
+    const s = await ST.db.doc(dPesqCfg(x.id)).get();
+    if (s.exists && Array.isArray((s.data() || {}).perguntas) && s.data().perguntas.length) perguntas = s.data().perguntas;
+  } catch (e) { }
+  modal('Pesquisa de satisfação — ' + (x.meta.name || 'Projeto'), (body, close) => {
+    body.appendChild(el('div', 'hint', 'As perguntas ficam guardadas neste projeto. Cada destinatário recebe por e-mail um link pessoal; ' +
+      'ele responde sem precisar de conta no MILEST.'));
+    const tPer = el('div', '', 'Perguntas'); tPer.style.cssText = 'font-weight:600;font-size:13px;margin-top:10px';
+    body.appendChild(tPer);
+    const ed = el('div', 'pq-ed'); body.appendChild(ed);
+    const desenhar = () => {
+      ed.textContent = '';
+      perguntas.forEach((q, i) => {
+        const l = el('div', 'pq-lin');
+        const sT = el('select', 'inp');
+        for (const k of Object.keys(PESQ_TIPOS)) { const o = el('option', '', PESQ_TIPOS[k]); o.value = k; sT.appendChild(o); }
+        sT.value = q.tipo; sT.addEventListener('change', () => { q.tipo = sT.value; });
+        const iT = el('input', 'inp'); iT.value = q.texto; iT.maxLength = 300;
+        iT.addEventListener('input', () => { q.texto = iT.value; });
+        const bX = el('button', 'btn icon danger', '✕'); bX.title = 'Remover pergunta';
+        bX.addEventListener('click', () => { perguntas.splice(i, 1); desenhar(); });
+        l.appendChild(sT); l.appendChild(iT); l.appendChild(bX); ed.appendChild(l);
+      });
+      const acoes = el('div'); acoes.style.cssText = 'display:flex;gap:6px';
+      const bAdd = el('button', 'btn', '＋ Pergunta'); bAdd.disabled = perguntas.length >= 20;
+      bAdd.addEventListener('click', () => { perguntas.push({ id: 'q' + Date.now().toString(36), tipo: 'escala', texto: '' }); desenhar(); });
+      const bPad = el('button', 'btn', 'Voltar ao modelo padrão');
+      bPad.addEventListener('click', () => { perguntas = PESQ_PADRAO(); desenhar(); });
+      acoes.appendChild(bAdd); acoes.appendChild(bPad); ed.appendChild(acoes);
+    };
+    desenhar();
+
+    const f1 = el('div', 'field'); f1.appendChild(el('label', '', 'Destinatários'));
+    const tD = el('textarea', 'inp'); tD.rows = 4;
+    tD.placeholder = 'Um por linha. Ex.:\nCarla Souza <carla@cliente.com.br>\njoao@cliente.com.br';
+    f1.appendChild(tD); body.appendChild(f1);
+    const f2 = el('div', 'field'); f2.appendChild(el('label', '', 'Mensagem do e-mail'));
+    const tM = el('textarea', 'inp'); tM.rows = 3; tM.maxLength = 1500;
+    tM.value = 'Queremos saber como foi a sua experiência no projeto ' + (x.meta.name || '') + '. A sua opinião nos ajuda a melhorar as próximas entregas.';
+    f2.appendChild(tM); body.appendChild(f2);
+    const aviso = el('div', 'hint'); aviso.style.color = 'var(--critical)'; aviso.hidden = true; body.appendChild(aviso);
+
+    const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
+    const bC = el('button', 'btn', 'Cancelar'); bC.addEventListener('click', close);
+    const bS = el('button', 'btn', 'Salvar perguntas');
+    const bOk = el('button', 'btn primary', 'Enviar pesquisa');
+    const validar = () => {
+      perguntas = perguntas.map((q, i) => ({ id: q.id || ('q' + i), tipo: q.tipo, texto: String(q.texto || '').trim() }));
+      if (!perguntas.length) return 'Inclua ao menos uma pergunta.';
+      if (perguntas.some(q => !q.texto)) return 'Há pergunta sem texto.';
+      return '';
+    };
+    const salvar = async () => { await ST.db.doc(dPesqCfg(x.id)).set({ perguntas: perguntas, atualizadoEm: Date.now(), por: chaveEmail(ST.userEmail) }); };
+    bS.addEventListener('click', async () => {
+      const e = validar(); if (e) { aviso.textContent = e; aviso.hidden = false; return; }
+      try { await salvar(); toast('Perguntas salvas neste projeto.'); } catch (er) { toast('Não consegui salvar: ' + ((er && er.message) || 'erro')); }
+    });
+    bOk.addEventListener('click', async () => {
+      const e = validar(); if (e) { aviso.textContent = e; aviso.hidden = false; return; }
+      const dest = lerDestinatarios(tD.value);
+      if (!dest.length) { aviso.textContent = 'Informe ao menos um destinatário.'; aviso.hidden = false; return; }
+      const ruins = dest.filter(d => !d.ok);
+      if (ruins.length) { aviso.textContent = 'E-mail inválido: ' + ruins.map(d => d.email).join(', '); aviso.hidden = false; return; }
+      if (dest.length > 50) { aviso.textContent = 'No máximo 50 destinatários por envio.'; aviso.hidden = false; return; }
+      aviso.hidden = true; bOk.disabled = true; bOk.textContent = 'Enviando…';
+      try { await salvar(); } catch (er) { aviso.textContent = 'Não consegui salvar as perguntas: ' + ((er && er.message) || 'erro'); aviso.hidden = false; bOk.disabled = false; bOk.textContent = 'Enviar pesquisa'; return; }
+      const r = await chamarFuncao('enviarPesquisa', { projetoId: x.id, destinatarios: dest.map(d => ({ nome: d.nome, email: d.email })), mensagem: tM.value });
+      if (r.indisponivel) { aviso.textContent = 'O envio de pesquisas ainda não está ligado (falta publicar as funções do servidor).'; aviso.hidden = false; bOk.disabled = false; bOk.textContent = 'Enviar pesquisa'; return; }
+      if (!r.ok) { aviso.textContent = 'Não consegui enviar: ' + r.motivo; aviso.hidden = false; bOk.disabled = false; bOk.textContent = 'Enviar pesquisa'; return; }
+      close(); resultadoEnvio(r.itens || []);
+      ST.portfolioEm = 0; if (VIEW === 'kpi') refresh();
+    });
+    linha.appendChild(bC); linha.appendChild(bS); linha.appendChild(bOk); body.appendChild(linha);
+  }, []);
+}
+
+/** Depois do envio: quem recebeu e, para quem o e-mail não saiu, o link para mandar à mão. */
+function resultadoEnvio(itens) {
+  modal('Pesquisa enviada', (body, close) => {
+    const ok = itens.filter(i => i.enviado), falhou = itens.filter(i => !i.enviado);
+    body.appendChild(el('div', 'hint', ok.length + ' e-mail(s) enviado(s).' + (falhou.length
+      ? ' Para ' + falhou.length + ' destinatário(s) o e-mail não saiu (' + falhou[0].erro + '). A pesquisa foi criada mesmo assim: copie o link de cada um e mande por onde preferir.' : '')));
+    for (const i of falhou) {
+      const l = el('div'); l.style.cssText = 'display:flex;gap:6px;align-items:center;margin-top:8px';
+      const t = el('input', 'inp'); t.value = i.link; t.readOnly = true;
+      const b = el('button', 'btn', 'Copiar');
+      b.addEventListener('click', async () => { try { await navigator.clipboard.writeText(i.link); b.textContent = 'Copiado'; } catch (e) { t.select(); } });
+      l.appendChild(el('span', '', i.nome || i.email)); l.appendChild(t); l.appendChild(b); body.appendChild(l);
+    }
+    const linha = el('div'); linha.style.cssText = 'display:flex;justify-content:flex-end;margin-top:12px';
+    const bb = el('button', 'btn primary', 'Fechar'); bb.addEventListener('click', close); linha.appendChild(bb); body.appendChild(linha);
+  }, []);
+}
+
+function modalRespostas(x, itens) {
+  modal('Respostas — ' + (x.meta.name || 'Projeto'), (body, close) => {
+    const r = resumoPesquisas(itens);
+    body.appendChild(el('div', 'hint', r.respondidas + ' de ' + r.enviadas + ' respondidas' +
+      (r.nps == null ? '' : ' · NPS ' + r.nps) + (r.media == null ? '' : ' · nota média ' + r.media.toFixed(1).replace('.', ',') + ' de 5')));
+    const cx = el('div'); cx.style.cssText = 'max-height:60vh;overflow:auto;margin-top:10px';
+    const ord = itens.slice().sort((a, b) => (b.enviadaEm || 0) - (a.enviadaEm || 0));
+    for (const it of ord) {
+      const c = el('div', 'pq-resp');
+      const respondeu = !!it.respondidaEm;
+      const quando = !respondeu ? null : it.respondidaEm.toDate ? it.respondidaEm.toDate()
+        : typeof it.respondidaEm === 'number' ? new Date(it.respondidaEm) : null;
+      c.appendChild(el('h5', '', (it.destinatario && (it.destinatario.nome || it.destinatario.email)) + ' · ' +
+        (respondeu ? 'respondeu' + (quando ? ' em ' + quando.toLocaleDateString('pt-BR') : '')
+          : (Date.now() > (it.expiraEm || 0) ? 'venceu sem resposta' : 'aguardando resposta'))));
+      if (respondeu) for (const q of (it.perguntas || [])) {
+        const a = it.respostas && it.respostas[q.id];
+        c.appendChild(el('div', 'q', q.texto));
+        c.appendChild(el('div', 'a', a == null || a === '' ? '—' : q.tipo === 'nps' ? a + ' / 10' : q.tipo === 'escala' ? a + ' / 5' : String(a)));
+      }
+      cx.appendChild(c);
+    }
+    body.appendChild(cx);
+    const linha = el('div'); linha.style.cssText = 'display:flex;justify-content:flex-end;margin-top:12px';
+    const bb = el('button', 'btn primary', 'Fechar'); bb.addEventListener('click', close); linha.appendChild(bb); body.appendChild(linha);
+  }, []);
+}
+
+/* ---- a página pública, para quem recebeu o link ---- */
+async function bootPesquisa() {
+  document.body.classList.add('modopesquisa');
+  const pag = el('div'); pag.id = 'pesqPag';
+  const cx = el('div', 'caixa'); pag.appendChild(cx); document.body.appendChild(pag);
+  const topo = el('div', 'marcaTop');
+  try { topo.appendChild(marcaSVG(28)); } catch (e) { }
+  topo.appendChild(document.createTextNode('MILEST'));
+  cx.appendChild(topo);
+  const msg = (t, sub) => { cx.appendChild(el('h1', '', t)); if (sub) cx.appendChild(el('p', 'sub', sub)); };
+  const cfg = window.__FIREBASE_CONFIG__;
+  let fs;
+  try {
+    const base = window.__FIREBASE_VENDOR__ || 'vendor/';
+    await loadScript(base + 'firebase-app-compat.js');
+    await loadScript(base + 'firebase-firestore-compat.js');
+    firebase.initializeApp(cfg); fs = firebase.firestore();
+  } catch (e) { msg('Não foi possível abrir a pesquisa.', 'Verifique a sua conexão e tente de novo.'); return; }
+  const ref = fs.doc('orgs/' + PESQUISA.org + '/pesquisas/' + PESQUISA.codigo);
+  let d;
+  try { const s = await ref.get(); d = s.exists ? s.data() : null; } catch (e) { d = null; }
+  if (!d) { msg('Pesquisa não encontrada.', 'Confira se o link foi copiado inteiro.'); return; }
+  if (d.respondidaEm) { msg('Obrigado! Esta pesquisa já foi respondida.', 'A sua opinião foi registrada.'); return; }
+  if (Date.now() >= (d.expiraEm || 0)) { msg('Esta pesquisa venceu.', 'Fale com quem enviou para receber um link novo.'); return; }
+  msg('Como foi o projeto ' + (d.projetoNome || '') + '?',
+    (d.empresaNome ? d.empresaNome + ' quer ouvir você. ' : '') + 'Leva cerca de 2 minutos.' +
+    (d.destinatario && d.destinatario.nome ? ' Olá, ' + d.destinatario.nome + '!' : ''));
+  const resp = {};
+  for (const q of (d.perguntas || [])) {
+    const b = el('div', 'perg');
+    b.appendChild(el('label', 't', q.texto));
+    if (q.tipo === 'texto') {
+      const t = el('textarea'); t.maxLength = 2000; t.addEventListener('input', () => { resp[q.id] = t.value.trim(); });
+      b.appendChild(t);
+    } else {
+      const ini = q.tipo === 'nps' ? 0 : 1, fim = q.tipo === 'nps' ? 10 : 5;
+      const n = el('div', 'notas');
+      for (let v = ini; v <= fim; v++) {
+        const bt = el('button', '', String(v)); bt.type = 'button';
+        bt.addEventListener('click', () => { resp[q.id] = v; for (const o of n.children) o.classList.toggle('on', o === bt); });
+        n.appendChild(bt);
+      }
+      b.appendChild(n);
+      const ex = el('div', 'extremos');
+      ex.appendChild(el('span', '', q.tipo === 'nps' ? 'Nada provável' : 'Muito insatisfeito'));
+      ex.appendChild(el('span', '', q.tipo === 'nps' ? 'Muito provável' : 'Muito satisfeito'));
+      b.appendChild(ex);
+    }
+    cx.appendChild(b);
+  }
+  const aviso = el('div', 'aviso'); aviso.hidden = true;
+  const bt = el('button', 'enviar', 'Enviar respostas');
+  bt.addEventListener('click', async () => {
+    const faltam = (d.perguntas || []).filter(q => q.tipo !== 'texto' && resp[q.id] == null);
+    if (faltam.length) { aviso.textContent = 'Responda as perguntas com nota antes de enviar (' + faltam.length + ' faltando).'; aviso.hidden = false; return; }
+    bt.disabled = true; bt.textContent = 'Enviando…'; aviso.hidden = true;
+    try {
+      await ref.update({ respostas: resp, respondidaEm: firebase.firestore.FieldValue.serverTimestamp() });
+      cx.textContent = ''; cx.appendChild(topo);
+      msg('Obrigado!', 'Suas respostas foram enviadas para ' + (d.empresaNome || 'a equipe do projeto') + '.');
+    } catch (e) {
+      bt.disabled = false; bt.textContent = 'Enviar respostas';
+      aviso.textContent = 'Não consegui enviar. Talvez a pesquisa já tenha sido respondida ou vencido. Recarregue a página.'; aviso.hidden = false;
+    }
+  });
+  cx.appendChild(aviso); cx.appendChild(bt);
+  cx.appendChild(el('div', 'rod', 'Pesquisa enviada pelo MILEST · gestão de projetos'));
+}
+
+/** Avanço de cada projeto: a barra é o realizado, o traço é onde deveria estar
+    (planejado na data de status). Gráfico de marcador: uma cor só, e a
+    distância entre a ponta da barra e o traço é o atraso — lido sem legenda. */
+function painelAvanco(lista) {
+  const p = el('div', 'panel');
+  p.appendChild(el('h3', '', '% de avanço por projeto'));
+  const c = el('div', 'avanco'); p.appendChild(c);
+  const itens = (lista || []).filter(x => x && !x.erro && x.ind);
+  if (!itens.length) { c.appendChild(el('div', 'empty', 'Nenhum projeto medido ainda.')); return p; }
+  const leg = el('div', 'leg');
+  const l1 = el('span'); l1.appendChild(el('i', 'br')); l1.appendChild(document.createTextNode('Realizado'));
+  const l2 = el('span'); l2.appendChild(el('i', 'tk')); l2.appendChild(document.createTextNode('Onde deveria estar (planejado na data de status)'));
+  leg.appendChild(l1); leg.appendChild(l2); c.appendChild(leg);
+  const pc = v => (v == null || isNaN(v)) ? '—' : (Math.round(v * 10) / 10).toFixed(1).replace('.', ',') + '%';
+  const grade = el('div', 'av-grade'); c.appendChild(grade);
+  const L = 132, cx = L / 2, cy = L / 2, re = L / 2 - 3, ri = Math.round(re * 0.72);
+  const ang = v => -Math.PI / 2 + 2 * Math.PI * v / 100;
+  for (const x of itens) {
+    const real = Math.max(0, Math.min(100, x.ind.real || 0));
+    const plan = x.ind.plan && x.ind.plan.pct != null ? Math.max(0, Math.min(100, x.ind.plan.pct)) : null;
+    const dif = plan == null ? null : real - plan;
+    const card = el('div', 'av-card');
+    const anel = el('div', 'av-anel');
+    const sg = sv('svg', { xmlns: SVGNS, viewBox: '0 0 ' + L + ' ' + L, width: L, height: L, role: 'img' });
+    sg.appendChild(sv('path', { d: arcoPizza(cx, cy, re, ri, 0, 2 * Math.PI), fill: 'var(--surface-3)', 'fill-rule': 'evenodd' }));
+    if (real > 0.05) sg.appendChild(sv('path', { d: arcoPizza(cx, cy, re, ri, ang(0), ang(real)), fill: 'var(--s1)', 'fill-rule': 'evenodd' }));
+    if (plan != null) {
+      const a = ang(plan), P = r => [(cx + r * Math.cos(a)).toFixed(1), (cy + r * Math.sin(a)).toFixed(1)];
+      const [x1, y1] = P(ri - 3), [x2, y2] = P(re + 2);
+      sg.appendChild(sv('line', { x1, y1, x2, y2, stroke: 'var(--surface)', 'stroke-width': 5, 'stroke-linecap': 'round' }));
+      sg.appendChild(sv('line', { x1, y1, x2, y2, stroke: 'var(--ink)', 'stroke-width': 2.4, 'stroke-linecap': 'round' }));
+    }
+    anel.appendChild(sg);
+    const ctr = el('div', 'c'); ctr.appendChild(el('b', '', pc(real))); ctr.appendChild(el('span', '', 'realizado'));
+    anel.appendChild(ctr); card.appendChild(anel);
+    if (x.meta.client) card.appendChild(el('div', 'cl', x.meta.client));
+    card.appendChild(el('div', 'nm', x.meta.name || 'Projeto'));
+    const pl = el('div', 'pl', 'planejado ' + pc(plan));
+    if (dif != null) {
+      const d = el('div', '', (dif >= 0 ? '+' : '') + pc(dif).replace('%', ' pp') + (dif < -0.5 ? ' de atraso' : ''));
+      d.style.color = dif < -0.5 ? 'var(--critical)' : dif >= 0 ? 'var(--ok)' : 'var(--ink-2)';
+      pl.appendChild(d);
+    }
+    card.appendChild(pl);
+    card.title = (x.meta.client ? x.meta.client + ' · ' : '') + (x.meta.name || 'Projeto') +
+      '\nRealizado: ' + pc(real) + '\nPlanejado: ' + pc(plan) + (dif == null ? '' : '\nDiferença: ' + (dif >= 0 ? '+' : '') + pc(dif).replace('%', ' pp')) +
+      '\nClique para abrir o cronograma';
+    card.addEventListener('click', async () => {
+      if (x.id !== ST.pid) { await openProject(x.id); const ps = $('#projSel'); if (ps) ps.value = x.id; }
+      setView('schedule');
+    });
+    grade.appendChild(card);
+  }
+  c.appendChild(el('div', 'tagline', 'A parte colorida do anel é o avanço físico realizado; o traço mostra onde o projeto deveria estar na data de status. ' +
+    'Embaixo, a diferença em pontos percentuais — negativa é atraso. Clique num projeto para abrir o cronograma.'));
+  return p;
+}
+
 /** O painel com os três anéis: situação, horas previstas e horas consumidas. */
 function pizzasPortfolio(lista, r) {
   const p = el('div', 'panel');
@@ -8082,6 +8485,8 @@ function renderPainel() {
       '; o seletor no alto desta tela troca para o outro.'));
 
     /* ---- a distribuição, em anéis ---- */
+    depois.appendChild(painelAvanco(lista));
+    if (ST.mode === 'db' && ST.comLogin && ST.orgId) depois.appendChild(painelPesquisas(lista));
     depois.appendChild(painelCapacidade());
     depois.appendChild(pizzasPortfolio(lista, r));
 
@@ -10977,6 +11382,7 @@ function bootEmbutido() {
 
 /* ============ inicialização ============ */
 async function boot() {
+  if (PESQUISA) return bootPesquisa();
   if (EMBUTIDO) return bootEmbutido();
   if (ARQUIVO) return bootArquivo();
   // 1) começa local para a página abrir imediatamente

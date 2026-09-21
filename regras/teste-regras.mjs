@@ -3,7 +3,7 @@
    Nada aqui toca o banco de produção — tudo acontece no emulador local. */
 import { initializeTestEnvironment, assertSucceeds, assertFails } from '@firebase/rules-unit-testing';
 import { readFileSync } from 'node:fs';
-import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs, serverTimestamp } from 'firebase/firestore';
 
 const env = await initializeTestEnvironment({
   projectId: 'milest-teste',
@@ -298,6 +298,31 @@ await caso('prazo vencido: plataforma volta a NÃO ler', async () => {
 });
 await caso('admin encerra a liberação', () =>
   assertSucceeds(deleteDoc(doc(conta(ANA), 'orgs/unimed/suporte', 'acesso'))));
+
+console.log('\nPESQUISA DE SATISFAÇÃO');
+await env.withSecurityRulesDisabled(async ctx => {
+  const db = ctx.firestore();
+  await setDoc(doc(db, 'orgs/varejo/pesquisas', 'codigoSecreto1'), { projetoId: 'p9', perguntas: [], respondidaEm: null, respostas: null, expiraEm: Date.now() + DIA });
+  await setDoc(doc(db, 'orgs/varejo/pesquisas', 'codigoVencido'), { projetoId: 'p9', perguntas: [], respondidaEm: null, respostas: null, expiraEm: Date.now() - 1000 });
+});
+await caso('quem tem o link lê a pesquisa sem login', () =>
+  assertSucceeds(getDoc(doc(anonimo(), 'orgs/varejo/pesquisas', 'codigoSecreto1'))));
+await caso('sem login NÃO lista as pesquisas da empresa', () =>
+  assertFails(getDocs(collection(anonimo(), 'orgs/varejo/pesquisas'))));
+await caso('membro de outra empresa NÃO lista', () =>
+  assertFails(getDocs(collection(conta(ANA), 'orgs/varejo/pesquisas'))));
+await caso('membro da empresa lista as respostas', () =>
+  assertSucceeds(getDocs(collection(conta(BRUNO), 'orgs/varejo/pesquisas'))));
+await caso('ninguém cria pesquisa pelo navegador', () =>
+  assertFails(setDoc(doc(conta(BRUNO), 'orgs/varejo/pesquisas', 'nova'), { respondidaEm: null, expiraEm: Date.now() + DIA })));
+await caso('resposta NÃO mexe em outro campo', () =>
+  assertFails(updateDoc(doc(anonimo(), 'orgs/varejo/pesquisas', 'codigoSecreto1'), { respostas: { q1: 9 }, respondidaEm: serverTimestamp(), projetoId: 'outro' })));
+await caso('quem tem o link responde sem login', () =>
+  assertSucceeds(updateDoc(doc(anonimo(), 'orgs/varejo/pesquisas', 'codigoSecreto1'), { respostas: { q1: 9, q2: 'Ótimo' }, respondidaEm: serverTimestamp() })));
+await caso('NÃO responde duas vezes', () =>
+  assertFails(updateDoc(doc(anonimo(), 'orgs/varejo/pesquisas', 'codigoSecreto1'), { respostas: { q1: 0 }, respondidaEm: serverTimestamp() })));
+await caso('NÃO responde pesquisa vencida', () =>
+  assertFails(updateDoc(doc(anonimo(), 'orgs/varejo/pesquisas', 'codigoVencido'), { respostas: { q1: 9 }, respondidaEm: serverTimestamp() })));
 
 console.log('\n' + ok + ' passaram, ' + falhou + ' falharam.');
 await env.cleanup();

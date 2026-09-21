@@ -88,4 +88,28 @@ function decidirExclusao(p) {
   return { ok: true };
 }
 
-module.exports = { decidir, decidirExclusao, senhaValida, chave, DONO };
+/**
+ * Pode enviar pesquisa de satisfação deste projeto?
+ * Administrador ou gerente ativo da empresa, empresa ativa e no prazo.
+ */
+function decidirPesquisa(p) {
+  const orgId = p.idxQuem && p.idxQuem.orgId;
+  if (!orgId) return { ok: false, motivo: 'sua conta não está em nenhuma empresa.' };
+  const m = p.membroQuem, org = p.org;
+  if (!m || m.ativo === false || !['admin', 'gerente'].includes(m.papel))
+    return { ok: false, motivo: 'só administradores e gerentes enviam pesquisa.' };
+  if (!org || org.ativo === false) return { ok: false, motivo: 'empresa suspensa.' };
+  if (org.expiraEm && p.agora >= org.expiraEm) return { ok: false, motivo: 'o prazo de acesso da empresa venceu.' };
+  if (!p.projeto) return { ok: false, motivo: 'projeto não encontrado.' };
+  const dest = Array.isArray(p.destinatarios) ? p.destinatarios : [];
+  if (!dest.length) return { ok: false, motivo: 'informe ao menos um destinatário.' };
+  if (dest.length > 50) return { ok: false, motivo: 'no máximo 50 destinatários por envio.' };
+  if (dest.some(d => !EMAIL_OK.test(chave(d && d.email)))) return { ok: false, motivo: 'há e-mail inválido na lista.' };
+  const perg = Array.isArray(p.perguntas) ? p.perguntas : [];
+  if (!perg.length || perg.length > 20) return { ok: false, motivo: 'a pesquisa precisa ter de 1 a 20 perguntas.' };
+  if (perg.some(q => !q || !['nps', 'escala', 'texto'].includes(q.tipo) || !String(q.texto || '').trim() || String(q.texto).length > 300))
+    return { ok: false, motivo: 'há pergunta inválida.' };
+  return { ok: true, orgId };
+}
+
+module.exports = { decidir, decidirExclusao, decidirPesquisa, senhaValida, chave, DONO };

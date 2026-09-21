@@ -1,4 +1,4 @@
-// versão 2026-09-21.5
+// versão 2026-09-21.6
 /* MILEST — funções do servidor.
 
    acesso: cria a conta de uma pessoa (ou refaz a senha dela) já com o e-mail
@@ -15,9 +15,11 @@
    Publicar: firebase deploy --only functions                                 */
 
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
+const { defineSecret } = require('firebase-functions/params');
+const crypto = require('crypto');
 const { setGlobalOptions } = require('firebase-functions/v2');
 const admin = require('firebase-admin');
-const { decidir, decidirExclusao, senhaValida, chave } = require('./regras-acesso');
+const { decidir, decidirExclusao, decidirPesquisa, senhaValida, chave } = require('./regras-acesso');
 
 admin.initializeApp();
 setGlobalOptions({ region: 'us-central1', maxInstances: 5 });
@@ -119,4 +121,94 @@ exports.excluirEmpresa = onCall({ cors: ORIGENS, timeoutSeconds: 300 }, async (r
   await lote.commit();
   console.log('excluirEmpresa', { quem, orgId, nome: org.nome, indices: indices.size });
   return { ok: true, indices: indices.size };
+});
+
+/* enviarPesquisa: cria uma pesquisa de satisfação por destinatário e manda o
+   e-mail com o link. Cada link tem um código aleatório (144 bits) que só vale
+   para aquela pessoa, só pode ser respondido uma vez e vence em 30 dias —
+   quem garante é a regra do Firestore (orgs/{org}/pesquisas/{token}).
+   O e-mail sai pelo Resend (chave no segredo RESEND_API_KEY). Se o envio
+   falhar, a pesquisa existe do mesmo jeito e a tela devolve o link para você
+   mandar por conta própria. */
+const RESEND_API_KEY = defineSecret('RESEND_API_KEY');
+const REMETENTE = 'pesquisa@milest.com.br';
+const APP_URL = 'https://app.milest.com.br/';
+
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+function corpoEmail(o) {
+  return `<!doctype html><html><body style="margin:0;background:#F3F7FA;font-family:Arial,Helvetica,sans-serif;color:#0E1E2B">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:28px 12px">
+<table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;background:#fff;border:1px solid #D8E3EC;border-radius:10px">
+<tr><td style="padding:26px 30px 8px;font-size:13px;color:#47596A">${esc(o.empresa)}</td></tr>
+<tr><td style="padding:0 30px;font-size:21px;font-weight:bold;line-height:1.3">Como foi o projeto ${esc(o.projeto)}?</td></tr>
+<tr><td style="padding:14px 30px 0;font-size:15px;line-height:1.55;color:#243646">
+Olá${o.nome ? ', ' + esc(o.nome) : ''}!<br><br>${esc(o.mensagem).replace(/\n/g, '<br>')}</td></tr>
+<tr><td style="padding:22px 30px 6px"><a href="${esc(o.link)}" style="display:inline-block;background:#014479;color:#fff;text-decoration:none;font-weight:bold;font-size:15px;padding:13px 24px;border-radius:7px">Responder a pesquisa</a></td></tr>
+<tr><td style="padding:8px 30px 24px;font-size:12px;color:#7A8D9C;line-height:1.5">Leva cerca de 2 minutos. O link é pessoal e vale por 30 dias.<br>
+Se o botão não abrir, copie este endereço: ${esc(o.link)}</td></tr>
+</table>
+<div style="font-size:11px;color:#7A8D9C;padding-top:12px">Enviado por ${esc(o.remetente)} pelo MILEST · milest.com.br</div>
+</td></tr></table></body></html>`;
+}
+
+async function mandarEmail(chaveApi, o) {
+  if (!chaveApi || chaveApi.length < 10 || !chaveApi.startsWith('re_')) return { enviado: false, erro: 'envio de e-mail ainda não configurado' };
+  try {
+    const r = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + chaveApi, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: `${o.empresa.replace(/[<>"]/g, '')} via MILEST <${REMETENTE}>`,
+        to: [o.email], reply_to: o.remetente,
+        subject: `Pesquisa de satisfação — ${o.projeto}`,
+        html: corpoEmail(o)
+      })
+    });
+    if (r.ok) return { enviado: true };
+    const j = await r.json().catch(() => ({}));
+    return { enviado: false, erro: (j && j.message) || ('erro ' + r.status + ' no envio') };
+  } catch (e) { return { enviado: false, erro: 'falha de rede no envio' }; }
+}
+
+exports.enviarPesquisa = onCall({ cors: ORIGENS, secrets: [RESEND_API_KEY], timeoutSeconds: 120 }, async (req) => {
+  const tok = req.auth && req.auth.token;
+  if (!tok || !tok.email || tok.email_verified !== true)
+    throw new HttpsError('unauthenticated', 'entre com uma conta confirmada.');
+  const d = req.data || {};
+  const db = admin.firestore();
+  const quem = chave(tok.email);
+  const idxQuem = await ler(db.doc('users/' + quem));
+  const orgId = idxQuem && idxQuem.orgId;
+  const pid = String(d.projetoId || '');
+  if (!/^[A-Za-z0-9_-]{1,80}$/.test(pid)) throw new HttpsError('invalid-argument', 'projeto inválido.');
+  const [membroQuem, org, projeto, cfg] = orgId ? await Promise.all([
+    ler(db.doc(`orgs/${orgId}/members/${quem}`)), ler(db.doc('orgs/' + orgId)),
+    ler(db.doc(`orgs/${orgId}/projects/${pid}`)), ler(db.doc(`orgs/${orgId}/projects/${pid}/config/pesquisa`))
+  ]) : [null, null, null, null];
+  const perguntas = (cfg && cfg.perguntas) || [];
+  const v = decidirPesquisa({ idxQuem, membroQuem, org, projeto, destinatarios: d.destinatarios, perguntas, agora: Date.now() });
+  if (!v.ok) throw new HttpsError('permission-denied', v.motivo);
+
+  const mensagem = String(d.mensagem || '').slice(0, 1500) ||
+    'Queremos saber como foi a sua experiência neste projeto. A sua opinião nos ajuda a melhorar as próximas entregas.';
+  const agora = Date.now(), expira = agora + 30 * 86400000;
+  const chaveApi = (RESEND_API_KEY.value() || '').trim();
+  const saida = [];
+  for (const dest of d.destinatarios) {
+    const email = chave(dest.email), nome = String(dest.nome || '').slice(0, 120);
+    const token = crypto.randomBytes(18).toString('base64url');
+    const link = APP_URL + '?pesquisa=' + encodeURIComponent(orgId) + '.' + token;
+    await db.doc(`orgs/${orgId}/pesquisas/${token}`).set({
+      projetoId: pid, projetoNome: projeto.name || 'Projeto', cliente: projeto.client || '',
+      empresaNome: org.nome || '', perguntas: perguntas.map(q => ({ id: String(q.id || ''), tipo: q.tipo, texto: String(q.texto).trim() })),
+      destinatario: { nome, email }, enviadaPor: quem, enviadaEm: agora, expiraEm: expira,
+      respondidaEm: null, respostas: null
+    });
+    const r = await mandarEmail(chaveApi, { email, nome, link, empresa: org.nome || 'MILEST', projeto: projeto.name || 'Projeto', mensagem, remetente: quem });
+    await db.doc(`orgs/${orgId}/pesquisas/${token}`).set({ email: r }, { merge: true });
+    saida.push({ email, nome, link, enviado: r.enviado, erro: r.erro || '' });
+  }
+  console.log('enviarPesquisa', { quem, orgId, pid, n: saida.length, enviados: saida.filter(x => x.enviado).length });
+  return { itens: saida };
 });

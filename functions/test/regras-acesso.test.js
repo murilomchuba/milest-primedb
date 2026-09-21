@@ -81,3 +81,24 @@ test('exclusão: nome errado, empresa própria ou quem não é plataforma', () =
   assert.equal(decidirExclusao({ quem: 'ana@c.com', idxQuem: { orgId: 'o1' }, org: org(), nomeDigitado: 'Indústria Aurora' }).ok, false);
   assert.equal(decidirExclusao({ ...plat, org: null, nomeDigitado: 'x' }).ok, false);
 });
+
+const { decidirPesquisa } = require('../regras-acesso');
+const basePesq = () => ({
+  idxQuem: { orgId: 'o1' }, membroQuem: { papel: 'gerente', ativo: true }, org: { ativo: true },
+  projeto: { name: 'P' }, destinatarios: [{ nome: 'Cli', email: 'cli@x.com' }],
+  perguntas: [{ tipo: 'nps', texto: 'Recomendaria?' }], agora: 1000
+});
+test('pesquisa: gerente envia', () => { assert.equal(decidirPesquisa(basePesq()).ok, true); });
+test('pesquisa: leitor, empresa suspensa ou vencida não enviam', () => {
+  assert.equal(decidirPesquisa({ ...basePesq(), membroQuem: { papel: 'leitor' } }).ok, false);
+  assert.equal(decidirPesquisa({ ...basePesq(), org: { ativo: false } }).ok, false);
+  assert.equal(decidirPesquisa({ ...basePesq(), org: { expiraEm: 500 } }).ok, false);
+});
+test('pesquisa: destinatários e perguntas validados', () => {
+  assert.equal(decidirPesquisa({ ...basePesq(), destinatarios: [] }).ok, false);
+  assert.equal(decidirPesquisa({ ...basePesq(), destinatarios: [{ email: 'x' }] }).ok, false);
+  assert.equal(decidirPesquisa({ ...basePesq(), destinatarios: Array(51).fill({ email: 'a@b.co' }) }).ok, false);
+  assert.equal(decidirPesquisa({ ...basePesq(), perguntas: [] }).ok, false);
+  assert.equal(decidirPesquisa({ ...basePesq(), perguntas: [{ tipo: 'outra', texto: 'x' }] }).ok, false);
+  assert.equal(decidirPesquisa({ ...basePesq(), projeto: null }).ok, false);
+});

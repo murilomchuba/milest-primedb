@@ -163,6 +163,24 @@ service cloud.firestore {
         allow delete: if mandaNaOrg(org);
       }
 
+      // ---- pesquisa de satisfação ------------------------------------------
+      // Criada só pela função enviarPesquisa (servidor). Quem recebe o link
+      // lê e responde SEM login: o documento é aberto pelo código aleatório do
+      // link (144 bits), que ninguém adivinha; sem o código não há listagem.
+      // A resposta vale uma vez só, dentro do prazo, e só mexe nas respostas.
+      match /pesquisas/{codigo} {
+        allow get: if true;
+        allow list: if daOrg(org) || suporteAtivo(org);
+        allow create: if false;
+        allow update: if resource.data.respondidaEm == null
+                      && request.time.toMillis() < resource.data.expiraEm
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['respostas', 'respondidaEm'])
+                      && request.resource.data.respostas is map
+                      && request.resource.data.respostas.size() <= 40
+                      && request.resource.data.respondidaEm == request.time;
+        allow delete: if editaOrg(org);
+      }
+
       // ---- histórico do suporte: só se acrescenta, ninguém apaga ----------
       match /suporteLog/{registro} {
         allow read: if daOrg(org) || souPlataforma();
