@@ -1,3 +1,4 @@
+// versão 2026-09-21.2
 /* MILEST — funções do servidor.
 
    acesso: cria a conta de uma pessoa (ou refaz a senha dela) já com o e-mail

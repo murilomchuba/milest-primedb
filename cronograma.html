@@ -914,7 +914,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-21.2';
+const VERSAO = '2026-09-21.3';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -10242,6 +10242,16 @@ async function baixarMarcaProvisoria() {
 function gateMsg(txt, isErr) {
   const p = $('#gateMsg'); p.textContent = txt; p.classList.toggle('err', !!isErr);
 }
+/** Esquece o projeto aberto (memória), sem tocar em banco nenhum. Usado ao
+    sair da conta e quando a empresa que entra não tem projetos. */
+function zerarMemoria() {
+  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+  ST.pid = uid('p');
+  ST.P = { meta: newMeta('Projeto sem título'), tasks: [], resources: [] };
+  ST.projects = [{ id: ST.pid, name: ST.P.meta.name, client: '' }];
+  ST.sel && ST.sel.clear && ST.sel.clear();
+  dirty.meta = false; dirty.tasks.clear(); dirty.res.clear(); dirty.delT.clear(); dirty.delR.clear();
+}
 async function adoptSharedDb() {
   const db = ST.db;
   const snap = await db.collection(cProjetos()).get();
@@ -10251,11 +10261,15 @@ async function adoptSharedDb() {
     ST.pid = keep ? ST.pid : ST.projects[0].id;
     await loadProject(ST.pid);
   } else {
+    // Empresa sem nenhum projeto: nasce UM projeto em branco.
+    // Antes, o que estava na memória era gravado aqui — e a memória podia
+    // ser o projeto de quem usou este navegador antes (outra conta, outra
+    // empresa). Era assim que um cronograma de um cliente aparecia numa
+    // empresa recém-criada. Nada do que está na memória sobe mais por aqui.
+    zerarMemoria();
     dirty.meta = true;
-    for (const t of ST.P.tasks) dirty.tasks.add(t.id);
-    for (const r of ST.P.resources) dirty.res.add(r.id);
     await flushSave();
-    ST.projects = [{ id: ST.pid, name: ST.P.meta.name, client: ST.P.meta.client || '' }];
+    ST.projects = [{ id: ST.pid, name: ST.P.meta.name, client: '' }];
   }
   subscribeProject(ST.pid);
   renderProjectList(); refresh();
@@ -10351,6 +10365,8 @@ async function bootFirebase(cfg) {
     ST.unsub = [];
     if (!user) {
       ST.db = null; ST.mode = 'local'; ST.perfil = null; ST.usuarios = null; ST.orgId = null; ST.orgs = null; ST.comLogin = true;
+      // quem sair não deixa o projeto dele na memória para a próxima conta
+      zerarMemoria(); try { renderProjectList(); refresh(); } catch (e) { }
       chip.hidden = true; gate.hidden = false;
       $('#btnGateOut').hidden = true; botaoReenviar.hidden = true;
       if (msgPropria) msgPropria = false; else gateMsg(MSG_ENTRADA);
