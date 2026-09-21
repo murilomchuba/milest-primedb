@@ -915,7 +915,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-21.1';
+const VERSAO = '2026-09-21.2';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -6075,6 +6075,65 @@ function modalPrazo(org) {
   }, []);
 }
 
+/* Senha do administrador de uma empresa, a partir do painel da plataforma.
+   A plataforma lê a lista de membros (as regras permitem) e mostra os
+   administradores. Gerar senha nova só vale enquanto o administrador ainda
+   está com a senha provisória ou nunca entrou: depois que ele escolheu a
+   dele, trocá-la daria à plataforma um jeito de entrar como o cliente e ler os
+   cronogramas — a função do servidor recusa, e a tela já avisa antes.
+   Para esse caso fica o e-mail de redefinição, que chega só na caixa dele. */
+function modalSenhaEmpresa(o) {
+  modal('Senha — ' + (o.nome || o.id), (body, close) => {
+    const lista = el('div'); lista.appendChild(el('div', 'empty', 'Carregando administradores…'));
+    body.appendChild(lista);
+    const linha = el('div'); linha.style.cssText = 'display:flex;justify-content:flex-end;margin-top:12px';
+    const bF = el('button', 'btn', 'Fechar'); bF.addEventListener('click', close);
+    linha.appendChild(bF); body.appendChild(linha);
+
+    ST.db.collection(dOrg(o.id) + '/members').get().then(snap => {
+      lista.textContent = '';
+      const adms = snap.docs.map(d => Object.assign({ id: d.id }, d.data() || {}))
+        .filter(m => m.papel === 'admin' && m.ativo !== false);
+      if (!adms.length) { lista.appendChild(el('div', 'empty', 'Esta empresa não tem administrador ativo.')); return; }
+      lista.appendChild(el('div', 'hint',
+        'Você pode gerar uma nova senha temporária enquanto o administrador ainda não escolheu a dele. '
+        + 'Depois disso, por segurança, só ele ou outro administrador da empresa troca a senha; daqui você pode mandar o e-mail de redefinição, que chega só na caixa dele.'));
+      const tb = el('table', 'data'); const tbody = el('tbody');
+      for (const m of adms) {
+        const email = chaveEmail(m.email || m.id);
+        const provisoria = m.senhaProvisoria === true || !m.ultimoAcesso;
+        const l = el('tr');
+        const tdE = el('td'); tdE.appendChild(el('b', '', m.nome || email));
+        tdE.appendChild(el('div', 'tagline', email)); l.appendChild(tdE);
+        const tdS = el('td'); tdS.style.whiteSpace = 'nowrap';
+        tdS.appendChild(el('span', 'pill ' + (provisoria ? '' : 'on'),
+          !m.ultimoAcesso ? 'nunca entrou' : (m.senhaProvisoria ? 'senha provisória' : 'já definiu a senha')));
+        l.appendChild(tdS);
+        const tdA = el('td'); tdA.style.whiteSpace = 'nowrap'; tdA.style.textAlign = 'right';
+        const bK = el('button', 'btn primary', '🔑 Gerar nova senha');
+        bK.disabled = !provisoria;
+        if (!provisoria) bK.title = 'Ele já escolheu a própria senha: use o e-mail de redefinição';
+        bK.addEventListener('click', () => { close(); confirmarNovaSenha(email, () => { ST.orgs = null; renderPlataforma(); }); });
+        tdA.appendChild(bK);
+        const bM = el('button', 'btn', '✉ E-mail de redefinição');
+        bM.style.marginLeft = '5px';
+        bM.addEventListener('click', async () => {
+          bM.disabled = true;
+          const r = await enviarRedefinicao(email);
+          bM.disabled = false;
+          toast(r.ok ? 'Enviamos para ' + email + ' o e-mail para criar uma nova senha.' : 'Não consegui enviar: ' + r.motivo);
+        });
+        tdA.appendChild(bM);
+        l.appendChild(tdA); tbody.appendChild(l);
+      }
+      tb.appendChild(tbody); lista.appendChild(tb);
+    }).catch(e => {
+      lista.textContent = '';
+      lista.appendChild(el('div', 'empty', 'Não consegui ler os administradores: ' + ((e && e.message) || 'erro')));
+    });
+  }, []);
+}
+
 function renderPlataforma() {
   const host = $('#platView'); host.textContent = '';
   const p = el('div', 'panel');
@@ -6158,6 +6217,11 @@ function renderPlataforma() {
       bE.title = 'Alterar nome, CNPJ, plano e observações desta empresa';
       bE.addEventListener('click', () => modalEditarEmpresa(o));
       tdA.appendChild(bE);
+      const bS = el('button', 'btn', '🔑 Senha');
+      bS.style.marginLeft = '5px';
+      bS.title = 'Gerar nova senha para o administrador desta empresa';
+      bS.addEventListener('click', () => modalSenhaEmpresa(o));
+      tdA.appendChild(bS);
       const bX = el('button', 'btn icon danger', '✕');
       bX.style.marginLeft = '5px';
       bX.title = 'Excluir esta empresa';
