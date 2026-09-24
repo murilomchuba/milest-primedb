@@ -977,7 +977,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-24.1';
+const VERSAO = '2026-09-24.2';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -3801,6 +3801,12 @@ function porCliente(lista) {
   });
 }
 function soEncerrados(lista) { return (lista || []).filter(it => ehEncerrado(it.meta)); }
+/* O Portfólio separa em três: o que anda, o que está parado e o que acabou.
+   soAtivos (tudo que não foi encerrado) continua valendo para a Visão geral
+   e para o PDF — lá o pausado ainda é carteira, e como os números dele estão
+   congelados ele não distorce média nenhuma. */
+function soEmAndamento(lista) { return soAtivos(lista).filter(it => !ehPausado(it.meta)); }
+function soPausados(lista) { return soAtivos(lista).filter(it => ehPausado(it.meta)); }
 
 /* A Visão geral responde "como está a carteira", no presente: por padrão os
    encerrados ficam de fora, senão um projeto entregue há dois anos continua
@@ -3890,7 +3896,12 @@ function pausarProjeto(pid, meta) {
         pausaMotivo: iMot.value.trim(),
         pausaRetomaEm: iRet.value || null
       });
-      if (ok) { toast('Projeto pausado.'); renderProjectList(); refresh(); }
+      if (ok) {
+        // o projeto some de "Em andamento" na hora; dizer para onde ele foi
+        // evita o susto de achar que sumiu
+        toast('Projeto pausado — agora está na aba Pausados.');
+        renderProjectList(); refresh();
+      }
     });
     linha.appendChild(bC); linha.appendChild(bOk); body.appendChild(linha);
     setTimeout(() => iMot.focus(), 30);
@@ -3929,7 +3940,11 @@ function retomarProjeto(pid, meta) {
       const ok = await salvarMetaDoProjeto(pid, {
         pausadoEm: null, pausadoPor: '', pausaMotivo: '', pausaRetomaEm: null, pausas: historico
       });
-      if (ok) { toast('Projeto retomado.'); renderProjectList(); refresh(); }
+      if (ok) {
+        ABA_PORT = 'ativos';     // ele voltou a andar: é ali que se procura por ele
+        toast('Projeto retomado — voltou para “Em andamento”.');
+        renderProjectList(); refresh();
+      }
     });
     linha.appendChild(bC); linha.appendChild(bOk); body.appendChild(linha);
   }, []);
@@ -4554,10 +4569,84 @@ function renderOverview() {
       'Clique numa linha para abrir o cronograma; ↺ devolve o projeto à carteira ativa.'));
   };
 
+  /* A sala de espera da carteira. Aqui não interessa semáforo, IDP nem IDC:
+     estão todos congelados e nenhum deles é acionável enquanto o projeto não
+     voltar. O que importa é desde quando parou, há quantos dias, por quê, e
+     quando deveria voltar — é isso que se cobra numa reunião de carteira. */
+  const tabelaPausados = (alvo) => {
+    if (!alvo.length) {
+      const vaz = el('div', 'empty');
+      vaz.appendChild(el('div', '', 'Nenhum projeto pausado.'));
+      const como = el('div', '', 'Para pausar um projeto: volte em “Em andamento” e clique no ⏸ ' +
+        'na última coluna da linha dele. O cronograma fica travado e os números param naquela data, ' +
+        'para o projeto não acumular atraso enquanto estiver parado.');
+      como.style.cssText = 'margin-top:8px;max-width:60ch;margin-left:auto;margin-right:auto;line-height:1.5';
+      vaz.appendChild(como);
+      corpo.appendChild(vaz);
+      return;
+    }
+    const tb = el('table', 'data');
+    const hr = el('tr');
+    const cols = [['#', 'num'], ['Cliente', ''], ['Projeto', ''], ['Pausado em', 'num'], ['Dias parado', 'num'],
+    ['Retomada prevista', 'num'], ['% Realiz.', 'num'], ['Atividades', 'num'], ['Motivo', ''], ['', '']];
+    for (const c of cols) hr.appendChild(el('th', c[1], c[0]));
+    const th = el('thead'); th.appendChild(hr); tb.appendChild(th);
+    const tbo = el('tbody');
+    let nLinha = 0;
+    // o que está parado há mais tempo primeiro: é o que corre risco de ser esquecido
+    const ordenados = alvo.slice().sort((a, b2) =>
+      ((a.meta && a.meta.pausadoEm) || '') < ((b2.meta && b2.meta.pausadoEm) || '') ? -1 : 1);
+    for (const it of ordenados) {
+      const m = it.meta, i2 = it.ind || {};
+      const tr = el('tr', 'projrow' + (it.id === ST.pid ? ' atual' : ''));
+      tr.title = 'Abrir este cronograma';
+      tr.addEventListener('click', async () => {
+        if (it.id !== ST.pid) { await openProject(it.id); $('#projSel').value = it.id; }
+        setView('schedule');
+      });
+      tr.appendChild(el('td', 'num ordem', fmtNum(++nLinha)));
+      const tdc = el('td', '', m.client || '—'); tdc.style.color = m.client ? 'var(--ink-2)' : 'var(--ink-3)';
+      tr.appendChild(tdc);
+      const tdn = el('td', '', m.name || 'Projeto'); tdn.style.fontWeight = '600';
+      tr.appendChild(tdn);
+      const tdp = el('td', 'num', fmtBR(m.pausadoEm));
+      if (m.pausadoPor) tdp.title = 'Pausado por ' + m.pausadoPor;
+      tr.appendChild(tdp);
+      const dias = diasDePausa(m);
+      const tdd = el('td', 'num', fmtNum(dias) + (dias === 1 ? ' dia' : ' dias'));
+      // parado há muito tempo deixa de ser pausa e vira projeto esquecido
+      if (dias >= 90) { tdd.style.color = 'var(--critical)'; tdd.title = 'Parado há mais de três meses — vale decidir se retoma ou encerra'; }
+      else if (dias >= 30) { tdd.style.color = 'var(--warn)'; tdd.title = 'Parado há mais de um mês'; }
+      tr.appendChild(tdd);
+      const tdr = el('td', 'num', m.pausaRetomaEm ? fmtBR(m.pausaRetomaEm) : '—');
+      if (m.pausaRetomaEm && m.pausaRetomaEm < todayISO()) {
+        tdr.style.color = 'var(--critical)';
+        tdr.title = 'A data prevista para retomar já passou';
+      } else if (!m.pausaRetomaEm) { tdr.style.color = 'var(--ink-3)'; tdr.title = 'Sem previsão de retomada'; }
+      tr.appendChild(tdr);
+      const tdav = el('td', 'num', i2.real == null ? '—' : fmtNum(i2.real, 1).replace('.', ',') + '%');
+      tdav.title = 'Avanço no dia em que o projeto parou';
+      tr.appendChild(tdav);
+      tr.appendChild(el('td', 'num', i2.folhas ? fmtNum(i2.feitas) + ' / ' + fmtNum(i2.folhas) : '—'));
+      const tdm = el('td', '', m.pausaMotivo || '—');
+      tdm.style.cssText = 'max-width:280px;white-space:normal;line-height:1.35;font-size:11.5px;color:'
+        + (m.pausaMotivo ? 'var(--ink-2)' : 'var(--ink-3)');
+      tr.appendChild(tdm);
+      tr.appendChild(acoesDaLinha(it));
+      tbo.appendChild(tr);
+    }
+    tb.appendChild(tbo);
+    const sc = el('div', 'tscroll'); sc.appendChild(tb); corpo.appendChild(sc);
+    corpo.appendChild(el('div', 'tagline',
+      'Os mais antigos primeiro — parado há muito tempo deixa de ser pausa e vira projeto esquecido. ' +
+      'Os números de cada um estão congelados no dia em que parou, e o cronograma está travado. ' +
+      'O ▶ retoma o projeto: ele volta a ser medido por hoje e reaparece em “Em andamento”.'));
+  };
+
   const desenhar = (lista) => {
     corpo.textContent = '';
     if (!lista || !lista.length) { corpo.appendChild(el('div', 'empty', 'Nenhum projeto ainda. Use “＋ Novo projeto”.')); return; }
-    const ativos = soAtivos(lista), fechados = soEncerrados(lista);
+    const ativos = soEmAndamento(lista), parados = soPausados(lista), fechados = soEncerrados(lista);
     /* O alternador aparece sempre, mesmo com zero concluídos. Escondê-lo até
        existir o primeiro deixava a funcionalidade invisível justamente para
        quem ainda não a conhece — e a lista vazia é quem explica como encerrar. */
@@ -4569,22 +4658,16 @@ function renderOverview() {
       nav.appendChild(b2);
     };
     bota('ativos', 'Em andamento', ativos.length);
+    bota('pausados', 'Pausados', parados.length);
     bota('encerrados', 'Concluídos', fechados.length);
-    /* Os pausados continuam contados em "Em andamento" — não são arquivo, e
-       pausa esquecida vira projeto perdido. Mas ganham um aviso ao lado, para
-       o número de projetos ativos não esconder que parte deles está parada. */
-    const nPausa = ativos.filter(it => ehPausado(it.meta)).length;
-    if (nPausa) {
-      const av = el('span', '', '⏸ ' + fmtNum(nPausa) + (nPausa === 1 ? ' pausado' : ' pausados'));
-      av.style.cssText = 'margin-left:10px;font-size:11.5px;color:var(--warn);font-weight:600';
-      av.title = 'Projetos parados, com o cronograma travado e os números congelados';
-      nav.appendChild(av);
-    }
     corpo.appendChild(nav);
     if (ABA_PORT === 'encerrados') { tabelaEncerrados(fechados); return; }
+    if (ABA_PORT === 'pausados') { tabelaPausados(parados); return; }
     const alvo = porCliente(ativos);
     if (!alvo.length) {
-      corpo.appendChild(el('div', 'empty', 'Todos os projetos estão concluídos. Veja a lista em “Concluídos”.'));
+      corpo.appendChild(el('div', 'empty', parados.length || fechados.length
+        ? 'Nenhum projeto em andamento. Veja as outras abas aqui em cima.'
+        : 'Nenhum projeto ainda. Use “＋ Novo projeto”.'));
       return;
     }
     const tb = el('table', 'data');
