@@ -408,6 +408,17 @@ body.semorg .projpick,body.semorg .kpis,body.semorg .toolbar{display:none!import
 body.soleitura .reqedit{display:none!important}
 body.soleitura .panel .inp{background:var(--surface-2);color:var(--ink-2);pointer-events:none}
 body.soleitura .toolbar .btn:disabled{opacity:.35}
+/* projeto pausado: o cronograma some das mãos, a narrativa continua */
+body.pausado .toolbar .btn:disabled{opacity:.35}
+body.pausado .reqcron{display:none!important}
+.avisopausa{
+  display:none;gap:10px;align-items:center;flex-wrap:wrap;
+  padding:9px 14px;background:var(--warn-soft);border-bottom:1px solid var(--line);
+  font-size:12.5px;color:var(--warn)}
+body.pausado .avisopausa{display:flex}
+body.arquivo .avisopausa,body.embutido .avisopausa{display:none!important}
+.avisopausa .txt{flex:1;min-width:220px;color:var(--ink-2)}
+.avisopausa b{color:var(--warn)}
 .avisoleitura{
   display:none;align-items:center;gap:8px;font-size:12px;color:var(--ink-2);flex:none;
   background:var(--warn-soft);border:1px solid var(--line);border-radius:7px;padding:7px 12px;margin:9px 14px 0;
@@ -450,6 +461,8 @@ body.soleitura .avisoleitura{display:flex}
 .sem-cr{background:var(--critical-soft);color:var(--critical)}
 .sem-cr i{background:var(--critical)}
 .sem-no{background:var(--surface-3);color:var(--ink-3)}
+.sem-pa{background:var(--warn-soft);color:var(--warn)}
+.sem-pa i{background:var(--warn);border-radius:1px}
 .sem-no i{background:var(--ink-3)}
 .sembar{display:flex;height:26px;border-radius:6px;overflow:hidden;margin:2px 14px 10px;gap:2px;background:var(--surface-2)}
 .sembar > span{display:flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:700;color:#FFFFFF;font-family:var(--f-display);min-width:0}
@@ -761,6 +774,7 @@ body.embutido .view{height:100%}
 <div class="faixaprazo" id="faixaPrazo" hidden></div>
 <div class="faixasuporte" id="faixaSuporte" hidden></div>
 
+<div class="avisopausa" id="avisoPausa"></div>
 <div class="avisoleitura" id="avisoLeitura"><span>🔒</span><span>Seu acesso é somente leitura: você consulta os cronogramas e baixa os relatórios, mas não altera dados.</span></div>
 
 <div class="toolbar" id="toolbar">
@@ -972,7 +986,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-21.8';
+const VERSAO = '2026-09-24.1';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -1077,6 +1091,138 @@ function logoEmpresaNoSVG(pai, xDir, y, alt) {
   im.setAttribute('aria-label', LOGO_EMPRESA.rotulo);
   pai.appendChild(im);
   return im;
+}
+
+/* ---- a logo do cliente, escolhida no cadastro do projeto ----
+   Fica guardada fora do documento do projeto (subcolecao "marca") para nao
+   viajar junto a cada salvamento nem no carregamento do portfolio. */
+const dMarcaCliente = pid => dProjeto(pid || ST.pid) + '/marca/logo';
+const LOGO_CLI = { larg: 420, alt: 160, bytes: 140000 };
+
+/** Le a imagem escolhida, reduz para caber em LOGO_CLI e devolve
+ *  { src, larg, alt, rotulo }. PNG preserva o fundo transparente; se ficar
+ *  pesada demais para o banco, cai para JPEG com fundo branco. */
+function lerLogoCliente(file) {
+  return new Promise((ok, err) => {
+    if (!file) return err(new Error('nenhum arquivo'));
+    if (!/^image\//.test(file.type || '')) return err(new Error('escolha um arquivo de imagem (PNG, JPG ou SVG)'));
+    const fr = new FileReader();
+    fr.onerror = () => err(new Error('nao consegui ler o arquivo'));
+    fr.onload = () => {
+      const im = new Image();
+      im.onerror = () => err(new Error('nao consegui abrir a imagem'));
+      im.onload = () => {
+        const lg = im.naturalWidth || im.width || 1, at = im.naturalHeight || im.height || 1;
+        const esc = Math.min(1, LOGO_CLI.larg / lg, LOGO_CLI.alt / at);
+        const w = Math.max(1, Math.round(lg * esc)), h = Math.max(1, Math.round(at * esc));
+        const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+        cv.getContext('2d').drawImage(im, 0, 0, w, h);
+        let src = cv.toDataURL('image/png');
+        if (src.length > LOGO_CLI.bytes) {              // JPEG nao tem transparencia: fundo branco
+          const c2 = document.createElement('canvas'); c2.width = w; c2.height = h;
+          const cx = c2.getContext('2d');
+          cx.fillStyle = '#FFFFFF'; cx.fillRect(0, 0, w, h); cx.drawImage(im, 0, 0, w, h);
+          src = c2.toDataURL('image/jpeg', 0.9);
+        }
+        if (src.length > LOGO_CLI.bytes) return err(new Error('imagem pesada demais, use um arquivo menor'));
+        ok({ src: src, larg: w, alt: h, rotulo: 'Logo do cliente' });
+      };
+      im.src = String(fr.result || '');
+    };
+    fr.readAsDataURL(file);
+  });
+}
+/** A logo gravada de um projeto - o atual ou outro qualquer da lista. */
+async function lerMarcaCliente(pid) {
+  if (!pid) return null;
+  if (pid === ST.pid && ST.P && ST.P.logo !== undefined) return ST.P.logo || null;
+  if (ST.mode === 'db') {
+    try { const s = await ST.db.doc(dMarcaCliente(pid)).get(); return s.exists ? s.data() : null; }
+    catch (e) { return null; }
+  }
+  const all = localLoad(); const p = all && all.projects && all.projects[pid];
+  return (p && p.logo) || null;
+}
+/** Grava (ou apaga, com logo = null) a logo do cliente de um projeto. */
+async function gravarMarcaCliente(pid, logo) {
+  if (!pid) return;
+  if (ST.mode === 'db') {
+    const d = ST.db.doc(dMarcaCliente(pid));
+    if (logo) await d.set(logo); else await d.delete().catch(() => { });
+  } else {
+    const all = localLoad() || { projects: {} };
+    const p = all.projects && all.projects[pid];
+    if (p) {
+      if (logo) p.logo = logo; else delete p.logo;
+      localStorage.setItem(LSKEY, JSON.stringify(all));
+    }
+  }
+  if (pid === ST.pid && ST.P) ST.P.logo = logo || null;
+}
+/** As duas marcas lado a lado, terminando em xDir: a do cliente, um fio, a nossa. */
+function marcasNoSVG(pai, xDir, y, alt, cor) {
+  logoEmpresaNoSVG(pai, xDir, y, alt);
+  const cli = ST.P && ST.P.logo;
+  if (!cli || !cli.src) return;
+  const wNossa = alt * LOGO_EMPRESA.larg / LOGO_EMPRESA.alt;
+  const esc = Math.min(alt / (cli.alt || 1), (alt * 3) / (cli.larg || 1));
+  const w = (cli.larg || 1) * esc, h = (cli.alt || 1) * esc;
+  const xFio = xDir - wNossa - 12;
+  pai.appendChild(sv('line', {
+    x1: xFio.toFixed(1), y1: y + 1, x2: xFio.toFixed(1), y2: y + alt - 1,
+    stroke: cor || 'var(--ink-3)', 'stroke-width': .8, opacity: .55
+  }));
+  const im = sv('image', {
+    x: (xFio - 12 - w).toFixed(1), y: (y + (alt - h) / 2).toFixed(1),
+    width: w.toFixed(1), height: h.toFixed(1), preserveAspectRatio: 'xMidYMid meet'
+  });
+  im.setAttribute('href', cli.src);
+  im.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', cli.src);
+  im.setAttribute('role', 'img');
+  im.setAttribute('aria-label', cli.rotulo || 'Logo do cliente');
+  pai.appendChild(im);
+  return im;
+}
+/** O campo de logo usado nas telas de criar e editar projeto.
+ *  valor() devolve undefined enquanto nada mudou, null quando foi removida,
+ *  ou a logo nova ja reduzida. */
+function campoLogoCliente(logoAtual) {
+  const f = el('div', 'field');
+  f.appendChild(el('label', '', 'Logo do cliente (opcional)'));
+  const cx = el('div'); cx.style.cssText = 'display:flex;gap:10px;align-items:center;flex-wrap:wrap';
+  const prev = el('div');
+  prev.style.cssText = 'width:120px;height:44px;border:1px dashed var(--line);border-radius:4px;' +
+    'display:flex;align-items:center;justify-content:center;background:#FFFFFF;overflow:hidden;flex:none';
+  const img = document.createElement('img');
+  img.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain'; img.alt = '';
+  const vazio = el('div', 'hint', 'sem logo'); vazio.style.margin = '0';
+  prev.appendChild(img); prev.appendChild(vazio);
+  const arq = el('input'); arq.type = 'file'; arq.accept = 'image/*'; arq.hidden = true;
+  const bEsc = el('button', 'btn', 'Escolher imagem');
+  const bRem = el('button', 'btn', 'Remover');
+  let atual = logoAtual || null, mudou = false;
+  const pinta = () => {
+    if (atual && atual.src) { img.src = atual.src; img.style.display = ''; vazio.style.display = 'none'; }
+    else { img.removeAttribute('src'); img.style.display = 'none'; vazio.style.display = ''; }
+    bRem.style.display = atual ? '' : 'none';
+  };
+  bEsc.addEventListener('click', () => arq.click());
+  bRem.addEventListener('click', () => { atual = null; mudou = true; arq.value = ''; pinta(); });
+  arq.addEventListener('change', async () => {
+    const file = arq.files && arq.files[0]; if (!file) return;
+    try { atual = await lerLogoCliente(file); mudou = true; pinta(); }
+    catch (e) { toast('Nao consegui usar essa imagem: ' + ((e && e.message) || 'erro')); }
+  });
+  cx.appendChild(prev); cx.appendChild(bEsc); cx.appendChild(bRem); cx.appendChild(arq);
+  f.appendChild(cx);
+  f.appendChild(el('div', 'hint', 'Entra ao lado da nossa marca no PDF do cronograma e no status report. ' +
+    'Use PNG com fundo transparente, se tiver.'));
+  pinta();
+  return {
+    campo: f,
+    valor: () => (mudou ? atual : undefined),
+    definir: l => { atual = l || null; pinta(); }
+  };
 }
 
 const uid = p => p + Math.random().toString(36).slice(2, 9);
@@ -1346,7 +1492,8 @@ function newMeta(name) {
     statusDate: todayISO(), statusFixa: false, baselineAt: null, updatedAt: Date.now(),
     resumo: '', riscos: '', conquistas: '', andamento: '', statusManual: null, replanejamentos: [],
     horasPrev: 0, horas: [],
-    encerradoEm: null, encerradoPor: '', encerramento: null
+    encerradoEm: null, encerradoPor: '', encerramento: null,
+    pausadoEm: null, pausadoPor: '', pausaMotivo: '', pausaRetomaEm: null, pausas: []
   };
 }
 /** A data em que o projeto está sendo medido — o "até quando" do % planejado,
@@ -1356,6 +1503,13 @@ function newMeta(name) {
  *  projeto por uma semana que já passou. */
 function dataStatusDe(P) {
   const m = (P && P.meta) || {};
+  /* Projeto pausado congela no dia da pausa, e isso vem antes de qualquer
+     outra regra. Sem congelar, um projeto parado por decisão do cliente vai
+     piorando sozinho: o % planejado sobe todo dia, o IDP desaba, a curva S
+     abre uma tesoura que ninguém causou. O gestor acaba explicando ao cliente
+     um atraso que é do próprio cliente. Parado o relógio, o projeto fica
+     exatamente como estava quando pararam — que é a leitura honesta. */
+  if (m.pausadoEm) return m.pausadoEm;
   return (m.statusFixa && m.statusDate) ? m.statusDate : todayISO();
 }
 function dataStatus() { return dataStatusDe(ST.P); }
@@ -1382,7 +1536,8 @@ function localSave() {
       versions: antes.versions || [],         // o histórico não pode ser sobrescrito aqui
       versionsData: antes.versionsData || [],
       docs: antes.docs || [],                 // nem os documentos emitidos
-      docsData: antes.docsData || []          // nem o conteúdo dos anexos
+      docsData: antes.docsData || [],         // nem o conteúdo dos anexos
+      logo: (ST.P.logo !== undefined ? ST.P.logo : antes.logo) || null
     };
     all.resources = ST.P.resources;           // cadastro único, fora dos projetos
     all.last = ST.pid;
@@ -1443,11 +1598,35 @@ function semPermissao() {
   return true;
 }
 
+/* ============ projeto pausado ============
+   Stand by não é encerramento: o projeto volta. Enquanto está parado, o
+   CRONOGRAMA fica travado — atividades, durações, dependências, avanço,
+   recursos e horas. O que continua livre é a narrativa: resumo, riscos,
+   atividades realizadas, andamento e o cadastro do projeto. Tem de ser
+   assim, senão não daria para escrever o status report que explica a pausa
+   ao cliente — que é justamente o documento que a pausa exige. */
+function ehPausado(m) { return !!(m && m.pausadoEm); }
+function diasDePausa(m) {
+  if (!ehPausado(m)) return 0;
+  return Math.max(0, diffDays(m.pausadoEm, todayISO()));
+}
+/** O portão do cronograma: o papel permite E o projeto não está parado. */
+function podeEditarCronograma() { return podeEditar() && !ehPausado(ST.P && ST.P.meta); }
+/** Usar nos pontos de entrada do cronograma: avisa e devolve true quando é proibido. */
+function cronogramaTravado() {
+  if (podeEditarCronograma()) return false;
+  if (ehPausado(ST.P && ST.P.meta) && podeEditar()) {
+    toast('Projeto pausado: o cronograma está travado. Retome o projeto para editar.');
+    return true;
+  }
+  return semPermissao();
+}
+
 function markMeta() { if (!podeEditar()) return; ST.P.meta.updatedAt = Date.now(); dirty.meta = true; queueSave(); }
-function markTask(id) { if (!podeEditar()) return; ST.P.meta.updatedAt = Date.now(); dirty.meta = true; dirty.delT.delete(id); dirty.tasks.add(id); queueSave(); }
-function markRes(id) { if (!podeEditar()) return; dirty.delR.delete(id); dirty.res.add(id); queueSave(); }
-function markDelTask(id) { if (!podeEditar()) return; ST.P.meta.updatedAt = Date.now(); dirty.meta = true; dirty.delT.add(id); dirty.tasks.delete(id); queueSave(); }
-function markDelRes(id) { if (!podeEditar()) return; dirty.delR.add(id); dirty.res.delete(id); queueSave(); }
+function markTask(id) { if (!podeEditarCronograma()) return; ST.P.meta.updatedAt = Date.now(); dirty.meta = true; dirty.delT.delete(id); dirty.tasks.add(id); queueSave(); }
+function markRes(id) { if (!podeEditarCronograma()) return; dirty.delR.delete(id); dirty.res.add(id); queueSave(); }
+function markDelTask(id) { if (!podeEditarCronograma()) return; ST.P.meta.updatedAt = Date.now(); dirty.meta = true; dirty.delT.add(id); dirty.tasks.delete(id); queueSave(); }
+function markDelRes(id) { if (!podeEditarCronograma()) return; dirty.delR.add(id); dirty.res.delete(id); queueSave(); }
 /* Salvar NÃO invalida mais a carteira lida. Cada tecla digitada zerava o
    carimbo, e a próxima ida ao Portfólio ou à Visão geral relia tudo do banco
    — era isso que fazia as duas abas parecerem lentas depois de qualquer
@@ -2763,7 +2942,7 @@ let cacheCarga = null;                     // recalculado uma vez por render
 function cargaTodosProjetos() {
   if (cacheCarga) return cacheCarga;
   const fontes = (ST.portfolio && ST.portfolio.length)
-    ? ST.portfolio.filter(it => it.P && it.ind && it.ind.sch && !ehEncerrado(it.meta))
+    ? ST.portfolio.filter(it => it.P && it.ind && it.ind.sch && !ehEncerrado(it.meta) && !ehPausado(it.meta))
     : [{ id: ST.pid, P: ST.P, ind: { sch: ST.sch } }];
   const m = new Map();
   for (const it of fontes) {
@@ -2813,7 +2992,7 @@ function overallocations() {
    Sem saber de onde veio e quanta folga tem, não dá para dizer o que adiar. */
 function alocacoesDoRecurso(rid) {
   const fontes = (ST.portfolio && ST.portfolio.length)
-    ? ST.portfolio.filter(it => it.P && it.ind && it.ind.sch && !ehEncerrado(it.meta))
+    ? ST.portfolio.filter(it => it.P && it.ind && it.ind.sch && !ehEncerrado(it.meta) && !ehPausado(it.meta))
     : [{ id: ST.pid, meta: ST.P.meta, P: ST.P, ind: { sch: ST.sch } }];
   const out = [];
   for (const it of fontes) {
@@ -3661,7 +3840,10 @@ function retratoDoEncerramento(ind) {
 }
 
 /** Escreve (ou apaga) o encerramento, no projeto aberto ou em qualquer outro. */
-async function salvarEncerramento(pid, campos) {
+/** Grava campos do cadastro do projeto, esteja ele aberto ou não. Serve ao
+ *  encerramento e à pausa. O portão aqui é o PAPEL, não o cronograma: senão
+ *  um projeto pausado não teria como ser retomado de dentro dele mesmo. */
+async function salvarMetaDoProjeto(pid, campos) {
   if (semPermissao()) return false;
   try {
     if (pid === ST.pid) {
@@ -3677,6 +3859,89 @@ async function salvarEncerramento(pid, campos) {
   } catch (e) { toast('Não consegui salvar: ' + ((e && e.message) || 'erro')); return false; }
   ST.portfolio = null; ST.portfolioEm = 0; esquecerCarteira();
   return true;
+}
+
+function pausarProjeto(pid, meta) {
+  if (semPermissao()) return;
+  modal('Pausar projeto', (body, close) => {
+    body.appendChild(el('div', 'hint',
+      'O cronograma fica travado e os números param nesta data — o projeto deixa de acumular ' +
+      'atraso enquanto estiver parado. Os textos do status report continuam liberados, para você ' +
+      'explicar a parada ao cliente. Nada é apagado e o projeto volta quando você retomar.'));
+    const alvo = el('div', 'panel'); alvo.style.cssText = 'padding:11px 13px;box-shadow:none;margin-bottom:10px';
+    if (meta && meta.client) { const c = el('div', '', meta.client); c.style.cssText = 'color:var(--ink-3);font-size:11.5px'; alvo.appendChild(c); }
+    const n = el('div', '', (meta && meta.name) || 'Projeto'); n.style.cssText = 'font-weight:600;font-size:14px';
+    alvo.appendChild(n); body.appendChild(alvo);
+
+    const fd = el('div', 'field'); fd.appendChild(el('label', '', 'Pausado a partir de'));
+    const iData = el('input', 'inp'); iData.type = 'date'; iData.value = todayISO();
+    fd.appendChild(iData); body.appendChild(fd);
+
+    const fm = el('div', 'field'); fm.appendChild(el('label', '', 'Motivo da pausa'));
+    const iMot = el('textarea', 'inp');
+    iMot.style.cssText = 'min-height:56px;font-family:var(--f-body);font-size:12.5px';
+    iMot.placeholder = 'Aparece no status report e no Portfólio. Ex.: aguardando liberação de verba pelo cliente.';
+    fm.appendChild(iMot); body.appendChild(fm);
+
+    const fr = el('div', 'field'); fr.appendChild(el('label', '', 'Previsão de retomada (opcional)'));
+    const iRet = el('input', 'inp'); iRet.type = 'date';
+    fr.appendChild(iRet); body.appendChild(fr);
+
+    const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
+    const bC = el('button', 'btn', 'Cancelar'); bC.addEventListener('click', close);
+    const bOk = el('button', 'btn primary', '⏸ Pausar projeto');
+    bOk.addEventListener('click', async () => {
+      const quando = iData.value || todayISO();
+      close();
+      const ok = await salvarMetaDoProjeto(pid, {
+        pausadoEm: quando,
+        pausadoPor: ST.userEmail || '',
+        pausaMotivo: iMot.value.trim(),
+        pausaRetomaEm: iRet.value || null
+      });
+      if (ok) { toast('Projeto pausado.'); renderProjectList(); refresh(); }
+    });
+    linha.appendChild(bC); linha.appendChild(bOk); body.appendChild(linha);
+    setTimeout(() => iMot.focus(), 30);
+  }, []);
+}
+
+function retomarProjeto(pid, meta) {
+  if (semPermissao()) return;
+  const dias = diasDePausa(meta);
+  modal('Retomar projeto', (body, close) => {
+    body.appendChild(el('div', 'hint',
+      '“' + ((meta && meta.name) || 'Projeto') + '” volta a ser medido pela data de hoje, e o ' +
+      'cronograma fica editável de novo.'));
+    if (dias > 0) {
+      const av = el('div', 'panel');
+      av.style.cssText = 'padding:11px 13px;box-shadow:none;margin-bottom:10px;font-size:12.5px;color:var(--ink-2)';
+      av.appendChild(el('div', '', 'O projeto ficou ' + fmtNum(dias) + (dias === 1 ? ' dia' : ' dias') + ' parado.'));
+      const p2 = el('div', '');
+      p2.style.cssText = 'margin-top:6px';
+      p2.textContent = 'As datas das atividades continuam onde estavam. Como o mundo andou ' +
+        'e o projeto não, o que estava pendente vai aparecer atrasado assim que você retomar. ' +
+        'Para empurrar o que falta para a frente sem mexer no que já foi feito, use ' +
+        '“↻ Replanejar” na barra do cronograma, com a data de corte de hoje.';
+      av.appendChild(p2);
+      body.appendChild(av);
+    }
+    const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
+    const bC = el('button', 'btn', 'Cancelar'); bC.addEventListener('click', close);
+    const bOk = el('button', 'btn primary', '▶ Retomar');
+    bOk.addEventListener('click', async () => {
+      close();
+      // o período parado vira histórico: é ele que justifica o prazo mais tarde
+      const historico = ((meta && meta.pausas) || []).concat([{
+        de: meta.pausadoEm, ate: todayISO(), motivo: meta.pausaMotivo || '', dias: dias
+      }]).slice(-20);
+      const ok = await salvarMetaDoProjeto(pid, {
+        pausadoEm: null, pausadoPor: '', pausaMotivo: '', pausaRetomaEm: null, pausas: historico
+      });
+      if (ok) { toast('Projeto retomado.'); renderProjectList(); refresh(); }
+    });
+    linha.appendChild(bC); linha.appendChild(bOk); body.appendChild(linha);
+  }, []);
 }
 
 function encerrarProjeto(pid, meta, ind) {
@@ -3713,7 +3978,7 @@ function encerrarProjeto(pid, meta, ind) {
     bOk.addEventListener('click', async () => {
       const quando = iData.value || todayISO();
       close();
-      const ok = await salvarEncerramento(pid, {
+      const ok = await salvarMetaDoProjeto(pid, {
         encerradoEm: quando,
         encerradoPor: ST.userEmail || '',
         encerramento: retratoDoEncerramento(ind)
@@ -3735,7 +4000,7 @@ function reabrirProjeto(pid, meta) {
     const bOk = el('button', 'btn primary', 'Reabrir');
     bOk.addEventListener('click', async () => {
       close();
-      const ok = await salvarEncerramento(pid, { encerradoEm: null, encerradoPor: '', encerramento: null });
+      const ok = await salvarMetaDoProjeto(pid, { encerradoEm: null, encerradoPor: '', encerramento: null });
       if (ok) { toast('Projeto reaberto.'); renderProjectList(); refresh(); }
     });
     linha.appendChild(bC); linha.appendChild(bOk); body.appendChild(linha);
@@ -3986,6 +4251,7 @@ function levantamentoDoDia(lista, hojeISO) {
   for (const it of (lista || [])) {
     if (!it || it.erro || !it.P || !it.ind || !it.ind.sch) continue;
     if (ehEncerrado(it.meta)) continue;          // o que acabou não atrasa mais
+    if (ehPausado(it.meta)) continue;           // nem o que está parado por decisão
     s.projetos++;
     const sch = it.ind.sch, cal = sch.cal;
     // hoje é dia de trabalho em algum projeto? num sábado nada começa nem
@@ -4195,6 +4461,19 @@ function renderOverview() {
       bRe.addEventListener('click', ev => { ev.stopPropagation(); reabrirProjeto(it.id, it.meta); });
       td.appendChild(bRe);
     } else {
+      if (ehPausado(it.meta)) {
+        const bRet = el('button', 'btn icon reqedit', '▶');
+        bRet.title = 'Retomar: destrava o cronograma e volta a medir pela data de hoje';
+        bRet.style.cssText = 'margin-right:5px;border-color:var(--ok);color:var(--ok)';
+        bRet.addEventListener('click', ev => { ev.stopPropagation(); retomarProjeto(it.id, it.meta); });
+        td.appendChild(bRet);
+      } else {
+        const bPau = el('button', 'btn icon reqedit', '⏸');
+        bPau.title = 'Pausar: trava o cronograma e congela os números nesta data';
+        bPau.style.marginRight = '5px';
+        bPau.addEventListener('click', ev => { ev.stopPropagation(); pausarProjeto(it.id, it.meta); });
+        td.appendChild(bPau);
+      }
       const bEnc = el('button', 'btn icon reqedit', '🏁');
       bEnc.title = 'Encerrar: guarda os números de hoje e tira o projeto da carteira ativa';
       bEnc.style.marginRight = '5px';
@@ -4300,6 +4579,16 @@ function renderOverview() {
     };
     bota('ativos', 'Em andamento', ativos.length);
     bota('encerrados', 'Concluídos', fechados.length);
+    /* Os pausados continuam contados em "Em andamento" — não são arquivo, e
+       pausa esquecida vira projeto perdido. Mas ganham um aviso ao lado, para
+       o número de projetos ativos não esconder que parte deles está parada. */
+    const nPausa = ativos.filter(it => ehPausado(it.meta)).length;
+    if (nPausa) {
+      const av = el('span', '', '⏸ ' + fmtNum(nPausa) + (nPausa === 1 ? ' pausado' : ' pausados'));
+      av.style.cssText = 'margin-left:10px;font-size:11.5px;color:var(--warn);font-weight:600';
+      av.title = 'Projetos parados, com o cronograma travado e os números congelados';
+      nav.appendChild(av);
+    }
     corpo.appendChild(nav);
     if (ABA_PORT === 'encerrados') { tabelaEncerrados(fechados); return; }
     const alvo = porCliente(ativos);
@@ -4363,14 +4652,29 @@ function renderOverview() {
       const tdp = el('td', 'num', i2.IDP == null ? '—' : i2.IDP.toFixed(2).replace('.', ','));
       if (i2.IDP != null) tdp.style.color = i2.IDP >= 0.995 ? 'var(--ok)' : 'var(--critical)';
       tr.appendChild(tdp);
-      const sem = semaforoDe(i2);
+      /* Projeto parado não tem semáforo: verde ou vermelho ali só confundiria
+         quem lê a carteira. O que importa é que ele está parado e há quanto tempo. */
       const tds = el('td');
-      const chipS = el('span', 'semchip ' + sem.cls);
-      chipS.appendChild(el('i')); chipS.appendChild(document.createTextNode(sem.rot));
-      chipS.title = sem.id === 'sem' ? SEM_BASES[semBase()].falta
-        : 'Semáforo pelo ' + semBase() + ' (' + SEM_BASES[semBase()].desc + '): saudável de 1,00 para cima; ' +
-          'atenção de 0,80 a 0,99; crítico abaixo de 0,80';
-      tds.appendChild(chipS); tr.appendChild(tds);
+      if (ehPausado(m)) {
+        const chipP = el('span', 'semchip sem-pa');
+        chipP.appendChild(el('i')); chipP.appendChild(document.createTextNode('Pausado'));
+        const dp = diasDePausa(m);
+        chipP.title = 'Pausado desde ' + fmtBR(m.pausadoEm)
+          + (dp ? ' — ' + fmtNum(dp) + (dp === 1 ? ' dia' : ' dias') : '')
+          + (m.pausaMotivo ? '\n' + m.pausaMotivo : '')
+          + (m.pausaRetomaEm ? '\nRetomada prevista: ' + fmtBR(m.pausaRetomaEm) : '')
+          + '\nOs números estão congelados na data da pausa.';
+        tds.appendChild(chipP);
+      } else {
+        const sem = semaforoDe(i2);
+        const chipS = el('span', 'semchip ' + sem.cls);
+        chipS.appendChild(el('i')); chipS.appendChild(document.createTextNode(sem.rot));
+        chipS.title = sem.id === 'sem' ? SEM_BASES[semBase()].falta
+          : 'Semáforo pelo ' + semBase() + ' (' + SEM_BASES[semBase()].desc + '): saudável de 1,00 para cima; ' +
+            'atenção de 0,80 a 0,99; crítico abaixo de 0,80';
+        tds.appendChild(chipS);
+      }
+      tr.appendChild(tds);
       const tdi = el('td', 'num', i2.IDC == null ? '—' : i2.IDC.toFixed(2).replace('.', ','));
       if (i2.IDC != null) {
         tdi.style.color = i2.IDC >= 0.995 ? 'var(--ok)' : 'var(--critical)';
@@ -4419,12 +4723,14 @@ function renderOverview() {
 const CORES_ST = {
   planejado: '#014479', realizado: '#17ADC5',
   saudavel: '#92D050', atencao: '#E97132', critico: '#C00000', neutro: '#7F7F7F',
+  // cinza-azulado de propósito: pausado não é bom nem ruim, é parado
+  pausado: '#5B6B7A',
   tinta: '#1A1A1A', tinta2: '#4A4A4A', tinta3: '#7A7A7A',
   linha: '#D9D9D9', fundo: '#FFFFFF', caixa: '#F2F5F7'
 };
 const FONTE_ST = 'Calibri, Aptos, Arial, Helvetica, sans-serif';
 
-const ROT_ST = { saudavel: 'Saudável', atencao: 'Atenção', critico: 'Crítico', neutro: 'Não iniciado' };
+const ROT_ST = { saudavel: 'Saudável', atencao: 'Atenção', critico: 'Crítico', neutro: 'Não iniciado', pausado: 'Pausado' };
 function statusPor(meta, ind) {
   // Aderência: quanto do planejado foi cumprido. Passar de 100% não faz sentido
   // na leitura de aderência — adiantamento aparece no IDP, na Visão geral.
@@ -4433,6 +4739,8 @@ function statusPor(meta, ind) {
   if (ader != null) id = ader >= 95 ? 'saudavel' : ader >= 80 ? 'atencao' : 'critico';
   const forcado = meta && meta.statusManual;
   if (forcado && CORES_ST[forcado]) id = forcado;
+  // a pausa vem por último e ganha de tudo: é fato, não avaliação
+  if (ehPausado(meta)) id = 'pausado';
   return { ader: ader, id: id, rot: ROT_ST[id], cor: CORES_ST[id] };
 }
 function statusDoProjeto() {
@@ -4568,6 +4876,18 @@ function desenharStatusReport() {
   let yr = meta.client ? 74 : 60;
   const resumo = envolver(meta.resumo ? 'Resumo: ' + meta.resumo : '', W - 2 * M, 10.5).slice(0, 2);
   for (const ln of resumo) { T(M, yr, ln, 10.5, 400, CORES_ST.tinta2); yr += 14; }
+  /* O cliente precisa ler a pausa em palavras, não só deduzir do selo cinza
+     no canto. É esta linha que transforma o relatório no documento da parada. */
+  if (ehPausado(meta)) {
+    const dias = diasDePausa(meta);
+    const aviso = '⏸ PROJETO PAUSADO desde ' + fmtBR(meta.pausadoEm)
+      + (dias ? ' — ' + fmtNum(dias) + (dias === 1 ? ' dia parado' : ' dias parados') : '')
+      + (meta.pausaMotivo ? '. ' + meta.pausaMotivo : '')
+      + (meta.pausaRetomaEm ? ' Retomada prevista: ' + fmtBR(meta.pausaRetomaEm) + '.' : '');
+    for (const ln of envolver(aviso, W - 2 * M, 10.5).slice(0, 2)) {
+      T(M, yr, ln, 10.5, 700, CORES_ST.pausado); yr += 14;
+    }
+  }
   const yLinha = Math.max(96, yr + 6);
   L(M, yLinha, W - M, yLinha, CORES_ST.linha, 1.4);
 
@@ -4758,7 +5078,7 @@ function desenharStatusReport() {
     fmtNum(ind.feitas) + '/' + fmtNum(ind.folhas) + ' atividades concluídas  ·  Data de status: ' + fmtBR(dataStatus()) +
     '  ·  Gerado em ' + fmtBR(todayISO()),
     9, 400, CORES_ST.tinta3);
-  logoEmpresaNoSVG(pg, W - M, H - 25, 20);
+  marcasNoSVG(pg, W - M, H - 25, 20, CORES_ST.linha);
   return pg;
 }
 
@@ -5525,16 +5845,47 @@ function avisoDePrazo() {
   }
 }
 
+/** A faixa que explica por que o cronograma não responde. Sem ela, o usuário
+ *  clica, nada acontece, e ele conclui que o sistema quebrou. */
+function avisoDePausa() {
+  const b = $('#avisoPausa'); if (!b) return;
+  b.textContent = '';
+  const m = (ST.P && ST.P.meta) || {};
+  if (!ehPausado(m)) return;
+  b.appendChild(el('span', '', '⏸'));
+  const t = el('div', 'txt');
+  const dias = diasDePausa(m);
+  t.appendChild(el('b', '', 'Projeto pausado desde ' + fmtBR(m.pausadoEm)));
+  t.appendChild(document.createTextNode(
+    (dias ? ' (' + fmtNum(dias) + (dias === 1 ? ' dia' : ' dias') + ')' : '') +
+    ' — o cronograma está travado e os números estão congelados nesta data. ' +
+    'Os textos do status report continuam liberados.' +
+    (m.pausaMotivo ? ' Motivo: ' + m.pausaMotivo : '') +
+    (m.pausaRetomaEm ? ' Retomada prevista para ' + fmtBR(m.pausaRetomaEm) + '.' : '')));
+  b.appendChild(t);
+  if (podeEditar()) {
+    const bt = el('button', 'btn primary', '▶ Retomar projeto');
+    bt.addEventListener('click', () => retomarProjeto(ST.pid, ST.P.meta));
+    b.appendChild(bt);
+  }
+}
+
 function aplicarPermissoes() {
   const ed = podeEditar(), adm = ehAdmin(), nuvem = ST.comLogin;
   const naOrg = !!ST.orgId;
+  const pausado = ehPausado(ST.P && ST.P.meta);
+  const edCron = ed && !pausado;
   document.body.classList.toggle('soleitura', ARQUIVO ? true : (naOrg && !ed));
+  document.body.classList.toggle('pausado', !ARQUIVO && pausado);
   document.body.classList.toggle('semorg', nuvem && !naOrg);
   avisoDePrazo();
+  avisoDePausa();
+  // o botão de projeto novo não é do cronograma: continua valendo o papel
   for (const sel of ['#btnAdd', '#btnIndent', '#btnOutdent', '#btnUp', '#btnDown', '#btnDel',
-    '#btnMilestone', '#btnLink', '#btnBaseline', '#btnDataStatus', '#btnReplanejar', '#btnImport', '#btnNewProj']) {
-    const n = $(sel); if (n) n.disabled = !ed;
+    '#btnMilestone', '#btnLink', '#btnBaseline', '#btnDataStatus', '#btnReplanejar', '#btnImport']) {
+    const n = $(sel); if (n) n.disabled = !edCron;
   }
+  { const n = $('#btnNewProj'); if (n) n.disabled = !ed; }
   const tu = $('#tabUsers');
   if (tu) {
     tu.hidden = !(adm && nuvem && naOrg);
@@ -7908,16 +8259,24 @@ function painelPesquisas(lista) {
 
 /** Aceita "Nome <email>", "Nome; email", "email" — um por linha ou separados por vírgula. */
 function lerDestinatarios(txt) {
+  /* Aceita "Nome <email>", "Nome; email", só o e-mail, ou o nome numa linha e
+     o e-mail na linha de baixo. Uma linha sem @ vira o nome do próximo e-mail. */
   const out = [], vistos = new Set();
+  let nomePendente = '';
   for (let lin of String(txt || '').split(/[\n,]+/)) {
     lin = lin.trim(); if (!lin) continue;
     let nome = '', email = '';
-    const m = /^(.*?)<([^>]+)>$/.exec(lin) || /^(.*?)[;\t]\s*(\S+@\S+)$/.exec(lin);
-    if (m) { nome = m[1].trim().replace(/^"|"$/g, ''); email = m[2].trim(); } else email = lin;
+    const m = /^(.*?)<([^>]+)>$/.exec(lin) || /^(.*?)[;\t]\s*(\S+@\S+)$/.exec(lin) || /^(.*?)\s+(\S+@\S+)$/.exec(lin);
+    if (m) { nome = m[1].trim().replace(/^"|"$/g, ''); email = m[2].trim(); }
+    else if (lin.indexOf('@') < 0) { nomePendente = lin; continue; }
+    else email = lin;
+    if (!nome && nomePendente) nome = nomePendente;
+    nomePendente = '';
     email = chaveEmail(email);
     if (vistos.has(email)) continue; vistos.add(email);
     out.push({ nome: nome, email: email, ok: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) });
   }
+  if (nomePendente) out.push({ nome: '', email: nomePendente, ok: false });
   return out;
 }
 
@@ -7957,7 +8316,7 @@ async function modalEnviarPesquisa(x) {
 
     const f1 = el('div', 'field'); f1.appendChild(el('label', '', 'Destinatários'));
     const tD = el('textarea', 'inp'); tD.rows = 4;
-    tD.placeholder = 'Um por linha. Ex.:\nCarla Souza <carla@cliente.com.br>\njoao@cliente.com.br';
+    tD.placeholder = 'Um por linha. Ex.:\nCarla Souza <carla@cliente.com.br>\nJoão Lima\njoao@cliente.com.br';
     f1.appendChild(tD); body.appendChild(f1);
     const f2 = el('div', 'field'); f2.appendChild(el('label', '', 'Mensagem do e-mail'));
     const tM = el('textarea', 'inp'); tM.rows = 3; tM.maxLength = 1500;
@@ -9505,7 +9864,7 @@ function desenharFolhaCronograma(fatia, ctx) {
   const rplPDF = ultimoReplano();
   if (rplPDF) info.push('Replanejado em ' + fmtBR(rplPDF.em));
   T(M, yT + 16, info.join('   ·   '), 8.6, 400, 'var(--ink-2)');
-  logoEmpresaNoSVG(pg, PW - M, 8, 24);
+  marcasNoSVG(pg, PW - M, 8, 24, 'var(--ink-3)');
   T(PW - M, yT + 16, 'Emitido em ' + fmtBR(todayISO()) +
     (ctx.paginas > 1 ? '   ·   página ' + ctx.pagina + ' de ' + ctx.paginas : ''), 9, 400, 'var(--ink-3)', 'end');
   L(M, yT + 26, PW - M, yT + 26, 'var(--ink)', 1.2);
@@ -10379,13 +10738,17 @@ $('#btnNewProj').addEventListener('click', () => {
     ir.style.minHeight = '58px'; ir.style.fontFamily = 'var(--f-body)'; ir.style.fontSize = '12.5px';
     ir.placeholder = 'Uma ou duas linhas descrevendo o escopo — aparece no topo do status report.';
     fr.appendChild(ir); body.appendChild(fr);
+    const fLogo = campoLogoCliente(null); body.appendChild(fLogo.campo);
     body.appendChild(el('div', 'hint', 'O projeto nasce vazio. Use “＋ Atividade” ou o botão Importar para trazer a planilha.'));
     const b = el('button', 'btn primary', 'Criar');
-    b.addEventListener('click', async () => { close(); await createProject(i.value, i2.value, ic.value.trim(), ir.value.trim(), Number(ih.value) || 0); });
+    b.addEventListener('click', async () => {
+      const logo = fLogo.valor(); close();
+      await createProject(i.value, i2.value, ic.value.trim(), ir.value.trim(), Number(ih.value) || 0, logo || null);
+    });
     body.appendChild(b);
   }, []);
 });
-async function createProject(name, start, cliente, resumo, horasPrev) {
+async function createProject(name, start, cliente, resumo, horasPrev, logo) {
   if (ST.mode === 'db' && semPermissao()) return;
   const pid = uid('p');
   const meta = newMeta(name); meta.start = (start || todayISO()).slice(0, 10);
@@ -10394,9 +10757,10 @@ async function createProject(name, start, cliente, resumo, horasPrev) {
   meta.horasPrev = Math.max(0, Number(horasPrev) || 0);
   const tasks = [];
   ST.projects.push({ id: pid, name: meta.name, client: meta.client || '' });
-  ST.pid = pid; ST.P = { meta, tasks, resources: ST.P.resources || [] };
+  ST.pid = pid; ST.P = { meta, tasks, resources: ST.P.resources || [], logo: logo || null };
   dirty.meta = true; for (const t of tasks) dirty.tasks.add(t.id);
   await flushSave();
+  if (logo) { try { await gravarMarcaCliente(pid, logo); } catch (e) { toast('O projeto foi criado, mas não consegui gravar a logo.'); } }
   if (ST.mode === 'db') subscribeProject(pid);
   renderProjectList(); ST.sel.clear(); refresh(); atualizarContadores();
 }
@@ -10470,7 +10834,7 @@ async function salvarIdentidade(pid, nome, cliente, resumo, horasPrev) {
 function editarProjeto(pid, meta) {
   if (semPermissao()) return;
   modal('Editar projeto', (body, close) => {
-    body.appendChild(el('div', 'hint', 'O cliente aparece na Visão geral, no seletor do topo e no cabeçalho do PDF. O resumo aparece no topo do status report.'));
+    body.appendChild(el('div', 'hint', 'O cliente aparece na Visão geral, no seletor do topo e no cabeçalho do PDF. O resumo aparece no topo do status report. A logo entra nos PDFs, ao lado da nossa marca.'));
     const f1 = el('div', 'field'); f1.appendChild(el('label', '', 'Cliente'));
     const iCli = el('input', 'inp'); iCli.value = (meta && meta.client) || ''; iCli.placeholder = 'Nome do cliente';
     f1.appendChild(iCli); body.appendChild(f1);
@@ -10487,13 +10851,21 @@ function editarProjeto(pid, meta) {
     iRes.value = (meta && meta.resumo) || '';
     iRes.placeholder = 'Uma ou duas linhas descrevendo o escopo — aparece no topo do status report.';
     f3.appendChild(iRes); body.appendChild(f3);
+    const fLogo = campoLogoCliente(null); body.appendChild(fLogo.campo);
+    lerMarcaCliente(pid).then(l => { if (l) fLogo.definir(l); }).catch(() => { });
     const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
     const bCancela = el('button', 'btn', 'Cancelar'); bCancela.addEventListener('click', close);
     const bOk = el('button', 'btn primary', 'Salvar');
     const salvar = async () => {
       const nome = iNom.value.trim() || 'Projeto';
+      const logo = fLogo.valor();
       close();
-      if (await salvarIdentidade(pid, nome, iCli.value.trim(), iRes.value.trim(), Number(iHrs.value) || 0)) toast('Projeto atualizado.');
+      if (!await salvarIdentidade(pid, nome, iCli.value.trim(), iRes.value.trim(), Number(iHrs.value) || 0)) return;
+      if (logo !== undefined) {
+        try { await gravarMarcaCliente(pid, logo); }
+        catch (e) { toast('Não consegui gravar a logo: ' + ((e && e.message) || 'erro')); return; }
+      }
+      toast('Projeto atualizado.');
     };
     bOk.addEventListener('click', salvar);
     for (const i of [iCli, iNom]) i.addEventListener('keydown', ev => { if (ev.key === 'Enter') salvar(); });
@@ -10556,7 +10928,8 @@ async function openProject(pid) {
     if (p) ST.P = {
       meta: Object.assign(newMeta(), p.meta),
       tasks: (p.tasks || []).map(t => Object.assign(newTask(), t)),
-      resources: (all.resources || p.resources || []).slice()
+      resources: (all.resources || p.resources || []).slice(),
+      logo: p.logo || null
     };
     localSave();
   }
@@ -10574,11 +10947,13 @@ function setSync(mode, label) {
 }
 async function loadProject(pid) {
   const db = ST.db, base = dProjeto(pid);
-  const [mSnap, tSnap, rSnap, antigos] = await Promise.all([
+  const [mSnap, tSnap, rSnap, antigos, marca] = await Promise.all([
     db.doc(base).get(), db.collection(base + '/tasks').get(),
     db.collection(cRecursos()).get(),
-    db.collection(base + '/resources').get()
+    db.collection(base + '/resources').get(),
+    db.doc(base + '/marca/logo').get().catch(() => null)
   ]);
+  ST.P.logo = (marca && marca.exists) ? marca.data() : null;
   ST.P.meta = Object.assign(newMeta(), mSnap.exists ? mSnap.data() : {});
   ST.P.tasks = sortTasks(tSnap.docs.map(d => Object.assign(newTask(), d.data(), { id: d.id })));
   ST.P.resources = rSnap.docs.map(d => Object.assign({ capacity: 100, rate: 0 }, d.data(), { id: d.id }));
@@ -11403,7 +11778,8 @@ async function boot() {
     ST.P = {
       meta: Object.assign(newMeta(), p.meta),
       tasks: (p.tasks || []).map(t => Object.assign(newTask(), t)),
-      resources: (all.resources || p.resources || []).slice()
+      resources: (all.resources || p.resources || []).slice(),
+      logo: p.logo || null
     };
   } else {
     ST.pid = uid('p');
