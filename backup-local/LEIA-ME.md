@@ -38,12 +38,14 @@ firebase deploy --only functions
 Isso publica também a `acesso`, a `excluirEmpresa` e a `enviarPesquisa`, que
 ainda estavam por publicar.
 
-**1.3. Rode uma vez na mão, para não esperar até as 21h:**
+**1.3. Rode uma vez na mão, para não esperar até as 21h.**
 
-```
-firebase functions:shell
-```
-e, no prompt que abrir, digite `backupDiario()` e Enter. Depois `.exit`.
+No sistema, aba **Plataforma → Backup automático diário → “⟳ Gerar a cópia
+agora no servidor”**. A própria tela responde quantas empresas, projetos e
+atividades entraram, e onde o arquivo ficou.
+
+> Não use `firebase functions:shell` para isso: ele não enxerga funções
+> agendadas de 2ª geração, e o comando parece não fazer nada.
 
 **1.4. Confira que gravou.** No console do Firebase → **Storage** → pasta
 `backups/`. Devem estar lá o `.json` e o `.html` de hoje, mais `ultimo.json` e

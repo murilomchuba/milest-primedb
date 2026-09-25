@@ -89,6 +89,19 @@ function decidirExclusao(p) {
 }
 
 /**
+ * Pode mandar o servidor gerar o backup agora?
+ * Só quem opera a plataforma. O backup carrega TODAS as empresas num arquivo
+ * só — é a única operação do sistema em que os dados de clientes diferentes se
+ * encontram, então ela não desce para administrador de empresa.
+ */
+function decidirBackup(p) {
+  const quem = chave(p.quem);
+  const souPlataforma = quem === DONO || (p.idxQuem && p.idxQuem.plataforma === true);
+  if (!souPlataforma) return { ok: false, motivo: 'o backup completo é de quem opera a plataforma.' };
+  return { ok: true };
+}
+
+/**
  * Pode enviar pesquisa de satisfação deste projeto?
  * Administrador ou gerente ativo da empresa, empresa ativa e no prazo.
  */
@@ -112,4 +125,4 @@ function decidirPesquisa(p) {
   return { ok: true, orgId };
 }
 
-module.exports = { decidir, decidirExclusao, decidirPesquisa, senhaValida, chave, DONO };
+module.exports = { decidir, decidirExclusao, decidirBackup, decidirPesquisa, senhaValida, chave, DONO };

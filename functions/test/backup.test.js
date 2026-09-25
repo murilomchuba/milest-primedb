@@ -176,3 +176,15 @@ test('o expurgo cuida das páginas também, e continua poupando os ponteiros', a
   assert.ok('backups/ultimo.html' in arq && 'backups/ultimo.json' in arq);
   assert.ok('backups/milest-2026-09-20.html' in arq);
 });
+
+/* ---- quem pode pedir o backup na hora ---- */
+const { decidirBackup, DONO } = require('../regras-acesso');
+
+test('só quem opera a plataforma pede o backup', () => {
+  assert.ok(decidirBackup({ quem: DONO, idxQuem: null }).ok, 'o dono sempre pode');
+  assert.ok(decidirBackup({ quem: 'outro@x.com', idxQuem: { plataforma: true } }).ok);
+  assert.ok(!decidirBackup({ quem: 'admin@cliente.com', idxQuem: { orgId: 'o1' } }).ok,
+    'administrador de empresa não leva o arquivo com os dados de todas as outras');
+  assert.ok(!decidirBackup({ quem: 'z@x.com', idxQuem: null }).ok);
+  assert.ok(!decidirBackup({ quem: 'z@x.com', idxQuem: { plataforma: 'sim' } }).ok, 'só o booleano vale');
+});

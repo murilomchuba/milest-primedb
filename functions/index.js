@@ -19,7 +19,7 @@ const { defineSecret } = require('firebase-functions/params');
 const crypto = require('crypto');
 const { setGlobalOptions } = require('firebase-functions/v2');
 const admin = require('firebase-admin');
-const { decidir, decidirExclusao, decidirPesquisa, senhaValida, chave } = require('./regras-acesso');
+const { decidir, decidirExclusao, decidirBackup, decidirPesquisa, senhaValida, chave } = require('./regras-acesso');
 
 admin.initializeApp();
 setGlobalOptions({ region: 'us-central1', maxInstances: 5 });
@@ -241,4 +241,26 @@ exports.backupDiario = onSchedule({
   });
   // esta linha é o que se procura no console quando a dúvida é "rodou ontem?"
   console.log('backupDiario', JSON.stringify(r));
+});
+
+/* O mesmo backup, pedido na hora pela aba Plataforma.
+
+   Existe porque não há jeito bom de disparar uma função agendada de 2ª geração
+   pela linha de comando: o `functions:shell` não a enxerga. Em vez de mandar o
+   Murilo ao console do Cloud Scheduler toda vez que quiser uma cópia, o botão
+   fica onde ele já está. Serve também de conferência: se este responde, o
+   agendado também vai rodar — é o mesmo código. */
+exports.backupAgora = onCall({ cors: ORIGENS, timeoutSeconds: 540, memory: '1GiB' }, async (req) => {
+  const tok = req.auth && req.auth.token;
+  if (!tok || !tok.email || tok.email_verified !== true)
+    throw new HttpsError('unauthenticated', 'entre com uma conta confirmada.');
+  const db = admin.firestore();
+  const quem = chave(tok.email);
+  const idxQuem = await ler(db.doc('users/' + quem));
+  const v = decidirBackup({ quem, idxQuem });
+  if (!v.ok) throw new HttpsError('permission-denied', v.motivo);
+
+  const r = await rodarBackup({ db, bucket: admin.storage().bucket(), versao: 'servidor', dias: DIAS_GUARDADOS });
+  console.log('backupAgora', { quem, r });
+  return r;
 });

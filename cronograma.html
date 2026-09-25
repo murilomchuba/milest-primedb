@@ -1005,7 +1005,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-25.11';
+const VERSAO = '2026-09-25.12';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -7330,6 +7330,52 @@ function painelBackupTotal() {
   p.appendChild(el('div', 'tagline',
     'O backup da aba Calendário continua existindo e é mais leve: ele leva só a empresa aberta, em JSON. ' +
     'Este aqui é o retrato de tudo — guarde-o fora do computador de trabalho.'));
+
+  /* O backup que roda sozinho todo dia às 21h10. Este botão pede a mesma
+     rotina agora, no servidor — e é assim que se confere que o agendamento
+     está de pé, sem abrir console nenhum. O arquivo não passa por este
+     navegador: ele nasce e fica no Cloud Storage do projeto. */
+  p.appendChild(el('h3', '', 'Backup automático diário'));
+  p.appendChild(el('div', 'tagline',
+    'Todo dia às 21h10 o servidor guarda sozinho uma cópia de tudo — as mesmas empresas, projetos e ' +
+    'atividades do arquivo acima — no armazenamento do projeto, e apaga as que passaram de 60 dias. ' +
+    'Saem dois arquivos por dia: a página que abre com dois cliques e o JSON dos dados. ' +
+    'Não depende de nenhum computador estar ligado.'));
+  const aviso = el('div', 'hint');
+  aviso.style.cssText = 'margin:2px 0 10px;line-height:1.5';
+  aviso.textContent = 'Use o botão abaixo para rodar agora, sem esperar o horário. Leva alguns segundos.';
+  p.appendChild(aviso);
+  const bAg = el('button', 'btn', '⟳ Gerar a cópia agora no servidor');
+  bAg.addEventListener('click', async () => {
+    bAg.disabled = true;
+    aviso.textContent = 'Pedindo ao servidor… isso pode levar até um minuto.';
+    aviso.style.color = '';
+    try {
+      const r = await chamarFuncao('backupAgora', {});
+      if (r.indisponivel) {
+        aviso.style.color = 'var(--critical)';
+        aviso.textContent = 'O servidor não tem essa rotina publicada ainda. '
+          + 'Ela sobe com “firebase deploy --only functions”.';
+      } else if (!r.ok) {
+        aviso.style.color = 'var(--critical)';
+        aviso.textContent = 'Não consegui: ' + (r.motivo || 'erro no servidor.');
+      } else {
+        aviso.style.color = 'var(--ok)';
+        aviso.textContent = 'Pronto: ' + fmtNum(r.empresas) + ' empresa(s), ' + fmtNum(r.projetos)
+          + ' projeto(s) e ' + fmtNum(r.atividades) + ' atividade(s) em ' + tamBonito(r.bytes) + '. '
+          + 'Guardado como ' + r.arquivo + (String(r.pagina || '').indexOf('FALHOU') === 0
+            ? ' — só os dados desta vez; a página não pôde ser montada.'
+            : ' e ' + r.pagina + '.')
+          + (r.anexos === false ? ' Sem os anexos: o arquivo do dia passou do tamanho máximo.' : '')
+          + (r.apagados ? ' ' + fmtNum(r.apagados) + ' cópia(s) vencida(s) apagada(s).' : '');
+      }
+    } catch (e) {
+      aviso.style.color = 'var(--critical)';
+      aviso.textContent = 'Não consegui: ' + ((e && e.message) || 'erro');
+    }
+    bAg.disabled = false;
+  });
+  p.appendChild(bAg);
   return p;
 }
 
