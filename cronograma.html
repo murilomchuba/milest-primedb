@@ -1005,7 +1005,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-25.10';
+const VERSAO = '2026-09-25.11';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -4186,6 +4186,27 @@ async function emParalelo(itens, largura, fn) {
   await Promise.all(linhas);
 }
 
+/* ATENÇÃO — não guarde `ST.P` em lugar nenhum que sobreviva à troca de projeto.
+   `loadProject` NÃO troca o objeto `ST.P`: ele reescreve os campos dele
+   (`ST.P.meta = ...`, `ST.P.tasks = ...`). O objeto é o mesmo desde que a
+   página abriu. Quem tivesse guardado essa referência — a carteira e o memo
+   guardavam — via o projeto recém-aberto no lugar do que tinha guardado: a
+   linha continuava com o id certo e os números certos, mas passava a exibir o
+   nome e o cliente do projeto aberto. Três linhas diferentes viravam três
+   "mesmo projeto" na tela. Por isso, aqui, sempre um retrato.
+
+   O cadastro de equipe fica por referência de propósito: é único do sistema,
+   vive fora do projeto e é assim que a carteira inteira o enxerga. */
+function congelarP(P) {
+  if (!P) return P;
+  return {
+    meta: Object.assign({}, P.meta),
+    tasks: (P.tasks || []).map(t => Object.assign({}, t, { res: (t.res || []).map(a => Object.assign({}, a)) })),
+    resources: P.resources,
+    logo: P.logo || null
+  };
+}
+
 async function carregarPortfolio() {
   /* O projeto aberto nunca vem do cache — ele está em memória, já calculado.
      Deixo o retrato guardado assim mesmo: quando você troca de projeto, o que
@@ -4193,8 +4214,9 @@ async function carregarPortfolio() {
   const doAberto = () => {
     const ind = indicadoresDe(ST.P, ST.sch);
     const carimbo = (ST.P.meta && ST.P.meta.updatedAt) || 0;
-    if (carimbo && ST.mode === 'db') MEMO_CARTEIRA.set(pre() + ST.pid, { carimbo: carimbo, P: ST.P, ind: ind });
-    return { id: ST.pid, meta: ST.P.meta, P: ST.P, ind: ind };
+    const retrato = congelarP(ST.P);                 // nunca a referência viva: ver congelarP
+    if (carimbo && ST.mode === 'db') MEMO_CARTEIRA.set(pre() + ST.pid, { carimbo: carimbo, P: retrato, ind: ind });
+    return { id: ST.pid, meta: retrato.meta, P: retrato, ind: ind };
   };
 
   if (ST.mode !== 'db') {
@@ -4859,7 +4881,7 @@ function renderOverview() {
   const agora = Date.now();
   if (ST.portfolio && agora - (ST.portfolioEm || 0) < 60000) {
     // atualiza na hora a linha do projeto aberto, que está em memória
-    ST.portfolio = ST.portfolio.map(it => it.id === ST.pid ? { id: it.id, meta: ST.P.meta, P: ST.P, ind: indicadoresDe(ST.P, ST.sch) } : it);
+    ST.portfolio = ST.portfolio.map(it => { if (it.id !== ST.pid) return it; const r = congelarP(ST.P); return { id: it.id, meta: r.meta, P: r, ind: indicadoresDe(ST.P, ST.sch) }; });
     desenhar(ST.portfolio);
     return;
   }
@@ -10000,7 +10022,7 @@ function renderPainel() {
 
   const agora = Date.now();
   if (ST.portfolio && agora - (ST.portfolioEm || 0) < 60000) {
-    ST.portfolio = ST.portfolio.map(it => it.id === ST.pid ? { id: it.id, meta: ST.P.meta, P: ST.P, ind: indicadoresDe(ST.P, ST.sch) } : it);
+    ST.portfolio = ST.portfolio.map(it => { if (it.id !== ST.pid) return it; const r = congelarP(ST.P); return { id: it.id, meta: r.meta, P: r, ind: indicadoresDe(ST.P, ST.sch) }; });
     desenhar(ST.portfolio);
     return;
   }
