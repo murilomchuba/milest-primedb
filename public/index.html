@@ -1006,7 +1006,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-25.3';
+const VERSAO = '2026-09-25.4';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -8226,15 +8226,29 @@ function diValorPrioridade(v) {
   return 'Média';
 }
 
+/* O cabeçalho raramente é a primeira linha de um arquivo real: planilha boa
+   tem título, legenda, uma linha em branco. Salvando o modelo como .csv, o
+   cabeçalho cai na linha 3 — e exigir que fosse a primeira era exigir que o
+   usuário editasse o arquivo antes de usá-lo. Procura nas primeiras linhas. */
+function diAcharCabecalho(linhas) {
+  const ate = Math.min(linhas.length, 20);
+  for (let i = 0; i < ate; i++) {
+    const m = diMapearCabecalho(linhas[i]);
+    if (m && m.descricao != null) return { mapa: m, linha: i };
+  }
+  return null;
+}
+
 async function importarDiario(txt, modo) {
   const linhas = parseDelimitado(txt);
   if (!linhas.length) { toast('Nada para importar.'); return; }
-  const mapa = diMapearCabecalho(linhas[0]);
-  if (!mapa) {
-    toast('Não reconheci o cabeçalho. A primeira linha precisa ter os nomes das colunas.');
+  const achado = diAcharCabecalho(linhas);
+  if (!achado) {
+    toast('Não achei a linha de cabeçalho. Ela precisa ter “Atividade / Detalhes” e pelo menos mais uma coluna conhecida.');
     return;
   }
-  const corpo = linhas.slice(1);
+  const mapa = achado.mapa;
+  const corpo = linhas.slice(achado.linha + 1);
   if (modo === 'replace') {
     for (const it of (DIARIO || []).slice()) await apagarItemDiario(it.id);
     DIARIO = [];
@@ -8244,6 +8258,9 @@ async function importarDiario(txt, modo) {
   for (const l of corpo) {
     const desc = g(l, 'descricao');
     if (!desc) { if (l.some(x => String(x || '').trim())) puladas++; continue; }
+    // a linha de exemplo do modelo vem marcada: quem esquecer de apagá-la não
+    // ganha uma atividade fantasma no diário do cliente
+    if (/^exemplo/.test(semAcento(g(l, 'codigo')))) { puladas++; continue; }
     const it = Object.assign(novoItemDiario(), {
       codigo: g(l, 'codigo') || diProximoCodigo(),
       modulo: g(l, 'modulo'),
@@ -8267,7 +8284,8 @@ function janelaImportarDiario() {
   modal('Importar atividades para o diário', (body, close) => {
     body.appendChild(el('div', 'hint',
       'Abra a planilha, selecione as linhas COM o cabeçalho, copie (Ctrl/Cmd+C) e cole no campo abaixo. ' +
-      'Também aceita um arquivo .csv salvo da planilha.'));
+      'Também aceita um arquivo .csv salvo da planilha inteira — o título e a legenda do modelo não atrapalham, ' +
+      'o sistema procura sozinho a linha do cabeçalho.'));
 
     const modos = el('div'); modos.style.cssText = 'display:flex;gap:16px;flex-wrap:wrap;margin:4px 0 10px';
     let modo = 'append';
