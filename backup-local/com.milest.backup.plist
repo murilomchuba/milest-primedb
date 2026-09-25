@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.milest.backup</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/murilochuba/Documents/ProjetosIA/Milest/backup-local/baixar.sh</string>
+  </array>
+
+  <!-- 21h40: o servidor grava às 21h10, então já existe a cópia do dia.
+       Se o Mac estiver desligado ou dormindo nesse horário, o launchd roda
+       assim que ele acordar — é por isso que não usamos cron aqui. -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key><integer>21</integer>
+    <key>Minute</key><integer>40</integer>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>/Users/murilochuba/Library/Logs/milest-backup.out</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/murilochuba/Library/Logs/milest-backup.err</string>
+
+  <key>RunAtLoad</key>
+  <false/>
+</dict>
+</plist>

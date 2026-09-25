@@ -1,4 +1,4 @@
-// versão 2026-09-21.6
+// versão 2026-09-25.1
 /* MILEST — funções do servidor.
 
    acesso: cria a conta de uma pessoa (ou refaz a senha dela) já com o e-mail
@@ -211,4 +211,34 @@ exports.enviarPesquisa = onCall({ cors: ORIGENS, secrets: [RESEND_API_KEY], time
   }
   console.log('enviarPesquisa', { quem, orgId, pid, n: saida.length, enviados: saida.filter(x => x.enviado).length });
   return { itens: saida };
+});
+
+/* ---- backup diário automático ----
+   Todo fim de dia o servidor guarda o banco inteiro num JSON no Cloud Storage
+   do projeto. Mesmo formato do botão "⤓ Backup" da tela, então o arquivo abre
+   no modo "Cópia de segurança" do app e serve para backup/restaurar.mjs.
+
+   Esta é a camada que roda sozinha e não depende de nenhuma máquina ligada.
+   Tirar a cópia de dentro da conta Google é o braço local (backup/local/).
+
+   Publicar: firebase deploy --only functions:backupDiario
+   Rodar na mão uma vez:  firebase functions:shell  →  backupDiario()          */
+const { onSchedule } = require('firebase-functions/v2/scheduler');
+const { rodarBackup, DIAS_GUARDADOS } = require('./backup');
+
+exports.backupDiario = onSchedule({
+  schedule: '10 21 * * *',
+  timeZone: 'America/Sao_Paulo',
+  memory: '1GiB',
+  timeoutSeconds: 540,
+  retryCount: 2
+}, async () => {
+  const r = await rodarBackup({
+    db: admin.firestore(),
+    bucket: admin.storage().bucket(),
+    versao: 'servidor',
+    dias: DIAS_GUARDADOS
+  });
+  // esta linha é o que se procura no console quando a dúvida é "rodou ontem?"
+  console.log('backupDiario', JSON.stringify(r));
 });
