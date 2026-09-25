@@ -750,6 +750,7 @@ body.embutido .view{height:100%}
     <button class="tab" role="tab" data-view="resources" aria-selected="false">Recursos</button>
     <button class="tab" role="tab" data-view="horas" aria-selected="false" id="tabHoras">Horas</button>
     <button class="tab" role="tab" data-view="status" aria-selected="false">Status Report</button>
+    <button class="tab" role="tab" data-view="diario" aria-selected="false">Diário</button>
     <button class="tab" role="tab" data-view="docs" aria-selected="false">Documentos</button>
     <button class="tab" role="tab" data-view="curve" aria-selected="false">Curva S</button>
     <button class="tab" role="tab" data-view="settings" aria-selected="false">Calendário</button>
@@ -824,6 +825,7 @@ body.embutido .view{height:100%}
 <div class="view" id="view-resources"><div class="scrollview" id="resView"></div></div>
 <div class="view" id="view-horas"><div class="scrollview" id="hrView"></div></div>
 <div class="view" id="view-status"><div class="scrollview" id="stView"></div></div>
+<div class="view" id="view-diario"><div class="scrollview" id="diView"></div></div>
 <div class="view" id="view-docs"><div class="scrollview" id="docsView"></div></div>
 <div class="view" id="view-curve"><div class="scrollview" id="curveView"></div></div>
 <div class="view" id="view-settings"><div class="scrollview" id="setView"></div></div>
@@ -977,7 +979,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-24.2';
+const VERSAO = '2026-09-25.1';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -7132,16 +7134,17 @@ async function coletarBackupTotal(aviso, comAnexos) {
     const ps = await ST.db.collection(base + '/projects').get().catch(() => vazio);
     for (const d of ps.docs) {
       const bp = base + '/projects/' + d.id;
-      const [t, v, vd, dc, dd] = await Promise.all([
+      const [t, v, vd, dc, dd, di] = await Promise.all([
         ST.db.collection(bp + '/tasks').get().catch(() => vazio),
         ST.db.collection(bp + '/versions').get().catch(() => vazio),
         ST.db.collection(bp + '/versionsData').get().catch(() => vazio),
         ST.db.collection(bp + '/docs').get().catch(() => vazio),
-        saida.anexos ? ST.db.collection(bp + '/docsData').get().catch(() => vazio) : Promise.resolve(vazio)
+        saida.anexos ? ST.db.collection(bp + '/docsData').get().catch(() => vazio) : Promise.resolve(vazio),
+        ST.db.collection(bp + '/diario').get().catch(() => vazio)
       ]);
       emp.projects.push({
         id: d.id, meta: d.data() || {}, tasks: lista(t), versions: lista(v),
-        versionsData: lista(vd), docs: lista(dc), docsData: lista(dd)
+        versionsData: lista(vd), docs: lista(dc), docsData: lista(dd), diario: lista(di)
       });
     }
     emp.resources = lista(await ST.db.collection(base + '/resources').get().catch(() => vazio));
@@ -7405,16 +7408,17 @@ async function coletarBackup(comAnexos) {
     const ps = await ST.db.collection(cProjetos()).get();
     for (const d of ps.docs) {
       const base = dProjeto(d.id);
-      const [t, v, vd, dc, dd] = await Promise.all([
+      const [t, v, vd, dc, dd, di] = await Promise.all([
         ST.db.collection(base + '/tasks').get().catch(() => vazio),
         ST.db.collection(base + '/versions').get().catch(() => vazio),
         ST.db.collection(base + '/versionsData').get().catch(() => vazio),
         ST.db.collection(base + '/docs').get().catch(() => vazio),
-        saida.anexos ? ST.db.collection(base + '/docsData').get().catch(() => vazio) : Promise.resolve(vazio)
+        saida.anexos ? ST.db.collection(base + '/docsData').get().catch(() => vazio) : Promise.resolve(vazio),
+        ST.db.collection(base + '/diario').get().catch(() => vazio)
       ]);
       saida.projects.push({
         id: d.id, meta: d.data() || {}, tasks: lista(t), versions: lista(v),
-        versionsData: lista(vd), docs: lista(dc), docsData: lista(dd)
+        versionsData: lista(vd), docs: lista(dc), docsData: lista(dd), diario: lista(di)
       });
     }
     saida.resources = lista(await ST.db.collection(cRecursos()).get().catch(() => vazio));
@@ -7727,6 +7731,594 @@ function renderSettings() {
   host.appendChild(p3);
 }
 
+
+/* ============ Diário de acompanhamento ============
+   O cronograma responde "como vai o projeto". Este diário responde outra
+   pergunta, que é a do dia a dia com o cliente: "o que aconteceu hoje, o que
+   está travado e com quem está". São listas diferentes e ritmos diferentes —
+   anotar aqui tem de ser mais rápido do que abrir o cronograma, senão ninguém
+   anota. Por isso os itens são soltos: não dependem de atividade cadastrada.
+
+   Três coisas que a planilha fazia à mão e aqui o sistema faz sozinho:
+   o carimbo de quando o item mudou, a separação do que se mexeu hoje, e o
+   relatório do fim do dia. É o carimbo que sustenta os outros dois.
+
+   Mora numa subcoleção do projeto, não no cadastro dele: a consulta que monta
+   o Portfólio lê o documento de cada projeto, e um diário de quatro meses ali
+   dentro deixaria a carteira lenta outra vez. */
+const cDiario = pid => pre() + 'projects/' + (pid || ST.pid) + '/diario';
+
+const DI_STATUS = [
+  { id: 'aberto', rot: 'A fazer', cls: 'st-no', pdf: '#7F7F7F' },
+  { id: 'andamento', rot: 'Em andamento', cls: 'st-go', pdf: '#17ADC5' },
+  { id: 'bloqueado', rot: 'Bloqueado', cls: 'st-late', pdf: '#C00000' },
+  { id: 'concluido', rot: 'Concluído', cls: 'st-ok', pdf: '#1F8A5B' }
+];
+const DI_PRIO = [
+  { id: 'alta', rot: 'Alta', cor: 'var(--critical)', pdf: '#C00000' },
+  { id: 'media', rot: 'Média', cor: 'var(--warn)', pdf: '#E97132' },
+  { id: 'baixa', rot: 'Baixa', cor: 'var(--ink-3)', pdf: '#7F7F7F' }
+];
+const diStatus = id => DI_STATUS.find(x => x.id === id) || DI_STATUS[0];
+const diPrio = id => DI_PRIO.find(x => x.id === id) || DI_PRIO[1];
+const diAberto = it => it && it.status !== 'concluido';
+
+let DIARIO = null;            // itens do projeto aberto
+let DIARIO_PID = null;        // de qual projeto eles são
+let DIARIO_FILTRO = 'todas';
+let DIARIO_BUSCA = '';
+
+function novoItemDiario() {
+  return {
+    id: uid('d'), cod: '', modulo: '', texto: '', resp: '', time: '',
+    prio: 'media', status: 'aberto', prazo: '', obs: '',
+    criadoEm: Date.now(), criadoPor: ST.userEmail || '',
+    atualizadoEm: Date.now(), atualizadoPor: ST.userEmail || ''
+  };
+}
+
+/** O próximo código da sequência do projeto: P-1, P-2, P-3... */
+function proximoCodigo(itens) {
+  let maior = 0;
+  for (const it of (itens || [])) {
+    const m = /(\d+)\s*$/.exec(String(it.cod || ''));
+    if (m) maior = Math.max(maior, Number(m[1]) || 0);
+  }
+  return 'P-' + (maior + 1);
+}
+
+async function carregarDiario(forcar) {
+  if (!forcar && DIARIO && DIARIO_PID === ST.pid) return DIARIO;
+  let itens = [];
+  try {
+    if (ST.mode === 'db') {
+      const snap = await ST.db.collection(cDiario()).get();
+      itens = snap.docs.map(d => Object.assign(novoItemDiario(), d.data(), { id: d.id }));
+    } else {
+      const all = localLoad() || { projects: {} };
+      itens = ((all.projects[ST.pid] || {}).diario || []).map(x => Object.assign(novoItemDiario(), x));
+    }
+  } catch (e) { itens = []; }
+  DIARIO = itens; DIARIO_PID = ST.pid;
+  return itens;
+}
+
+/** Grava um item. O carimbo de atualização é do sistema, nunca digitado:
+ *  é dele que saem o filtro de hoje e o relatório do fim do dia. */
+async function salvarItemDiario(item) {
+  if (semPermissao()) return false;
+  item.atualizadoEm = Date.now();
+  item.atualizadoPor = ST.userEmail || '';
+  if (item.status === 'concluido' && !item.concluidoEm) item.concluidoEm = todayISO();
+  if (item.status !== 'concluido') item.concluidoEm = null;
+  const i = (DIARIO || []).findIndex(x => x.id === item.id);
+  if (i >= 0) DIARIO[i] = item; else (DIARIO = DIARIO || []).push(item);
+  try {
+    if (ST.mode === 'db') {
+      await ST.db.doc(cDiario() + '/' + item.id).set(JSON.parse(JSON.stringify(item)));
+    } else {
+      const all = localLoad() || { projects: {} };
+      all.projects[ST.pid] = all.projects[ST.pid] || {};
+      all.projects[ST.pid].diario = JSON.parse(JSON.stringify(DIARIO));
+      localStorage.setItem(LSKEY, JSON.stringify(all));
+    }
+  } catch (e) { toast('Não consegui salvar: ' + ((e && e.message) || 'erro')); return false; }
+  return true;
+}
+
+async function apagarItemDiario(id) {
+  if (semPermissao()) return false;
+  DIARIO = (DIARIO || []).filter(x => x.id !== id);
+  try {
+    if (ST.mode === 'db') await ST.db.doc(cDiario() + '/' + id).delete();
+    else {
+      const all = localLoad() || { projects: {} };
+      all.projects[ST.pid] = all.projects[ST.pid] || {};
+      all.projects[ST.pid].diario = JSON.parse(JSON.stringify(DIARIO));
+      localStorage.setItem(LSKEY, JSON.stringify(all));
+    }
+  } catch (e) { toast('Não consegui apagar: ' + ((e && e.message) || 'erro')); return false; }
+  return true;
+}
+
+/* ---- recortes ---- */
+const diMexeuEm = (it, diaISO) => {
+  if (!it || !it.atualizadoEm) return false;
+  try { return new Date(it.atualizadoEm).toISOString().slice(0, 10) === diaISO; } catch (e) { return false; }
+};
+const diDeHoje = it => diMexeuEm(it, todayISO());
+const diAtrasado = it => diAberto(it) && it.prazo && it.prazo < todayISO();
+
+/** Ordem de quem cuida da lista: bloqueio primeiro, depois atraso, depois
+ *  prioridade, depois prazo. O que trava o cliente tem de estar no topo. */
+function ordenarDiario(itens) {
+  const pesoStatus = { bloqueado: 0, andamento: 1, aberto: 2, concluido: 3 };
+  const pesoPrio = { alta: 0, media: 1, baixa: 2 };
+  return (itens || []).slice().sort((a, b) => {
+    const pa = pesoStatus[a.status] != null ? pesoStatus[a.status] : 2;
+    const pb = pesoStatus[b.status] != null ? pesoStatus[b.status] : 2;
+    if (pa !== pb) return pa - pb;
+    const aa = diAtrasado(a) ? 0 : 1, ab = diAtrasado(b) ? 0 : 1;
+    if (aa !== ab) return aa - ab;
+    const qa = pesoPrio[a.prio] != null ? pesoPrio[a.prio] : 1;
+    const qb = pesoPrio[b.prio] != null ? pesoPrio[b.prio] : 1;
+    if (qa !== qb) return qa - qb;
+    const za = a.prazo || '9999-12-31', zb = b.prazo || '9999-12-31';
+    return za < zb ? -1 : za > zb ? 1 : 0;
+  });
+}
+
+function filtrarDiario(itens) {
+  let saida = itens || [];
+  if (DIARIO_FILTRO === 'hoje') saida = saida.filter(diDeHoje);
+  else if (DIARIO_FILTRO === 'abertas') saida = saida.filter(diAberto);
+  else if (DIARIO_FILTRO === 'bloqueadas') saida = saida.filter(it => it.status === 'bloqueado' || diAtrasado(it));
+  const q = DIARIO_BUSCA.trim().toLowerCase();
+  if (q) saida = saida.filter(it => [it.cod, it.modulo, it.texto, it.resp, it.time, it.obs]
+    .some(v => String(v || '').toLowerCase().includes(q)));
+  return ordenarDiario(saida);
+}
+
+/* ---- a janela de um item ---- */
+function janelaItemDiario(original) {
+  if (semPermissao()) return;
+  const novo = !original;
+  const it = Object.assign(novoItemDiario(), original || {});
+  if (novo && !it.cod) it.cod = proximoCodigo(DIARIO);
+  modal(novo ? 'Nova atividade do dia' : 'Atividade ' + (it.cod || ''), (body, close) => {
+    const linha2 = () => { const d = el('div'); d.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:10px'; return d; };
+    const campo = (rot, no) => { const f = el('div', 'field'); f.appendChild(el('label', '', rot)); f.appendChild(no); return f; };
+    const inp = (v, ph) => { const i = el('input', 'inp'); i.value = v || ''; if (ph) i.placeholder = ph; return i; };
+
+    const g1 = linha2();
+    const iCod = inp(it.cod, 'P-1');
+    const iMod = inp(it.modulo, 'Ex.: Aplicação PLS, Homologação');
+    g1.appendChild(campo('ID', iCod)); g1.appendChild(campo('Módulo', iMod));
+    body.appendChild(g1);
+
+    const iTexto = el('textarea', 'inp');
+    iTexto.style.cssText = 'min-height:84px;font-family:var(--f-body);font-size:12.5px';
+    iTexto.value = it.texto || '';
+    iTexto.placeholder = 'O que é a atividade. Pode usar mais de uma linha — por exemplo, uma linha com o focal ou com o critério de aceite.';
+    body.appendChild(campo('Atividade / Detalhes', iTexto));
+
+    const g2 = linha2();
+    const iResp = inp(it.resp, 'Quem está com isso');
+    const iTime = inp(it.time, 'Ex.: Unimed, Prime DB');
+    g2.appendChild(campo('Responsável', iResp)); g2.appendChild(campo('Time', iTime));
+    body.appendChild(g2);
+
+    const g3 = el('div'); g3.style.cssText = 'display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px';
+    const sPrio = el('select', 'inp');
+    for (const p of DI_PRIO) { const o = el('option', '', p.rot); o.value = p.id; sPrio.appendChild(o); }
+    sPrio.value = it.prio || 'media';
+    const sStat = el('select', 'inp');
+    for (const s2 of DI_STATUS) { const o = el('option', '', s2.rot); o.value = s2.id; sStat.appendChild(o); }
+    sStat.value = it.status || 'aberto';
+    const iPrazo = el('input', 'inp'); iPrazo.type = 'date'; iPrazo.value = it.prazo || '';
+    g3.appendChild(campo('Prioridade', sPrio)); g3.appendChild(campo('Status', sStat)); g3.appendChild(campo('Prazo', iPrazo));
+    body.appendChild(g3);
+
+    const iObs = el('textarea', 'inp');
+    iObs.style.cssText = 'min-height:56px;font-family:var(--f-body);font-size:12.5px';
+    iObs.value = it.obs || '';
+    iObs.placeholder = 'O que está travando, de quem se espera resposta, o que foi combinado. Aparece no relatório do cliente.';
+    body.appendChild(campo('Bloqueios / Observações', iObs));
+
+    if (!novo && it.atualizadoEm) {
+      const h = el('div', 'hint', 'Criado em ' + fmtBR(new Date(it.criadoEm).toISOString().slice(0, 10)) +
+        ' · última atualização em ' + fmtBR(new Date(it.atualizadoEm).toISOString().slice(0, 10)) +
+        (it.atualizadoPor ? ' por ' + it.atualizadoPor : ''));
+      body.appendChild(h);
+    }
+
+    const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;justify-content:space-between;align-items:center';
+    const esq = el('div');
+    if (!novo) {
+      const bDel = el('button', 'btn danger', '✕ Excluir');
+      bDel.addEventListener('click', async () => {
+        close();
+        if (await apagarItemDiario(it.id)) { toast('Atividade excluída.'); renderDiario(); }
+      });
+      esq.appendChild(bDel);
+    }
+    const dir = el('div'); dir.style.cssText = 'display:flex;gap:8px';
+    const bC = el('button', 'btn', 'Cancelar'); bC.addEventListener('click', close);
+    const bOk = el('button', 'btn primary', novo ? 'Acrescentar' : 'Salvar');
+    const gravar = async () => {
+      Object.assign(it, {
+        cod: iCod.value.trim(), modulo: iMod.value.trim(), texto: iTexto.value.trim(),
+        resp: iResp.value.trim(), time: iTime.value.trim(),
+        prio: sPrio.value, status: sStat.value, prazo: iPrazo.value || '', obs: iObs.value.trim()
+      });
+      if (!it.texto) { toast('Escreva a atividade.'); return; }
+      close();
+      if (await salvarItemDiario(it)) { toast(novo ? 'Atividade acrescentada.' : 'Atividade atualizada.'); renderDiario(); }
+    };
+    bOk.addEventListener('click', gravar);
+    dir.appendChild(bC); dir.appendChild(bOk);
+    linha.appendChild(esq); linha.appendChild(dir);
+    body.appendChild(linha);
+    setTimeout(() => (novo ? iMod : iTexto).focus(), 30);
+  }, []);
+}
+
+/* ---- a aba ---- */
+function renderDiario() {
+  const host = $('#diView'); if (!host) return;
+  host.textContent = '';
+  const p = el('div', 'panel');
+  const cab = el('h3', '', 'Diário de acompanhamento');
+  cab.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap';
+  const acoes = el('div'); acoes.style.cssText = 'display:flex;gap:7px;flex-wrap:wrap;align-items:center';
+
+  const busca = el('input', 'inp');
+  busca.placeholder = '🔎 buscar'; busca.value = DIARIO_BUSCA;
+  busca.style.cssText = 'width:150px;padding:5px 9px';
+  busca.addEventListener('input', () => { DIARIO_BUSCA = busca.value; desenhar(); });
+  acoes.appendChild(busca);
+
+  const bRel = el('button', 'btn', '📄 Relatório do dia');
+  bRel.title = 'Monta o relatório para enviar ao cliente: o que mexeu hoje e a situação geral';
+  bRel.addEventListener('click', () => janelaRelatorioDiario());
+  acoes.appendChild(bRel);
+
+  const bNovo = el('button', 'btn primary reqedit', '＋ Nova atividade');
+  bNovo.addEventListener('click', () => janelaItemDiario(null));
+  acoes.appendChild(bNovo);
+  cab.appendChild(acoes); p.appendChild(cab);
+
+  const corpo = el('div'); p.appendChild(corpo); host.appendChild(p);
+
+  const desenhar = () => {
+    corpo.textContent = '';
+    const todos = DIARIO || [];
+    const nav = el('div', 'segs');
+    const bota = (id, rot, n) => {
+      const b2 = el('button', 'seg' + (DIARIO_FILTRO === id ? ' on' : ''), rot);
+      b2.appendChild(el('span', 'cont', fmtNum(n)));
+      b2.addEventListener('click', () => { DIARIO_FILTRO = id; desenhar(); });
+      nav.appendChild(b2);
+    };
+    bota('todas', 'Todas', todos.length);
+    bota('hoje', 'Hoje', todos.filter(diDeHoje).length);
+    bota('abertas', 'Em aberto', todos.filter(diAberto).length);
+    bota('bloqueadas', 'Travadas', todos.filter(it => it.status === 'bloqueado' || diAtrasado(it)).length);
+    corpo.appendChild(nav);
+
+    const alvo = filtrarDiario(todos);
+    if (!alvo.length) {
+      const vaz = el('div', 'empty');
+      vaz.appendChild(el('div', '', todos.length ? 'Nada neste recorte.' : 'Nenhuma atividade no diário ainda.'));
+      const c2 = el('div', '', todos.length
+        ? 'Experimente a aba “Todas” aqui em cima.'
+        : 'Use “＋ Nova atividade” para anotar o que você acompanha com o cliente no dia a dia. ' +
+          'A data de atualização é preenchida sozinha a cada mudança — é ela que monta o relatório do fim do dia.');
+      c2.style.cssText = 'margin-top:8px;max-width:60ch;margin-left:auto;margin-right:auto;line-height:1.5';
+      vaz.appendChild(c2);
+      corpo.appendChild(vaz);
+      return;
+    }
+
+    const tb = el('table', 'data');
+    const hr = el('tr');
+    for (const c of [['ID', ''], ['Módulo', ''], ['Atividade / Detalhes', ''], ['Responsável', ''],
+      ['Time', ''], ['Prio.', ''], ['Status', ''], ['Prazo', 'num'], ['Bloqueios / Observações', ''],
+      ['Atualizado', 'num'], ['', '']]) hr.appendChild(el('th', c[1], c[0]));
+    const th = el('thead'); th.appendChild(hr); tb.appendChild(th);
+    const tbo = el('tbody');
+    for (const it of alvo) {
+      const tr = el('tr', 'projrow');
+      tr.title = 'Abrir esta atividade';
+      tr.addEventListener('click', ev => { if (!ev.target.closest('select')) janelaItemDiario(it); });
+      if (diDeHoje(it)) tr.style.boxShadow = 'inset 3px 0 0 var(--accent-2)';
+
+      const tdc = el('td', '', it.cod || '—');
+      tdc.style.cssText = 'font-family:var(--f-mono);font-size:11.5px;color:var(--ink-3);white-space:nowrap';
+      tr.appendChild(tdc);
+      tr.appendChild(el('td', '', it.modulo || '—'));
+
+      const tdt = el('td');
+      tdt.style.cssText = 'max-width:330px;white-space:normal;line-height:1.35';
+      const linhas = String(it.texto || '').split(/\n/);
+      const p1 = el('div', '', linhas[0] || ''); p1.style.fontWeight = '600'; tdt.appendChild(p1);
+      for (const ln of linhas.slice(1)) {
+        const d = el('div', '', ln);
+        d.style.cssText = 'color:var(--ink-3);font-size:11.5px;margin-top:2px';
+        tdt.appendChild(d);
+      }
+      tr.appendChild(tdt);
+
+      tr.appendChild(el('td', '', it.resp || '—'));
+      tr.appendChild(el('td', '', it.time || '—'));
+      const pr = diPrio(it.prio);
+      const tdp = el('td', '', pr.rot);
+      tdp.style.cssText = 'color:' + pr.cor + ';font-weight:600;font-size:11.5px';
+      tr.appendChild(tdp);
+
+      // o status muda direto na linha: é a alteração mais frequente do dia
+      const tds = el('td');
+      const sel = el('select', 'inp reqedit');
+      sel.style.cssText = 'padding:3px 6px;font-size:11.5px;min-width:126px';
+      for (const s2 of DI_STATUS) { const o = el('option', '', s2.rot); o.value = s2.id; sel.appendChild(o); }
+      sel.value = it.status || 'aberto';
+      sel.addEventListener('click', ev => ev.stopPropagation());
+      sel.addEventListener('change', async () => {
+        it.status = sel.value;
+        if (await salvarItemDiario(it)) { toast('Status atualizado.'); renderDiario(); }
+      });
+      tds.appendChild(sel);
+      const marca = el('span', 'stchip ' + diStatus(it.status).cls, diStatus(it.status).rot);
+      marca.style.cssText = 'display:none';
+      tds.appendChild(marca);
+      tr.appendChild(tds);
+
+      const tdz = el('td', 'num', it.prazo ? fmtBR(it.prazo) : '—');
+      if (diAtrasado(it)) { tdz.style.color = 'var(--critical)'; tdz.style.fontWeight = '600'; tdz.title = 'Prazo vencido'; }
+      else if (!it.prazo) tdz.style.color = 'var(--ink-3)';
+      tr.appendChild(tdz);
+
+      const tdo = el('td', '', it.obs || '—');
+      tdo.style.cssText = 'max-width:260px;white-space:normal;line-height:1.35;font-size:11.5px;color:'
+        + (it.obs ? 'var(--ink-2)' : 'var(--ink-3)');
+      tr.appendChild(tdo);
+
+      const tda = el('td', 'num', it.atualizadoEm ? fmtBR(new Date(it.atualizadoEm).toISOString().slice(0, 10)) : '—');
+      tda.style.cssText = 'font-size:11.5px;color:var(--ink-3);white-space:nowrap';
+      if (diDeHoje(it)) { tda.textContent = 'hoje'; tda.style.color = 'var(--accent-2)'; tda.style.fontWeight = '700'; }
+      if (it.atualizadoPor) tda.title = 'por ' + it.atualizadoPor;
+      tr.appendChild(tda);
+
+      const tdx = el('td');
+      const bEd = el('button', 'btn icon reqedit', '✎');
+      bEd.title = 'Editar esta atividade';
+      bEd.addEventListener('click', ev => { ev.stopPropagation(); janelaItemDiario(it); });
+      tdx.appendChild(bEd);
+      tr.appendChild(tdx);
+      tbo.appendChild(tr);
+    }
+    tb.appendChild(tbo);
+    const sc = el('div', 'tscroll'); sc.appendChild(tb); corpo.appendChild(sc);
+    corpo.appendChild(el('div', 'tagline',
+      'A barra azul à esquerda marca o que mexeu hoje. A ordem é a de quem cuida da lista: ' +
+      'travado primeiro, depois atrasado, depois prioridade e prazo. ' +
+      'O status muda direto na linha; clique em qualquer outro lugar para abrir a atividade. ' +
+      'A data de atualização é do sistema, não se digita — é dela que sai o relatório do dia.'));
+  };
+
+  corpo.appendChild(el('div', 'empty', 'Carregando…'));
+  carregarDiario().then(() => { if (VIEW === 'diario') desenhar(); })
+    .catch(() => { corpo.textContent = ''; corpo.appendChild(el('div', 'empty', 'Não consegui carregar o diário.')); });
+}
+
+/* ---- o relatório do fim do dia ----
+   Dois blocos, e a ordem importa. Primeiro o que mexeu hoje: é a pergunta que
+   o cliente abre o e-mail para responder, e ele tem de ser lida em dez
+   segundos. Depois a situação geral do que está em aberto, para quem não
+   acompanhou os dias anteriores ter contexto sem precisar procurar o e-mail
+   antigo. Uma lista só não faz os dois trabalhos. */
+function dadosRelatorioDiario(diaISO) {
+  const dia = diaISO || todayISO();
+  const todos = DIARIO || [];
+  return {
+    dia: dia,
+    hoje: ordenarDiario(todos.filter(it => diMexeuEm(it, dia))),
+    abertos: ordenarDiario(todos.filter(diAberto)),
+    travados: todos.filter(it => it.status === 'bloqueado' || diAtrasado(it)).length,
+    concluidos: todos.filter(it => it.status === 'concluido').length,
+    total: todos.length
+  };
+}
+
+/** Uma folha A4 em pé, com cabeçalho e rodapé. Devolve os utilitários de
+ *  desenho e o y corrente; quem escreve decide quando virar a página. */
+function folhaDiario(pagina, dados) {
+  const W = 595, H = 842, M = 34;
+  const pg = sv('svg', { xmlns: SVGNS, viewBox: '0 0 ' + W + ' ' + H, width: W, height: H });
+  const T = (x, y, t, fs, peso, cor, anc) => {
+    const e = sv('text', { x: x, y: y, 'font-size': fs, 'font-weight': peso || 400, fill: cor || CORES_ST.tinta, 'font-family': FONTE_ST });
+    if (anc) e.setAttribute('text-anchor', anc);
+    e.textContent = t == null ? '' : String(t); pg.appendChild(e); return e;
+  };
+  const R = (x, y, w, h, f, rx) => pg.appendChild(sv('rect', Object.assign(
+    { x: x, y: y, width: Math.max(0, w), height: Math.max(0, h), fill: f }, rx ? { rx: rx } : {})));
+  const L = (x1, y1, x2, y2, c, w) => pg.appendChild(sv('line', { x1: x1, y1: y1, x2: x2, y2: y2, stroke: c, 'stroke-width': w || 1 }));
+  R(0, 0, W, H, '#FFFFFF');
+
+  const meta = ST.P.meta;
+  T(M, 42, meta.client || 'Cliente', 16, 700, CORES_ST.tinta);
+  T(M, 58, meta.name || 'Projeto', 11.5, 600, CORES_ST.planejado);
+  T(W - M, 42, 'DIÁRIO DE ACOMPANHAMENTO', 9.5, 700, CORES_ST.tinta3, 'end');
+  T(W - M, 58, fmtBR(dados.dia), 13, 700, CORES_ST.tinta, 'end');
+  try { pg.appendChild(marcaGrupo(0.28, W - M - 52, 64)); } catch (e) { }
+  L(M, 80, W - M, 80, CORES_ST.linha, 1.2);
+
+  T(M, H - 22, 'Gerado pelo MILEST em ' + fmtBR(todayISO()) +
+    '  ·  ' + fmtNum(dados.total) + ' atividade(s) no diário  ·  ' +
+    fmtNum(dados.abertos.length) + ' em aberto  ·  ' + fmtNum(dados.travados) + ' travada(s)',
+    7.5, 400, CORES_ST.tinta3);
+  T(W - M, H - 22, 'página ' + pagina, 7.5, 400, CORES_ST.tinta3, 'end');
+  return { pg: pg, T: T, R: R, L: L, W: W, H: H, M: M, y: 100, fim: H - 36 };
+}
+
+function montarFolhasDiario(dados) {
+  const folhas = [];
+  let f = folhaDiario(1, dados);
+  folhas.push(f);
+  const virar = () => { f = folhaDiario(folhas.length + 1, dados); folhas.push(f); };
+
+  const titulo = (txt, sub) => {
+    if (f.y > f.fim - 60) virar();
+    f.y += 8;
+    f.T(f.M, f.y, txt, 11, 700, CORES_ST.planejado);
+    if (sub) f.T(f.W - f.M, f.y, sub, 8.5, 400, CORES_ST.tinta3, 'end');
+    f.y += 5;
+    f.L(f.M, f.y, f.W - f.M, f.y, CORES_ST.linha, 1);
+    f.y += 14;
+  };
+
+  /* Colunas da folha. A atividade ocupa o grosso da largura porque é o que o
+     cliente lê; o resto são etiquetas curtas. */
+  const cx = { cod: 0, ativ: 52, resp: 330, stat: 415, prazo: 510 };
+  const largAtiv = cx.resp - cx.ativ - 10;
+
+  const cabecalhoTabela = () => {
+    f.T(f.M + cx.cod, f.y, 'ID', 7.5, 700, CORES_ST.tinta3);
+    f.T(f.M + cx.ativ, f.y, 'ATIVIDADE', 7.5, 700, CORES_ST.tinta3);
+    f.T(f.M + cx.resp, f.y, 'RESPONSÁVEL', 7.5, 700, CORES_ST.tinta3);
+    f.T(f.M + cx.stat, f.y, 'STATUS', 7.5, 700, CORES_ST.tinta3);
+    f.T(f.M + cx.prazo, f.y, 'PRAZO', 7.5, 700, CORES_ST.tinta3);
+    f.y += 4;
+    f.L(f.M, f.y, f.W - f.M, f.y, CORES_ST.linha, 0.6);
+    f.y += 11;
+  };
+
+  const linha = (it) => {
+    const corpo = envolver(String(it.texto || '').replace(/\n+/g, ' · '), largAtiv, 8.5);
+    const obs = it.obs ? envolver('⚠ ' + it.obs, largAtiv, 7.5) : [];
+    const alturaNec = Math.max(corpo.length, 1) * 11 + obs.length * 9.5 + 8;
+    if (f.y + alturaNec > f.fim) { virar(); cabecalhoTabela(); }
+    const y0 = f.y;
+    const st = diStatus(it.status);
+    f.T(f.M + cx.cod, y0, it.cod || '—', 8, 700, CORES_ST.tinta3);
+    if (it.modulo) f.T(f.M + cx.cod, y0 + 10, it.modulo.slice(0, 12), 6.5, 400, CORES_ST.tinta3);
+    let y = y0;
+    corpo.forEach((ln, i) => { f.T(f.M + cx.ativ, y, ln, 8.5, i === 0 ? 600 : 400, CORES_ST.tinta); y += 11; });
+    for (const ln of obs) { f.T(f.M + cx.ativ, y, ln, 7.5, 400, '#8A5A00'); y += 9.5; }
+    f.T(f.M + cx.resp, y0, (it.resp || '—') + (it.time ? ' (' + it.time + ')' : ''), 8, 400, CORES_ST.tinta2);
+    f.T(f.M + cx.stat, y0, st.rot, 8, 700, st.pdf);
+    const atrasado = diAtrasado(it);
+    f.T(f.M + cx.prazo, y0, it.prazo ? fmtBR(it.prazo) : '—', 8, atrasado ? 700 : 400,
+      atrasado ? '#C00000' : CORES_ST.tinta2);
+    if (atrasado) f.T(f.M + cx.prazo, y0 + 9, 'vencido', 6.5, 700, '#C00000');
+    f.y = Math.max(y, y0 + 14) + 6;
+    f.L(f.M, f.y - 4, f.W - f.M, f.y - 4, '#EEF2F5', 0.6);
+  };
+
+  const bloco = (rot, itens, sub, vazio) => {
+    titulo(rot, sub);
+    if (!itens.length) {
+      f.T(f.M, f.y, vazio, 9, 400, CORES_ST.tinta3);
+      f.y += 18;
+      return;
+    }
+    cabecalhoTabela();
+    for (const it of itens) linha(it);
+    f.y += 6;
+  };
+
+  bloco('MOVIMENTAÇÕES DE ' + fmtBR(dados.dia),
+    dados.hoje, fmtNum(dados.hoje.length) + ' atividade(s)',
+    'Nenhuma movimentação registrada neste dia.');
+  bloco('SITUAÇÃO GERAL — EM ABERTO',
+    dados.abertos, fmtNum(dados.abertos.length) + ' em aberto de ' + fmtNum(dados.total),
+    'Nenhuma atividade em aberto.');
+
+  return folhas.map(x => x.pg);
+}
+
+function janelaRelatorioDiario() {
+  const dados = dadosRelatorioDiario(todayISO());
+  modal('Relatório do dia', (body, close) => {
+    body.appendChild(el('div', 'hint',
+      'O relatório sai em duas partes: o que mexeu hoje, que é o que o cliente abre o e-mail para ler, ' +
+      'e a situação geral do que está em aberto, para quem não acompanhou os dias anteriores. ' +
+      'A prévia abaixo serve para conferir e para tirar print; o botão baixa o PDF em A4.'));
+
+    const dia = el('div', 'field');
+    dia.appendChild(el('label', '', 'Dia do relatório'));
+    const iDia = el('input', 'inp'); iDia.type = 'date'; iDia.value = dados.dia;
+    dia.appendChild(iDia); body.appendChild(dia);
+
+    const previa = el('div');
+    previa.style.cssText = 'max-height:46vh;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:12px;background:var(--surface)';
+    body.appendChild(previa);
+
+    let atual = dados;
+    const tabela = (itens, vazio) => {
+      if (!itens.length) { const d = el('div', '', vazio); d.style.cssText = 'color:var(--ink-3);font-size:12px;padding:4px 0 10px'; return d; }
+      const tb = el('table', 'data');
+      const hr = el('tr');
+      for (const c of ['ID', 'Atividade', 'Responsável', 'Status', 'Prazo']) hr.appendChild(el('th', '', c));
+      const th = el('thead'); th.appendChild(hr); tb.appendChild(th);
+      const tbo = el('tbody');
+      for (const it of itens) {
+        const tr = el('tr');
+        const tdc = el('td', '', it.cod || '—');
+        tdc.style.cssText = 'font-family:var(--f-mono);font-size:11px;color:var(--ink-3)';
+        tr.appendChild(tdc);
+        const tdt = el('td');
+        tdt.style.cssText = 'max-width:320px;white-space:normal;line-height:1.35';
+        const t1 = el('div', '', String(it.texto || '').split(/\n/)[0]); t1.style.fontWeight = '600';
+        tdt.appendChild(t1);
+        if (it.obs) { const o = el('div', '', '⚠ ' + it.obs); o.style.cssText = 'color:var(--warn);font-size:11px;margin-top:2px'; tdt.appendChild(o); }
+        tr.appendChild(tdt);
+        tr.appendChild(el('td', '', (it.resp || '—') + (it.time ? ' (' + it.time + ')' : '')));
+        const st = diStatus(it.status);
+        const tds = el('td'); tds.appendChild(el('span', 'stchip ' + st.cls, st.rot)); tr.appendChild(tds);
+        const tdz = el('td', 'num', it.prazo ? fmtBR(it.prazo) : '—');
+        if (diAtrasado(it)) { tdz.style.color = 'var(--critical)'; tdz.style.fontWeight = '600'; }
+        tr.appendChild(tdz);
+        tbo.appendChild(tr);
+      }
+      tb.appendChild(tbo);
+      const sc = el('div', 'tscroll'); sc.appendChild(tb); return sc;
+    };
+    const montarPrevia = () => {
+      atual = dadosRelatorioDiario(iDia.value || todayISO());
+      previa.textContent = '';
+      const h1 = el('h3', '', 'Movimentações de ' + fmtBR(atual.dia));
+      h1.style.cssText = 'margin:0 0 6px;font-size:13px';
+      previa.appendChild(h1);
+      previa.appendChild(tabela(atual.hoje, 'Nenhuma movimentação registrada neste dia.'));
+      const h2 = el('h3', '', 'Situação geral — em aberto');
+      h2.style.cssText = 'margin:14px 0 6px;font-size:13px';
+      previa.appendChild(h2);
+      previa.appendChild(tabela(atual.abertos, 'Nenhuma atividade em aberto.'));
+    };
+    iDia.addEventListener('change', montarPrevia);
+    montarPrevia();
+
+    const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;margin-top:12px';
+    const bC = el('button', 'btn', 'Fechar'); bC.addEventListener('click', close);
+    const bPdf = el('button', 'btn primary', '⤓ Baixar PDF');
+    bPdf.addEventListener('click', async () => {
+      bPdf.disabled = true;
+      try {
+        const folhas = montarFolhasDiario(atual);
+        const pgs = [];
+        for (const pg of folhas) pgs.push(await svgParaJPEG(pg, 595, 842, 2.6, 0.94));
+        await offerDownload('diario-' + slug((ST.P.meta.client || '') + '-' + (ST.P.meta.name || 'projeto')) +
+          '-' + atual.dia + '.pdf', new Blob([montarPDFMulti(pgs)], { type: 'application/pdf' }));
+      } catch (e) { toast('Não consegui gerar o PDF: ' + ((e && e.message) || 'erro')); }
+      bPdf.disabled = false;
+    });
+    linha.appendChild(bC); linha.appendChild(bPdf);
+    body.appendChild(linha);
+  }, []);
+  const cx = document.querySelector('.modalwrap .modal'); if (cx) cx.classList.add('larga');
+}
+
 /* ============ orquestração ============ */
 let VIEW = 'overview';
 let ABA_PORT = 'ativos';          // qual lista o Portfólio está mostrando
@@ -7748,6 +8340,7 @@ function refresh() {
   else if (VIEW === 'resources') renderResources();
   else if (VIEW === 'horas') renderHoras();
   else if (VIEW === 'status') renderStatusReport();
+  else if (VIEW === 'diario') renderDiario();
   else if (VIEW === 'docs') renderDocumentos();
   else if (VIEW === 'curve') renderCurve();
   else if (VIEW === 'settings') renderSettings();
@@ -7762,7 +8355,7 @@ function setView(v) {
   document.querySelectorAll('.tab').forEach(b => b.setAttribute('aria-selected', String(b.dataset.view === v)));
   document.querySelectorAll('.view').forEach(x => x.classList.toggle('on', x.id === 'view-' + v));
   $('#toolbar').style.display = v === 'schedule' ? '' : 'none';
-  $('#kpis').style.display = (v === 'overview' || v === 'kpi' || v === 'canvas' || v === 'docs' || v === 'users' || v === 'plataforma') ? 'none' : '';
+  $('#kpis').style.display = (v === 'overview' || v === 'kpi' || v === 'canvas' || v === 'docs' || v === 'diario' || v === 'users' || v === 'plataforma') ? 'none' : '';
   refresh();
 }
 
@@ -11614,6 +12207,7 @@ function arqTrocar(id) {
     };
   }
   ST.sel.clear(); ST.portfolio = null; ST.portfolioEm = 0; esquecerCarteira();
+  DIARIO = null; DIARIO_PID = null;   // o diário é de cada projeto
   renderProjectList(); refresh();
 }
 /** A faixa do topo: o que é este arquivo, de quando, de qual empresa. */
