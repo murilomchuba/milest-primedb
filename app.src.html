@@ -997,7 +997,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-25.2';
+const VERSAO = '2026-09-25.3';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -7978,12 +7978,15 @@ function renderDiario() {
   const bRel = el('button', 'btn', '📄 Relatório do dia');
   bRel.title = 'Monta a tabela pronta para colar no e-mail do cliente';
   bRel.addEventListener('click', () => janelaRelatorioDiario());
+  const bImp = el('button', 'btn reqedit', '⤒ Importar');
+  bImp.title = 'Trazer atividades de uma planilha';
+  bImp.addEventListener('click', () => janelaImportarDiario());
   const bCfg = el('button', 'btn reqedit', '⚙');
   bCfg.title = 'Prefixo do ID, início do histórico e e-mails do cliente';
   bCfg.addEventListener('click', () => janelaConfigDiario());
   const bNovo = el('button', 'btn primary reqedit', '＋ Nova atividade');
   bNovo.addEventListener('click', () => janelaItemDiario(null));
-  acoes.appendChild(bRel); acoes.appendChild(bCfg); acoes.appendChild(bNovo);
+  acoes.appendChild(bImp); acoes.appendChild(bRel); acoes.appendChild(bCfg); acoes.appendChild(bNovo);
   cab.appendChild(acoes); p.appendChild(cab);
   const corpo = el('div'); p.appendChild(corpo); host.appendChild(p);
 
@@ -8037,8 +8040,8 @@ function renderDiario() {
       vaz.appendChild(el('div', '', todos.length ? 'Nenhuma atividade com esses filtros.' : 'Nenhuma atividade neste projeto.'));
       const c2 = el('div', '', todos.length
         ? 'Ajuste a busca ou os filtros acima.'
-        : 'Use “＋ Nova atividade” para lançar a primeira. A data de atualização é preenchida sozinha — ' +
-          'é dela que sai o relatório do dia, pronto para colar no e-mail.');
+        : 'Use “＋ Nova atividade” para lançar a primeira, ou “⤒ Importar” para trazer o que já está numa planilha. ' +
+          'A data de atualização é preenchida sozinha — é dela que sai o relatório do dia, pronto para colar no e-mail.');
       c2.style.cssText = 'margin-top:8px;max-width:60ch;margin-left:auto;margin-right:auto;line-height:1.5';
       vaz.appendChild(c2);
       corpo.appendChild(vaz);
@@ -8151,6 +8154,160 @@ function janelaConfigDiario() {
       markMeta(); close(); toast('Ajustes salvos.'); renderDiario();
     });
     linha.appendChild(bC); linha.appendChild(bOk); body.appendChild(linha);
+  }, []);
+}
+
+/* ---- trazer o que já está em planilha ----
+   Sem biblioteca de .xlsx: o modelo é uma planilha comum, e o que entra aqui é
+   a colagem das linhas ou um .csv. É como o cronograma já importa, funciona
+   com Excel, Google Sheets e Numbers, e não acrescenta 500 KB ao arquivo.
+
+   O perdão está nos valores: o que vem de planilha vem sujo. "Em Andamento",
+   "andamento", "EM ANDAMENTO" e "Em  andamento" são a mesma coisa; a data
+   pode vir 30/09/2026, 30/09/26, 2026-09-30 ou como número de série do Excel. */
+function diMapearCabecalho(cels) {
+  const m = {}; let achou = 0;
+  cels.forEach((c, i) => {
+    const h = semAcento(c); if (!h) return;
+    const poe = k => { if (m[k] == null) { m[k] = i; achou++; } };
+    if (/^id$|codigo|^cod/.test(h)) poe('codigo');
+    else if (/modulo|frente|area/.test(h)) poe('modulo');
+    else if (/atividade|detalhe|descric|^item$|^tarefa/.test(h)) poe('descricao');
+    else if (/respons|^quem/.test(h)) poe('responsavel');
+    else if (/^time$|equipe|empresa/.test(h)) poe('time');
+    else if (/priorid/.test(h)) poe('prioridade');
+    else if (/status|situac/.test(h)) poe('status');
+    else if (/prazo|data limite|vencim|^entrega/.test(h)) poe('prazo');
+    else if (/bloqueio|observac|^obs/.test(h)) poe('obs');
+    else if (/atualiz/.test(h)) poe('atualizadoEm');
+  });
+  return achou >= 2 ? m : null;
+}
+
+/** Aceita 30/09/2026, 30/09/26, 2026-09-30 e o número de série do Excel. */
+function diData(v) {
+  const s = String(v == null ? '' : v).trim();
+  if (!s) return '';
+  let m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  if (m) return m[1] + '-' + m[2] + '-' + m[3];
+  m = /^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})/.exec(s);
+  if (m) {
+    let ano = Number(m[3]); if (ano < 100) ano += ano < 70 ? 2000 : 1900;
+    return ano + '-' + String(Number(m[2])).padStart(2, '0') + '-' + String(Number(m[1])).padStart(2, '0');
+  }
+  if (/^\d{5}$/.test(s)) {                   // série do Excel: dias desde 30/12/1899
+    const d = new Date(Date.UTC(1899, 11, 30) + Number(s) * 86400000);
+    return d.toISOString().slice(0, 10);
+  }
+  return '';
+}
+function diValorStatus(v) {
+  const h = semAcento(v);
+  if (!h) return 'Não iniciado';
+  if (/aguard/.test(h)) return 'Aguardando cliente';
+  if (/bloque|travad|impedid/.test(h)) return 'Bloqueado';
+  if (/conclu|finaliz|entregu|^ok$|^feit/.test(h)) return 'Concluído';
+  if (/andament|execuc|fazend|^wip/.test(h)) return 'Em andamento';
+  return 'Não iniciado';
+}
+function diValorPrioridade(v) {
+  const h = semAcento(v);
+  if (/alta|^a$|urgent|critic|high/.test(h)) return 'Alta';
+  if (/baixa|^b$|low/.test(h)) return 'Baixa';
+  return 'Média';
+}
+
+async function importarDiario(txt, modo) {
+  const linhas = parseDelimitado(txt);
+  if (!linhas.length) { toast('Nada para importar.'); return; }
+  const mapa = diMapearCabecalho(linhas[0]);
+  if (!mapa) {
+    toast('Não reconheci o cabeçalho. A primeira linha precisa ter os nomes das colunas.');
+    return;
+  }
+  const corpo = linhas.slice(1);
+  if (modo === 'replace') {
+    for (const it of (DIARIO || []).slice()) await apagarItemDiario(it.id);
+    DIARIO = [];
+  }
+  const g = (l, k) => (mapa[k] != null) ? String(l[mapa[k]] == null ? '' : l[mapa[k]]).trim() : '';
+  let n = 0, puladas = 0;
+  for (const l of corpo) {
+    const desc = g(l, 'descricao');
+    if (!desc) { if (l.some(x => String(x || '').trim())) puladas++; continue; }
+    const it = Object.assign(novoItemDiario(), {
+      codigo: g(l, 'codigo') || diProximoCodigo(),
+      modulo: g(l, 'modulo'),
+      descricao: desc,
+      responsavel: g(l, 'responsavel'),
+      time: g(l, 'time'),
+      prioridade: diValorPrioridade(g(l, 'prioridade')),
+      status: diValorStatus(g(l, 'status')),
+      prazo: diData(g(l, 'prazo')),
+      obs: g(l, 'obs'),
+      atualizadoEm: diData(g(l, 'atualizadoEm')) || todayISO()
+    });
+    if (await salvarItemDiario(it)) n++;
+  }
+  renderDiario();
+  toast(n + ' atividade(s) importada(s)' + (puladas ? ' · ' + puladas + ' linha(s) sem descrição foram puladas' : '') + '.');
+}
+
+function janelaImportarDiario() {
+  if (semPermissao()) return;
+  modal('Importar atividades para o diário', (body, close) => {
+    body.appendChild(el('div', 'hint',
+      'Abra a planilha, selecione as linhas COM o cabeçalho, copie (Ctrl/Cmd+C) e cole no campo abaixo. ' +
+      'Também aceita um arquivo .csv salvo da planilha.'));
+
+    const modos = el('div'); modos.style.cssText = 'display:flex;gap:16px;flex-wrap:wrap;margin:4px 0 10px';
+    let modo = 'append';
+    [['append', 'Acrescentar ao diário'], ['replace', 'Substituir tudo o que já existe']].forEach(([v, rot], i) => {
+      const l = el('label'); l.style.cssText = 'display:flex;gap:6px;align-items:center;font-size:12.5px';
+      const r = el('input'); r.type = 'radio'; r.name = 'modoimpdi'; r.checked = i === 0;
+      r.addEventListener('change', () => { if (r.checked) modo = v; });
+      l.appendChild(r); l.appendChild(document.createTextNode(rot)); modos.appendChild(l);
+    });
+    body.appendChild(modos);
+
+    const ta = el('textarea', 'inp');
+    ta.style.cssText = 'min-height:150px;font-family:var(--f-mono);font-size:11.5px';
+    ta.placeholder = 'ID\tMódulo\tAtividade / Detalhes\tResponsável\tTime\tPrioridade\tStatus\tPrazo\tBloqueios / Observações\n' +
+      'P-1\tRede\tLiberar regras de firewall\tEquipe Redes\tUnimed\tAlta\tBloqueado\t30/09/2026\tSem retorno do time de segurança.';
+    body.appendChild(ta);
+
+    const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;justify-content:space-between;align-items:center;margin-top:10px';
+    const esq = el('div'); esq.style.cssText = 'display:flex;gap:8px;align-items:center';
+    const arq = el('input'); arq.type = 'file'; arq.accept = '.csv,.tsv,.txt'; arq.hidden = true;
+    arq.addEventListener('change', () => {
+      const f = arq.files && arq.files[0]; if (!f) return;
+      const fr = new FileReader();
+      fr.onload = () => { const r = decodificar(fr.result); ta.value = r.texto; toast('Arquivo carregado: ' + f.name); };
+      fr.onerror = () => toast('Não consegui ler o arquivo.');
+      fr.readAsArrayBuffer(f);
+    });
+    const bArq = el('button', 'btn', 'Escolher arquivo .csv');
+    bArq.addEventListener('click', () => arq.click());
+    esq.appendChild(bArq); esq.appendChild(arq);
+    if (window.__FIREBASE_CONFIG__) {
+      const dl = el('a', '', '↓ Baixar o modelo (.xlsx)');
+      dl.href = 'modelo-diario.xlsx';
+      dl.style.cssText = 'color:var(--accent);text-decoration:none;font-weight:500;font-size:12.5px';
+      esq.appendChild(dl);
+    }
+    const dir = el('div'); dir.style.cssText = 'display:flex;gap:8px';
+    const bC = el('button', 'btn', 'Cancelar'); bC.addEventListener('click', close);
+    const bOk = el('button', 'btn primary', 'Importar');
+    bOk.addEventListener('click', async () => { const v = ta.value; close(); await importarDiario(v, modo); });
+    dir.appendChild(bC); dir.appendChild(bOk);
+    linha.appendChild(esq); linha.appendChild(dir);
+    body.appendChild(linha);
+
+    body.appendChild(el('div', 'hint',
+      'Colunas reconhecidas pelo cabeçalho: ID, Módulo, Atividade / Detalhes, Responsável, Time, Prioridade, ' +
+      'Status, Prazo, Bloqueios / Observações e Data Atualização. Só “Atividade / Detalhes” é obrigatória — ' +
+      'linha sem ela é pulada. Sem ID, o sistema numera na sequência do projeto. ' +
+      'Status e prioridade são reconhecidos mesmo escritos de outro jeito, e a data aceita 30/09/2026, 30/09/26 ou 2026-09-30.'));
   }, []);
 }
 
