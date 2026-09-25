@@ -1006,7 +1006,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-25.7';
+const VERSAO = '2026-09-25.8';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -8254,13 +8254,21 @@ async function importarDiario(txt, modo) {
     DIARIO = [];
   }
   const g = (l, k) => (mapa[k] != null) ? String(l[mapa[k]] == null ? '' : l[mapa[k]]).trim() : '';
+  /* Prestação de contas do que entrou e do que ficou de fora. Uma importação
+     que diz só "47 importadas" obriga quem usa a conferir na mão se faltou
+     alguma coisa — e a desconfiar do sistema quando o número surpreende. */
+  const conta = { lidas: linhas.length, cabecalho: achado.linha + 1, brancas: 0, semDescricao: 0, exemplo: 0, falhas: 0 };
   let n = 0, puladas = 0;
   for (const l of corpo) {
     const desc = g(l, 'descricao');
-    if (!desc) { if (l.some(x => String(x || '').trim())) puladas++; continue; }
+    if (!desc) {
+      if (l.some(x => String(x || '').trim())) { puladas++; conta.semDescricao++; }
+      else conta.brancas++;
+      continue;
+    }
     // a linha de exemplo do modelo vem marcada: quem esquecer de apagá-la não
     // ganha uma atividade fantasma no diário do cliente
-    if (/^exemplo/.test(semAcento(g(l, 'codigo')))) { puladas++; continue; }
+    if (/^exemplo/.test(semAcento(g(l, 'codigo')))) { puladas++; conta.exemplo++; continue; }
     const it = Object.assign(novoItemDiario(), {
       codigo: g(l, 'codigo') || diProximoCodigo(),
       modulo: g(l, 'modulo'),
@@ -8273,10 +8281,43 @@ async function importarDiario(txt, modo) {
       obs: g(l, 'obs'),
       atualizadoEm: diData(g(l, 'atualizadoEm')) || todayISO()
     });
-    if (await salvarItemDiario(it)) n++;
+    if (await salvarItemDiario(it)) n++; else conta.falhas++;
   }
+  conta.entraram = n;
   renderDiario();
-  toast(n + ' atividade(s) importada(s)' + (puladas ? ' · ' + puladas + ' linha(s) sem descrição foram puladas' : '') + '.');
+  relatarImportacao(conta);
+}
+
+/** O que o importador viu, em números. Silencioso quando tudo entrou; explica
+ *  quando alguma coisa ficou de fora, que é justamente quando alguém pergunta. */
+function relatarImportacao(c) {
+  const limpo = !c.semDescricao && !c.exemplo && !c.falhas;
+  if (limpo) { toast(c.entraram + ' atividade(s) importada(s).'); return; }
+  modal('Importação concluída', (body, close) => {
+    const cx = el('div'); cx.style.cssText = 'display:grid;gap:6px;font-size:13px';
+    const linha = (rot, v, cor) => {
+      const d = el('div');
+      d.style.cssText = 'display:flex;justify-content:space-between;gap:16px;padding:5px 0;border-bottom:1px solid var(--line)';
+      const a = el('span', '', rot); const b = el('b', '', fmtNum(v));
+      if (cor) { a.style.color = cor; b.style.color = cor; }
+      d.appendChild(a); d.appendChild(b); cx.appendChild(d);
+    };
+    linha('Atividades importadas', c.entraram, 'var(--ok)');
+    if (c.semDescricao) linha('Linhas com conteúdo, mas sem “Atividade / Detalhes”', c.semDescricao, 'var(--warn)');
+    if (c.exemplo) linha('Linha de exemplo do modelo (ignorada de propósito)', c.exemplo, 'var(--ink-3)');
+    if (c.falhas) linha('Não foi possível gravar', c.falhas, 'var(--critical)');
+    linha('Linhas em branco no fim da planilha', c.brancas, 'var(--ink-3)');
+    linha('Total de linhas lidas no arquivo', c.lidas, 'var(--ink-3)');
+    body.appendChild(cx);
+    body.appendChild(el('div', 'hint',
+      'O cabeçalho foi encontrado na linha ' + fmtNum(c.cabecalho) + ' do arquivo. ' +
+      (c.semDescricao ? 'Linhas sem a coluna “Atividade / Detalhes” são puladas de propósito — normalmente são rodapés, somas ou notas soltas. ' : '') +
+      (c.falhas ? 'As que não gravaram costumam ser falha de rede: tente importar de novo só a parte que faltou. ' : '') +
+      'Se o número de importadas for menor do que você esperava, confira se a seleção copiada ou o arquivo salvo cobre a planilha inteira.'));
+    const l2 = el('div'); l2.style.cssText = 'display:flex;justify-content:flex-end;margin-top:10px';
+    const b2 = el('button', 'btn primary', 'Entendi'); b2.addEventListener('click', close);
+    l2.appendChild(b2); body.appendChild(l2);
+  }, []);
 }
 
 function janelaImportarDiario() {
