@@ -461,6 +461,24 @@ body.soleitura .avisoleitura{display:flex}
 .sem-cr i{background:var(--critical)}
 .sem-no{background:var(--surface-3);color:var(--ink-3)}
 .sem-pa{background:var(--warn-soft);color:var(--warn)}
+/* diário: as contagens por situação são também os filtros */
+.dichips{display:flex;flex-wrap:wrap;gap:7px;padding:0 14px 10px}
+.dichip{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);background:var(--surface);
+  border-radius:999px;padding:4px 12px 4px 9px;cursor:pointer;font:inherit;font-size:12.5px;color:var(--ink-2)}
+.dichip:hover{border-color:var(--ink-3)}
+.dichip.on{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent);color:var(--ink)}
+.dichip i{width:9px;height:9px;border-radius:50%;flex:none;display:block}
+.dichip b{font-variant-numeric:tabular-nums}
+.dibarra{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:0 14px 12px}
+.dibarra .inp{padding:5px 9px;font-size:12.5px}
+select.dipill{padding:3px 8px;font-size:12px;border-radius:999px;font-weight:600;min-width:150px;border:1px solid transparent}
+.di-nao{background:var(--surface-3);color:var(--ink-3)}
+.di-and{background:var(--accent-soft);color:var(--accent)}
+.di-agu{background:var(--warn-soft);color:var(--warn)}
+.di-blo{background:var(--critical-soft);color:var(--critical)}
+.di-con{background:color-mix(in srgb,var(--ok) 15%,transparent);color:var(--ok)}
+.ditag{display:inline-block;margin-left:6px;font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+  color:var(--accent);background:var(--accent-soft);padding:1px 6px;border-radius:4px}
 .sem-pa i{background:var(--warn);border-radius:1px}
 .sem-no i{background:var(--ink-3)}
 .sembar{display:flex;height:26px;border-radius:6px;overflow:hidden;margin:2px 14px 10px;gap:2px;background:var(--surface-2)}
@@ -987,7 +1005,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-25.1';
+const VERSAO = '2026-09-25.2';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -7741,59 +7759,59 @@ function renderSettings() {
 
 
 /* ============ Diário de acompanhamento ============
-   O cronograma responde "como vai o projeto". Este diário responde outra
-   pergunta, que é a do dia a dia com o cliente: "o que aconteceu hoje, o que
-   está travado e com quem está". São listas diferentes e ritmos diferentes —
-   anotar aqui tem de ser mais rápido do que abrir o cronograma, senão ninguém
-   anota. Por isso os itens são soltos: não dependem de atividade cadastrada.
+   O cronograma responde "como vai o projeto". Este diário responde a pergunta
+   do dia a dia com o cliente: o que andou hoje, o que está travado e com quem
+   está. Ritmos diferentes, listas diferentes — anotar aqui tem de ser mais
+   rápido do que abrir o Gantt, senão ninguém anota. Por isso os itens são
+   soltos, sem depender de atividade cadastrada no cronograma.
 
-   Três coisas que a planilha fazia à mão e aqui o sistema faz sozinho:
-   o carimbo de quando o item mudou, a separação do que se mexeu hoje, e o
-   relatório do fim do dia. É o carimbo que sustenta os outros dois.
+   Três coisas que a planilha fazia no braço e aqui o sistema faz: o carimbo de
+   quando o item mudou, o recorte do que se mexeu no dia, e o relatório pronto
+   para o e-mail. É o carimbo que sustenta os outros dois.
 
-   Mora numa subcoleção do projeto, não no cadastro dele: a consulta que monta
-   o Portfólio lê o documento de cada projeto, e um diário de quatro meses ali
-   dentro deixaria a carteira lenta outra vez. */
+   O relatório sai como TABELA COLÁVEL, não como anexo: o cliente abre o e-mail
+   e lê, sem baixar nada. Print e PDF continuam disponíveis para quem preferir.
+
+   Mora numa subcoleção do projeto, não no cadastro dele: a consulta que monta o
+   Portfólio lê o documento de cada projeto, e um diário de meses ali dentro
+   deixaria a carteira lenta outra vez. */
 const cDiario = pid => pre() + 'projects/' + (pid || ST.pid) + '/diario';
 
 const DI_STATUS = [
-  { id: 'aberto', rot: 'A fazer', cls: 'st-no', pdf: '#7F7F7F' },
-  { id: 'andamento', rot: 'Em andamento', cls: 'st-go', pdf: '#17ADC5' },
-  { id: 'bloqueado', rot: 'Bloqueado', cls: 'st-late', pdf: '#C00000' },
-  { id: 'concluido', rot: 'Concluído', cls: 'st-ok', pdf: '#1F8A5B' }
+  { v: 'Não iniciado', cls: 'di-nao', cor: 'var(--ink-3)', hex: ['#56636B', '#E6EAEC'] },
+  { v: 'Em andamento', cls: 'di-and', cor: 'var(--accent)', hex: ['#0F5E7A', '#DCEBF1'] },
+  { v: 'Aguardando cliente', cls: 'di-agu', cor: 'var(--warn)', hex: ['#9A6200', '#FCEFD6'] },
+  { v: 'Bloqueado', cls: 'di-blo', cor: 'var(--critical)', hex: ['#B3322B', '#F9E1DF'] },
+  { v: 'Concluído', cls: 'di-con', cor: 'var(--ok)', hex: ['#2E7D4F', '#E1F2E7'] }
 ];
-const DI_PRIO = [
-  { id: 'alta', rot: 'Alta', cor: 'var(--critical)', pdf: '#C00000' },
-  { id: 'media', rot: 'Média', cor: 'var(--warn)', pdf: '#E97132' },
-  { id: 'baixa', rot: 'Baixa', cor: 'var(--ink-3)', pdf: '#7F7F7F' }
-];
-const diStatus = id => DI_STATUS.find(x => x.id === id) || DI_STATUS[0];
-const diPrio = id => DI_PRIO.find(x => x.id === id) || DI_PRIO[1];
-const diAberto = it => it && it.status !== 'concluido';
+const DI_PRIOR = ['Alta', 'Média', 'Baixa'];
+const DI_PR_HEX = { 'Alta': '#B3322B', 'Média': '#9A6200', 'Baixa': '#7B8A93' };
+const DI_PR_COR = { 'Alta': 'var(--critical)', 'Média': 'var(--warn)', 'Baixa': 'var(--ink-3)' };
+const diSt = v => DI_STATUS.find(s => s.v === v) || DI_STATUS[0];
+const diAberto = it => it && it.status !== 'Concluído';
+const diAtrasado = it => diAberto(it) && it.prazo && it.prazo < todayISO();
 
-let DIARIO = null;            // itens do projeto aberto
-let DIARIO_PID = null;        // de qual projeto eles são
-let DIARIO_FILTRO = 'todas';
-let DIARIO_BUSCA = '';
+let DIARIO = null, DIARIO_PID = null;
+let DI_FILTRO_ST = '', DI_BUSCA = '', DI_RESP = '', DI_TIME = '', DI_OCULTAR = true;
 
 function novoItemDiario() {
   return {
-    id: uid('d'), cod: '', modulo: '', texto: '', resp: '', time: '',
-    prio: 'media', status: 'aberto', prazo: '', obs: '',
-    criadoEm: Date.now(), criadoPor: ST.userEmail || '',
-    atualizadoEm: Date.now(), atualizadoPor: ST.userEmail || ''
+    id: uid('d'), codigo: '', modulo: '', descricao: '', responsavel: '', time: '',
+    prioridade: 'Média', status: 'Não iniciado', prazo: '', obs: '',
+    criadoEm: todayISO(), atualizadoEm: todayISO(), atualizadoPor: ST.userEmail || ''
   };
 }
 
-/** O próximo código da sequência do projeto: P-1, P-2, P-3... */
-function proximoCodigo(itens) {
-  let maior = 0;
-  for (const it of (itens || [])) {
-    const m = /(\d+)\s*$/.exec(String(it.cod || ''));
-    if (m) maior = Math.max(maior, Number(m[1]) || 0);
-  }
-  return 'P-' + (maior + 1);
+/* O prefixo do ID é por projeto: cada cliente tem a sua convenção, e o número
+   que o cliente decorou não pode mudar de forma por causa de outro projeto. */
+const diPrefixo = () => (ST.P.meta.diarioPrefixo != null ? ST.P.meta.diarioPrefixo : 'P-');
+function diCodNum(c) { const m = /(\d+)\s*$/.exec(String(c || '')); return m ? Number(m[1]) : 0; }
+function diProximoCodigo() {
+  const n = (DIARIO || []).reduce((a, x) => Math.max(a, diCodNum(x.codigo)), 0);
+  return diPrefixo() + (n + 1);
 }
+const diPorCodigo = (a, b) => (diCodNum(a.codigo) - diCodNum(b.codigo)) ||
+  String(a.codigo || '').localeCompare(String(b.codigo || ''));
 
 async function carregarDiario(forcar) {
   if (!forcar && DIARIO && DIARIO_PID === ST.pid) return DIARIO;
@@ -7807,24 +7825,20 @@ async function carregarDiario(forcar) {
       itens = ((all.projects[ST.pid] || {}).diario || []).map(x => Object.assign(novoItemDiario(), x));
     }
   } catch (e) { itens = []; }
-  DIARIO = itens; DIARIO_PID = ST.pid;
-  return itens;
+  DIARIO = itens.sort(diPorCodigo); DIARIO_PID = ST.pid;
+  return DIARIO;
 }
 
-/** Grava um item. O carimbo de atualização é do sistema, nunca digitado:
- *  é dele que saem o filtro de hoje e o relatório do fim do dia. */
 async function salvarItemDiario(item) {
   if (semPermissao()) return false;
-  item.atualizadoEm = Date.now();
   item.atualizadoPor = ST.userEmail || '';
-  if (item.status === 'concluido' && !item.concluidoEm) item.concluidoEm = todayISO();
-  if (item.status !== 'concluido') item.concluidoEm = null;
+  if (!item.atualizadoEm) item.atualizadoEm = todayISO();
   const i = (DIARIO || []).findIndex(x => x.id === item.id);
   if (i >= 0) DIARIO[i] = item; else (DIARIO = DIARIO || []).push(item);
+  DIARIO.sort(diPorCodigo);
   try {
-    if (ST.mode === 'db') {
-      await ST.db.doc(cDiario() + '/' + item.id).set(JSON.parse(JSON.stringify(item)));
-    } else {
+    if (ST.mode === 'db') await ST.db.doc(cDiario() + '/' + item.id).set(JSON.parse(JSON.stringify(item)));
+    else {
       const all = localLoad() || { projects: {} };
       all.projects[ST.pid] = all.projects[ST.pid] || {};
       all.projects[ST.pid].diario = JSON.parse(JSON.stringify(DIARIO));
@@ -7849,42 +7863,18 @@ async function apagarItemDiario(id) {
   return true;
 }
 
-/* ---- recortes ---- */
-const diMexeuEm = (it, diaISO) => {
-  if (!it || !it.atualizadoEm) return false;
-  try { return new Date(it.atualizadoEm).toISOString().slice(0, 10) === diaISO; } catch (e) { return false; }
-};
-const diDeHoje = it => diMexeuEm(it, todayISO());
-const diAtrasado = it => diAberto(it) && it.prazo && it.prazo < todayISO();
-
-/** Ordem de quem cuida da lista: bloqueio primeiro, depois atraso, depois
- *  prioridade, depois prazo. O que trava o cliente tem de estar no topo. */
-function ordenarDiario(itens) {
-  const pesoStatus = { bloqueado: 0, andamento: 1, aberto: 2, concluido: 3 };
-  const pesoPrio = { alta: 0, media: 1, baixa: 2 };
-  return (itens || []).slice().sort((a, b) => {
-    const pa = pesoStatus[a.status] != null ? pesoStatus[a.status] : 2;
-    const pb = pesoStatus[b.status] != null ? pesoStatus[b.status] : 2;
-    if (pa !== pb) return pa - pb;
-    const aa = diAtrasado(a) ? 0 : 1, ab = diAtrasado(b) ? 0 : 1;
-    if (aa !== ab) return aa - ab;
-    const qa = pesoPrio[a.prio] != null ? pesoPrio[a.prio] : 1;
-    const qb = pesoPrio[b.prio] != null ? pesoPrio[b.prio] : 1;
-    if (qa !== qb) return qa - qb;
-    const za = a.prazo || '9999-12-31', zb = b.prazo || '9999-12-31';
-    return za < zb ? -1 : za > zb ? 1 : 0;
+function filtrarDiario() {
+  const todos = DIARIO || [];
+  const q = DI_BUSCA.trim().toLowerCase();
+  return todos.filter(a => {
+    if (DI_FILTRO_ST && a.status !== DI_FILTRO_ST) return false;
+    if (!DI_FILTRO_ST && DI_OCULTAR && a.status === 'Concluído') return false;
+    if (DI_RESP && a.responsavel !== DI_RESP) return false;
+    if (DI_TIME && String(a.time || '').trim() !== DI_TIME) return false;
+    if (q && ![a.codigo, a.modulo, a.descricao, a.responsavel, a.time, a.obs]
+      .join(' ').toLowerCase().includes(q)) return false;
+    return true;
   });
-}
-
-function filtrarDiario(itens) {
-  let saida = itens || [];
-  if (DIARIO_FILTRO === 'hoje') saida = saida.filter(diDeHoje);
-  else if (DIARIO_FILTRO === 'abertas') saida = saida.filter(diAberto);
-  else if (DIARIO_FILTRO === 'bloqueadas') saida = saida.filter(it => it.status === 'bloqueado' || diAtrasado(it));
-  const q = DIARIO_BUSCA.trim().toLowerCase();
-  if (q) saida = saida.filter(it => [it.cod, it.modulo, it.texto, it.resp, it.time, it.obs]
-    .some(v => String(v || '').toLowerCase().includes(q)));
-  return ordenarDiario(saida);
 }
 
 /* ---- a janela de um item ---- */
@@ -7892,59 +7882,73 @@ function janelaItemDiario(original) {
   if (semPermissao()) return;
   const novo = !original;
   const it = Object.assign(novoItemDiario(), original || {});
-  if (novo && !it.cod) it.cod = proximoCodigo(DIARIO);
-  modal(novo ? 'Nova atividade do dia' : 'Atividade ' + (it.cod || ''), (body, close) => {
-    const linha2 = () => { const d = el('div'); d.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:10px'; return d; };
-    const campo = (rot, no) => { const f = el('div', 'field'); f.appendChild(el('label', '', rot)); f.appendChild(no); return f; };
-    const inp = (v, ph) => { const i = el('input', 'inp'); i.value = v || ''; if (ph) i.placeholder = ph; return i; };
+  if (novo && !it.codigo) it.codigo = diProximoCodigo();
+  const unicos = k => [...new Set((DIARIO || []).map(x => String(x[k] || '').trim()).filter(Boolean))].sort();
 
-    const g1 = linha2();
-    const iCod = inp(it.cod, 'P-1');
-    const iMod = inp(it.modulo, 'Ex.: Aplicação PLS, Homologação');
-    g1.appendChild(campo('ID', iCod)); g1.appendChild(campo('Módulo', iMod));
+  modal(novo ? 'Nova atividade' : 'Editar ' + (it.codigo || 'atividade'), (body, close) => {
+    const campo = (rot, no, dica) => {
+      const f = el('div', 'field'); f.appendChild(el('label', '', rot)); f.appendChild(no);
+      if (dica) { const h = el('div', 'hint', dica); h.style.marginTop = '3px'; f.appendChild(h); }
+      return f;
+    };
+    const grade = n => { const d = el('div'); d.style.cssText = 'display:grid;grid-template-columns:repeat(' + n + ',1fr);gap:10px'; return d; };
+    /* sugestões do que já foi digitado neste projeto: o time e o responsável se
+       repetem o dia inteiro, e digitar de novo é onde nasce "Unimed" e "Unimed " */
+    const comLista = (valor, chave, ph) => {
+      const i = el('input', 'inp'); i.value = valor || ''; if (ph) i.placeholder = ph;
+      const lista = el('datalist'); lista.id = 'dl-' + chave + '-' + Math.random().toString(36).slice(2, 7);
+      for (const v of unicos(chave)) { const o = el('option'); o.value = v; lista.appendChild(o); }
+      i.setAttribute('list', lista.id); i.appendChild(lista);
+      const cx = el('div'); cx.appendChild(i); cx.appendChild(lista);
+      return { inp: i, no: cx };
+    };
+
+    const g1 = grade(2);
+    const iCod = el('input', 'inp'); iCod.value = it.codigo || '';
+    const mod = comLista(it.modulo, 'modulo', 'Ex.: Aplicação PLS, Rede, Homologação');
+    g1.appendChild(campo('ID', iCod)); g1.appendChild(campo('Módulo', mod.no));
     body.appendChild(g1);
 
-    const iTexto = el('textarea', 'inp');
-    iTexto.style.cssText = 'min-height:84px;font-family:var(--f-body);font-size:12.5px';
-    iTexto.value = it.texto || '';
-    iTexto.placeholder = 'O que é a atividade. Pode usar mais de uma linha — por exemplo, uma linha com o focal ou com o critério de aceite.';
-    body.appendChild(campo('Atividade / Detalhes', iTexto));
+    const iDesc = el('textarea', 'inp');
+    iDesc.style.cssText = 'min-height:86px;font-family:var(--f-body);font-size:12.5px';
+    iDesc.value = it.descricao || '';
+    body.appendChild(campo('Atividade / Detalhes', iDesc,
+      'Use Enter para quebrar linha — por exemplo "→ Focal: nome (e-mail)" ou "→ Critério Go: ...".'));
 
-    const g2 = linha2();
-    const iResp = inp(it.resp, 'Quem está com isso');
-    const iTime = inp(it.time, 'Ex.: Unimed, Prime DB');
-    g2.appendChild(campo('Responsável', iResp)); g2.appendChild(campo('Time', iTime));
+    const g2 = grade(2);
+    const resp = comLista(it.responsavel, 'responsavel', 'Quem está com isso');
+    const tim = comLista(it.time, 'time', 'Ex.: Unimed, Prime DB');
+    g2.appendChild(campo('Responsável', resp.no)); g2.appendChild(campo('Time', tim.no));
     body.appendChild(g2);
 
-    const g3 = el('div'); g3.style.cssText = 'display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px';
-    const sPrio = el('select', 'inp');
-    for (const p of DI_PRIO) { const o = el('option', '', p.rot); o.value = p.id; sPrio.appendChild(o); }
-    sPrio.value = it.prio || 'media';
-    const sStat = el('select', 'inp');
-    for (const s2 of DI_STATUS) { const o = el('option', '', s2.rot); o.value = s2.id; sStat.appendChild(o); }
-    sStat.value = it.status || 'aberto';
+    const g3 = grade(3);
+    const sPri = el('select', 'inp');
+    for (const v of DI_PRIOR) { const o = el('option', '', v); o.value = v; sPri.appendChild(o); }
+    sPri.value = it.prioridade || 'Média';
+    const sSt = el('select', 'inp');
+    for (const s of DI_STATUS) { const o = el('option', '', s.v); o.value = s.v; sSt.appendChild(o); }
+    sSt.value = it.status || 'Não iniciado';
     const iPrazo = el('input', 'inp'); iPrazo.type = 'date'; iPrazo.value = it.prazo || '';
-    g3.appendChild(campo('Prioridade', sPrio)); g3.appendChild(campo('Status', sStat)); g3.appendChild(campo('Prazo', iPrazo));
+    g3.appendChild(campo('Prioridade', sPri)); g3.appendChild(campo('Status', sSt)); g3.appendChild(campo('Prazo', iPrazo));
     body.appendChild(g3);
 
     const iObs = el('textarea', 'inp');
-    iObs.style.cssText = 'min-height:56px;font-family:var(--f-body);font-size:12.5px';
+    iObs.style.cssText = 'min-height:64px;font-family:var(--f-body);font-size:12.5px';
     iObs.value = it.obs || '';
-    iObs.placeholder = 'O que está travando, de quem se espera resposta, o que foi combinado. Aparece no relatório do cliente.';
-    body.appendChild(campo('Bloqueios / Observações', iObs));
+    body.appendChild(campo('Bloqueios / Observações', iObs,
+      'O que está travando, de quem se espera resposta, o que ficou combinado. Sai no relatório do cliente.'));
 
-    if (!novo && it.atualizadoEm) {
-      const h = el('div', 'hint', 'Criado em ' + fmtBR(new Date(it.criadoEm).toISOString().slice(0, 10)) +
-        ' · última atualização em ' + fmtBR(new Date(it.atualizadoEm).toISOString().slice(0, 10)) +
-        (it.atualizadoPor ? ' por ' + it.atualizadoPor : ''));
-      body.appendChild(h);
-    }
+    const iUpd = el('input', 'inp'); iUpd.type = 'date'; iUpd.value = todayISO();
+    body.appendChild(campo('Data de atualização', iUpd,
+      'Ao salvar fica com a data de hoje e entra no relatório do dia. Mude só se estiver lançando algo de outro dia.'));
 
-    const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;justify-content:space-between;align-items:center';
+    const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;justify-content:space-between;align-items:center;margin-top:4px';
     const esq = el('div');
     if (!novo) {
-      const bDel = el('button', 'btn danger', '✕ Excluir');
+      const bDel = el('button', 'btn danger', 'Excluir');
+      let armado = false;
       bDel.addEventListener('click', async () => {
+        if (!armado) { armado = true; bDel.textContent = 'Clique de novo para confirmar'; setTimeout(() => { if (bDel.isConnected) { armado = false; bDel.textContent = 'Excluir'; } }, 4000); return; }
         close();
         if (await apagarItemDiario(it.id)) { toast('Atividade excluída.'); renderDiario(); }
       });
@@ -7952,22 +7956,22 @@ function janelaItemDiario(original) {
     }
     const dir = el('div'); dir.style.cssText = 'display:flex;gap:8px';
     const bC = el('button', 'btn', 'Cancelar'); bC.addEventListener('click', close);
-    const bOk = el('button', 'btn primary', novo ? 'Acrescentar' : 'Salvar');
-    const gravar = async () => {
+    const bOk = el('button', 'btn primary', 'Salvar');
+    bOk.addEventListener('click', async () => {
       Object.assign(it, {
-        cod: iCod.value.trim(), modulo: iMod.value.trim(), texto: iTexto.value.trim(),
-        resp: iResp.value.trim(), time: iTime.value.trim(),
-        prio: sPrio.value, status: sStat.value, prazo: iPrazo.value || '', obs: iObs.value.trim()
+        codigo: iCod.value.trim(), modulo: mod.inp.value.trim(), descricao: iDesc.value.trim(),
+        responsavel: resp.inp.value.trim(), time: tim.inp.value.trim(),
+        prioridade: sPri.value, status: sSt.value, prazo: iPrazo.value || '',
+        obs: iObs.value.trim(), atualizadoEm: iUpd.value || todayISO()
       });
-      if (!it.texto) { toast('Escreva a atividade.'); return; }
+      if (!it.descricao) { toast('Escreva a atividade.'); return; }
       close();
-      if (await salvarItemDiario(it)) { toast(novo ? 'Atividade acrescentada.' : 'Atividade atualizada.'); renderDiario(); }
-    };
-    bOk.addEventListener('click', gravar);
+      if (await salvarItemDiario(it)) { toast(novo ? 'Atividade criada.' : 'Atividade salva.'); renderDiario(); }
+    });
     dir.appendChild(bC); dir.appendChild(bOk);
     linha.appendChild(esq); linha.appendChild(dir);
     body.appendChild(linha);
-    setTimeout(() => (novo ? iMod : iTexto).focus(), 30);
+    setTimeout(() => (novo ? mod.inp : iDesc).focus(), 30);
   }, []);
 }
 
@@ -7979,49 +7983,70 @@ function renderDiario() {
   const cab = el('h3', '', 'Diário de acompanhamento');
   cab.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap';
   const acoes = el('div'); acoes.style.cssText = 'display:flex;gap:7px;flex-wrap:wrap;align-items:center';
-
-  const busca = el('input', 'inp');
-  busca.placeholder = '🔎 buscar'; busca.value = DIARIO_BUSCA;
-  busca.style.cssText = 'width:150px;padding:5px 9px';
-  busca.addEventListener('input', () => { DIARIO_BUSCA = busca.value; desenhar(); });
-  acoes.appendChild(busca);
-
   const bRel = el('button', 'btn', '📄 Relatório do dia');
-  bRel.title = 'Monta o relatório para enviar ao cliente: o que mexeu hoje e a situação geral';
+  bRel.title = 'Monta a tabela pronta para colar no e-mail do cliente';
   bRel.addEventListener('click', () => janelaRelatorioDiario());
-  acoes.appendChild(bRel);
-
+  const bCfg = el('button', 'btn reqedit', '⚙');
+  bCfg.title = 'Prefixo do ID, início do histórico e e-mails do cliente';
+  bCfg.addEventListener('click', () => janelaConfigDiario());
   const bNovo = el('button', 'btn primary reqedit', '＋ Nova atividade');
   bNovo.addEventListener('click', () => janelaItemDiario(null));
-  acoes.appendChild(bNovo);
+  acoes.appendChild(bRel); acoes.appendChild(bCfg); acoes.appendChild(bNovo);
   cab.appendChild(acoes); p.appendChild(cab);
-
   const corpo = el('div'); p.appendChild(corpo); host.appendChild(p);
 
   const desenhar = () => {
     corpo.textContent = '';
     const todos = DIARIO || [];
-    const nav = el('div', 'segs');
-    const bota = (id, rot, n) => {
-      const b2 = el('button', 'seg' + (DIARIO_FILTRO === id ? ' on' : ''), rot);
-      b2.appendChild(el('span', 'cont', fmtNum(n)));
-      b2.addEventListener('click', () => { DIARIO_FILTRO = id; desenhar(); });
-      nav.appendChild(b2);
-    };
-    bota('todas', 'Todas', todos.length);
-    bota('hoje', 'Hoje', todos.filter(diDeHoje).length);
-    bota('abertas', 'Em aberto', todos.filter(diAberto).length);
-    bota('bloqueadas', 'Travadas', todos.filter(it => it.status === 'bloqueado' || diAtrasado(it)).length);
-    corpo.appendChild(nav);
 
-    const alvo = filtrarDiario(todos);
-    if (!alvo.length) {
+    /* As contagens por situação são também os filtros: o número que chama a
+       atenção é onde a pessoa quer clicar. */
+    const chips = el('div', 'dichips');
+    const chip = (rot, n, valor, cor) => {
+      const b = el('button', 'dichip' + (DI_FILTRO_ST === valor ? ' on' : ''));
+      const d = el('i'); d.style.background = cor; b.appendChild(d);
+      b.appendChild(document.createTextNode(rot + ' '));
+      b.appendChild(el('b', '', fmtNum(n)));
+      b.addEventListener('click', () => { DI_FILTRO_ST = DI_FILTRO_ST === valor ? '' : valor; desenhar(); });
+      chips.appendChild(b);
+    };
+    chip('Total', todos.length, '', 'var(--ink-3)');
+    for (const s of DI_STATUS) chip(s.v, todos.filter(a => a.status === s.v).length, s.v, s.cor);
+    corpo.appendChild(chips);
+
+    const barra = el('div', 'dibarra');
+    const iBusca = el('input', 'inp');
+    iBusca.placeholder = 'Buscar atividade, módulo, responsável…'; iBusca.value = DI_BUSCA;
+    iBusca.style.width = '250px';
+    iBusca.addEventListener('input', () => { DI_BUSCA = iBusca.value; desenhar(); });
+    barra.appendChild(iBusca);
+    const selDe = (rot, chave, atual, aplicar) => {
+      const s = el('select', 'inp'); s.style.width = 'auto';
+      const o0 = el('option', '', rot); o0.value = ''; s.appendChild(o0);
+      for (const v of [...new Set(todos.map(a => String(a[chave] || '').trim()).filter(Boolean))].sort()) {
+        const o = el('option', '', v); o.value = v; s.appendChild(o);
+      }
+      s.value = atual;
+      s.addEventListener('change', () => { aplicar(s.value); desenhar(); });
+      barra.appendChild(s);
+    };
+    selDe('Todos os responsáveis', 'responsavel', DI_RESP, v => DI_RESP = v);
+    selDe('Todos os times', 'time', DI_TIME, v => DI_TIME = v);
+    const lb = el('label'); lb.style.cssText = 'display:flex;gap:6px;align-items:center;font-size:12.5px;color:var(--ink-2)';
+    const ck = el('input'); ck.type = 'checkbox'; ck.checked = DI_OCULTAR;
+    ck.addEventListener('change', () => { DI_OCULTAR = ck.checked; desenhar(); });
+    lb.appendChild(ck); lb.appendChild(document.createTextNode('Ocultar concluídas'));
+    barra.appendChild(lb);
+    corpo.appendChild(barra);
+
+    const linhas = filtrarDiario();
+    if (!linhas.length) {
       const vaz = el('div', 'empty');
-      vaz.appendChild(el('div', '', todos.length ? 'Nada neste recorte.' : 'Nenhuma atividade no diário ainda.'));
+      vaz.appendChild(el('div', '', todos.length ? 'Nenhuma atividade com esses filtros.' : 'Nenhuma atividade neste projeto.'));
       const c2 = el('div', '', todos.length
-        ? 'Experimente a aba “Todas” aqui em cima.'
-        : 'Use “＋ Nova atividade” para anotar o que você acompanha com o cliente no dia a dia. ' +
-          'A data de atualização é preenchida sozinha a cada mudança — é ela que monta o relatório do fim do dia.');
+        ? 'Ajuste a busca ou os filtros acima.'
+        : 'Use “＋ Nova atividade” para lançar a primeira. A data de atualização é preenchida sozinha — ' +
+          'é dela que sai o relatório do dia, pronto para colar no e-mail.');
       c2.style.cssText = 'margin-top:8px;max-width:60ch;margin-left:auto;margin-right:auto;line-height:1.5';
       vaz.appendChild(c2);
       corpo.appendChild(vaz);
@@ -8030,88 +8055,70 @@ function renderDiario() {
 
     const tb = el('table', 'data');
     const hr = el('tr');
-    for (const c of [['ID', ''], ['Módulo', ''], ['Atividade / Detalhes', ''], ['Responsável', ''],
-      ['Time', ''], ['Prio.', ''], ['Status', ''], ['Prazo', 'num'], ['Bloqueios / Observações', ''],
-      ['Atualizado', 'num'], ['', '']]) hr.appendChild(el('th', c[1], c[0]));
+    for (const c of ['ID', 'Módulo', 'Atividade / Detalhes', 'Responsável', 'Time', 'Prioridade',
+      'Status', 'Prazo', 'Bloqueios / Observações', 'Atualizado'])
+      hr.appendChild(el('th', '', c));
     const th = el('thead'); th.appendChild(hr); tb.appendChild(th);
     const tbo = el('tbody');
-    for (const it of alvo) {
+    const hoje = todayISO();
+    for (const a of linhas) {
       const tr = el('tr', 'projrow');
       tr.title = 'Abrir esta atividade';
-      tr.addEventListener('click', ev => { if (!ev.target.closest('select')) janelaItemDiario(it); });
-      if (diDeHoje(it)) tr.style.boxShadow = 'inset 3px 0 0 var(--accent-2)';
+      tr.addEventListener('click', ev => { if (!ev.target.closest('select')) janelaItemDiario(a); });
 
-      const tdc = el('td', '', it.cod || '—');
-      tdc.style.cssText = 'font-family:var(--f-mono);font-size:11.5px;color:var(--ink-3);white-space:nowrap';
+      const tdc = el('td', '', a.codigo || '—');
+      tdc.style.cssText = 'font-family:var(--f-mono);font-size:12px;color:var(--accent);white-space:nowrap;font-weight:600';
       tr.appendChild(tdc);
-      tr.appendChild(el('td', '', it.modulo || '—'));
+      tr.appendChild(el('td', '', a.modulo || ''));
 
-      const tdt = el('td');
-      tdt.style.cssText = 'max-width:330px;white-space:normal;line-height:1.35';
-      const linhas = String(it.texto || '').split(/\n/);
-      const p1 = el('div', '', linhas[0] || ''); p1.style.fontWeight = '600'; tdt.appendChild(p1);
-      for (const ln of linhas.slice(1)) {
-        const d = el('div', '', ln);
-        d.style.cssText = 'color:var(--ink-3);font-size:11.5px;margin-top:2px';
-        tdt.appendChild(d);
-      }
-      tr.appendChild(tdt);
+      const tdd = el('td', '', a.descricao || '');
+      tdd.style.cssText = 'white-space:pre-wrap;max-width:400px;line-height:1.4';
+      tr.appendChild(tdd);
 
-      tr.appendChild(el('td', '', it.resp || '—'));
-      tr.appendChild(el('td', '', it.time || '—'));
-      const pr = diPrio(it.prio);
-      const tdp = el('td', '', pr.rot);
-      tdp.style.cssText = 'color:' + pr.cor + ';font-weight:600;font-size:11.5px';
+      tr.appendChild(el('td', '', a.responsavel || ''));
+      tr.appendChild(el('td', '', a.time || ''));
+      const tdp = el('td', '', a.prioridade || '');
+      tdp.style.cssText = 'font-weight:600;font-size:12px;white-space:nowrap;color:' + (DI_PR_COR[a.prioridade] || 'var(--ink-2)');
       tr.appendChild(tdp);
 
-      // o status muda direto na linha: é a alteração mais frequente do dia
+      // o status muda direto na linha: é a alteração que se faz vinte vezes por dia
       const tds = el('td');
-      const sel = el('select', 'inp reqedit');
-      sel.style.cssText = 'padding:3px 6px;font-size:11.5px;min-width:126px';
-      for (const s2 of DI_STATUS) { const o = el('option', '', s2.rot); o.value = s2.id; sel.appendChild(o); }
-      sel.value = it.status || 'aberto';
+      const sel = el('select', 'inp dipill ' + diSt(a.status).cls);
+      for (const s of DI_STATUS) { const o = el('option', '', s.v); o.value = s.v; sel.appendChild(o); }
+      sel.value = a.status;
       sel.addEventListener('click', ev => ev.stopPropagation());
       sel.addEventListener('change', async () => {
-        it.status = sel.value;
-        if (await salvarItemDiario(it)) { toast('Status atualizado.'); renderDiario(); }
+        a.status = sel.value; a.atualizadoEm = todayISO();
+        if (await salvarItemDiario(a)) { toast(a.codigo + ': ' + a.status); renderDiario(); }
       });
-      tds.appendChild(sel);
-      const marca = el('span', 'stchip ' + diStatus(it.status).cls, diStatus(it.status).rot);
-      marca.style.cssText = 'display:none';
-      tds.appendChild(marca);
-      tr.appendChild(tds);
+      tds.appendChild(sel); tr.appendChild(tds);
 
-      const tdz = el('td', 'num', it.prazo ? fmtBR(it.prazo) : '—');
-      if (diAtrasado(it)) { tdz.style.color = 'var(--critical)'; tdz.style.fontWeight = '600'; tdz.title = 'Prazo vencido'; }
-      else if (!it.prazo) tdz.style.color = 'var(--ink-3)';
+      const atras = diAtrasado(a);
+      const tdz = el('td', 'num', (a.prazo ? fmtBR(a.prazo) : '') + (atras ? ' · atrasada' : ''));
+      tdz.style.whiteSpace = 'nowrap';
+      if (atras) { tdz.style.color = 'var(--critical)'; tdz.style.fontWeight = '600'; }
       tr.appendChild(tdz);
 
-      const tdo = el('td', '', it.obs || '—');
-      tdo.style.cssText = 'max-width:260px;white-space:normal;line-height:1.35;font-size:11.5px;color:'
-        + (it.obs ? 'var(--ink-2)' : 'var(--ink-3)');
+      const tdo = el('td', '', a.obs || '');
+      tdo.style.cssText = 'white-space:pre-wrap;max-width:280px;font-size:12.5px;color:var(--ink-2);line-height:1.4';
       tr.appendChild(tdo);
 
-      const tda = el('td', 'num', it.atualizadoEm ? fmtBR(new Date(it.atualizadoEm).toISOString().slice(0, 10)) : '—');
-      tda.style.cssText = 'font-size:11.5px;color:var(--ink-3);white-space:nowrap';
-      if (diDeHoje(it)) { tda.textContent = 'hoje'; tda.style.color = 'var(--accent-2)'; tda.style.fontWeight = '700'; }
-      if (it.atualizadoPor) tda.title = 'por ' + it.atualizadoPor;
+      const tda = el('td', 'num');
+      tda.style.cssText = 'white-space:nowrap;color:var(--ink-3);font-size:12px';
+      tda.appendChild(document.createTextNode(a.atualizadoEm ? fmtBR(a.atualizadoEm) : ''));
+      if (a.atualizadoEm === hoje) {
+        const t = el('span', 'ditag', 'hoje'); tda.appendChild(t);
+      }
+      if (a.atualizadoPor) tda.title = 'por ' + a.atualizadoPor;
       tr.appendChild(tda);
-
-      const tdx = el('td');
-      const bEd = el('button', 'btn icon reqedit', '✎');
-      bEd.title = 'Editar esta atividade';
-      bEd.addEventListener('click', ev => { ev.stopPropagation(); janelaItemDiario(it); });
-      tdx.appendChild(bEd);
-      tr.appendChild(tdx);
       tbo.appendChild(tr);
     }
     tb.appendChild(tbo);
     const sc = el('div', 'tscroll'); sc.appendChild(tb); corpo.appendChild(sc);
     corpo.appendChild(el('div', 'tagline',
-      'A barra azul à esquerda marca o que mexeu hoje. A ordem é a de quem cuida da lista: ' +
-      'travado primeiro, depois atrasado, depois prioridade e prazo. ' +
-      'O status muda direto na linha; clique em qualquer outro lugar para abrir a atividade. ' +
-      'A data de atualização é do sistema, não se digita — é dela que sai o relatório do dia.'));
+      'Clique numa linha para abrir a atividade; o status muda direto na tabela. ' +
+      'Os números lá em cima também filtram. A data de atualização é do sistema — é dela que ' +
+      'sai o relatório do dia, e por isso ela não se digita na tabela.'));
   };
 
   corpo.appendChild(el('div', 'empty', 'Carregando…'));
@@ -8119,212 +8126,261 @@ function renderDiario() {
     .catch(() => { corpo.textContent = ''; corpo.appendChild(el('div', 'empty', 'Não consegui carregar o diário.')); });
 }
 
-/* ---- o relatório do fim do dia ----
-   Dois blocos, e a ordem importa. Primeiro o que mexeu hoje: é a pergunta que
-   o cliente abre o e-mail para responder, e ele tem de ser lida em dez
-   segundos. Depois a situação geral do que está em aberto, para quem não
-   acompanhou os dias anteriores ter contexto sem precisar procurar o e-mail
-   antigo. Uma lista só não faz os dois trabalhos. */
-function dadosRelatorioDiario(diaISO) {
-  const dia = diaISO || todayISO();
-  const todos = DIARIO || [];
-  return {
-    dia: dia,
-    hoje: ordenarDiario(todos.filter(it => diMexeuEm(it, dia))),
-    abertos: ordenarDiario(todos.filter(diAberto)),
-    travados: todos.filter(it => it.status === 'bloqueado' || diAtrasado(it)).length,
-    concluidos: todos.filter(it => it.status === 'concluido').length,
-    total: todos.length
-  };
+/* ---- ajustes do diário no projeto ---- */
+function janelaConfigDiario() {
+  if (semPermissao()) return;
+  modal('Ajustes do diário', (body, close) => {
+    body.appendChild(el('div', 'hint',
+      'Valem para este projeto. O prefixo entra nos IDs novos; os já criados não mudam.'));
+    const campo = (rot, no, dica) => {
+      const f = el('div', 'field'); f.appendChild(el('label', '', rot)); f.appendChild(no);
+      if (dica) { const h = el('div', 'hint', dica); h.style.marginTop = '3px'; f.appendChild(h); }
+      return f;
+    };
+    const iPref = el('input', 'inp'); iPref.value = diPrefixo(); iPref.placeholder = 'P-';
+    const iIni = el('input', 'inp'); iIni.type = 'date'; iIni.value = ST.P.meta.diarioInicio || '';
+    const g = el('div'); g.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:10px';
+    g.appendChild(campo('Prefixo do ID', iPref, 'Próximo: ' + diProximoCodigo()));
+    g.appendChild(campo('Início do histórico', iIni, 'Sai no cabeçalho do relatório.'));
+    body.appendChild(g);
+    const iMails = el('textarea', 'inp');
+    iMails.style.cssText = 'min-height:56px;font-family:var(--f-mono);font-size:12px';
+    iMails.value = ST.P.meta.diarioEmails || '';
+    iMails.placeholder = 'nome@cliente.com.br; outro@cliente.com.br';
+    body.appendChild(campo('E-mails que recebem o relatório', iMails,
+      'Separe por ponto e vírgula. Aparecem prontos para copiar na janela do relatório.'));
+    const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
+    const bC = el('button', 'btn', 'Cancelar'); bC.addEventListener('click', close);
+    const bOk = el('button', 'btn primary', 'Salvar');
+    bOk.addEventListener('click', () => {
+      ST.P.meta.diarioPrefixo = iPref.value.trim();
+      ST.P.meta.diarioInicio = iIni.value || '';
+      ST.P.meta.diarioEmails = iMails.value.trim();
+      markMeta(); close(); toast('Ajustes salvos.'); renderDiario();
+    });
+    linha.appendChild(bC); linha.appendChild(bOk); body.appendChild(linha);
+  }, []);
 }
 
-/** Uma folha A4 em pé, com cabeçalho e rodapé. Devolve os utilitários de
- *  desenho e o y corrente; quem escreve decide quando virar a página. */
-function folhaDiario(pagina, dados) {
-  const W = 595, H = 842, M = 34;
-  const pg = sv('svg', { xmlns: SVGNS, viewBox: '0 0 ' + W + ' ' + H, width: W, height: H });
-  const T = (x, y, t, fs, peso, cor, anc) => {
-    const e = sv('text', { x: x, y: y, 'font-size': fs, 'font-weight': peso || 400, fill: cor || CORES_ST.tinta, 'font-family': FONTE_ST });
-    if (anc) e.setAttribute('text-anchor', anc);
-    e.textContent = t == null ? '' : String(t); pg.appendChild(e); return e;
-  };
-  const R = (x, y, w, h, f, rx) => pg.appendChild(sv('rect', Object.assign(
-    { x: x, y: y, width: Math.max(0, w), height: Math.max(0, h), fill: f }, rx ? { rx: rx } : {})));
-  const L = (x1, y1, x2, y2, c, w) => pg.appendChild(sv('line', { x1: x1, y1: y1, x2: x2, y2: y2, stroke: c, 'stroke-width': w || 1 }));
-  R(0, 0, W, H, '#FFFFFF');
-
-  const meta = ST.P.meta;
-  T(M, 42, meta.client || 'Cliente', 16, 700, CORES_ST.tinta);
-  T(M, 58, meta.name || 'Projeto', 11.5, 600, CORES_ST.planejado);
-  T(W - M, 42, 'DIÁRIO DE ACOMPANHAMENTO', 9.5, 700, CORES_ST.tinta3, 'end');
-  T(W - M, 58, fmtBR(dados.dia), 13, 700, CORES_ST.tinta, 'end');
-  try { pg.appendChild(marcaGrupo(0.28, W - M - 52, 64)); } catch (e) { }
-  L(M, 80, W - M, 80, CORES_ST.linha, 1.2);
-
-  T(M, H - 22, 'Gerado pelo MILEST em ' + fmtBR(todayISO()) +
-    '  ·  ' + fmtNum(dados.total) + ' atividade(s) no diário  ·  ' +
-    fmtNum(dados.abertos.length) + ' em aberto  ·  ' + fmtNum(dados.travados) + ' travada(s)',
-    7.5, 400, CORES_ST.tinta3);
-  T(W - M, H - 22, 'página ' + pagina, 7.5, 400, CORES_ST.tinta3, 'end');
-  return { pg: pg, T: T, R: R, L: L, W: W, H: H, M: M, y: 100, fim: H - 36 };
+/* ---- o relatório do dia ----
+   Sai como tabela colável, não como anexo. O cliente abre o e-mail e já lê:
+   sem baixar arquivo, sem abrir o celular no visualizador de PDF. É a
+   diferença entre um relatório que se lê e um que fica para depois. */
+function diEscapar(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function diLinhasRelatorio(dia, escopo) {
+  const todos = (DIARIO || []).slice().sort(diPorCodigo);
+  if (escopo === 'dia') return todos.filter(a => a.atualizadoEm === dia || a.criadoEm === dia);
+  if (escopo === 'abertas') return todos.filter(a => a.status !== 'Concluído' || a.atualizadoEm === dia);
+  return todos;
+}
+function diAssunto(dia) {
+  const m = ST.P.meta;
+  return 'Daily Sprint · ' + (m.name || '') + ' — ' + (m.client || '') + ' · ' + fmtBR(dia);
+}
+/** A tabela em HTML de e-mail: estilo em cada célula, porque Outlook e Gmail
+ *  descartam folha de estilo. É feia por dentro e certa por fora. */
+function diTabelaHTML(dia, escopo) {
+  const m = ST.P.meta, linhas = diLinhasRelatorio(dia, escopo);
+  const F = 'font-family:Arial,Helvetica,sans-serif;';
+  const th = (t, w) => '<th style="' + F + 'background:#014479;color:#ffffff;font-size:12px;font-weight:bold;text-align:left;padding:8px 10px;border:1px solid #013A68;' + (w ? 'width:' + w + ';' : '') + '">' + t + '</th>';
+  const td = (t, extra) => '<td style="' + F + 'font-size:12px;color:#1b2a33;padding:8px 10px;border:1px solid #D5DCE0;vertical-align:top;' + (extra || '') + '">' + t + '</td>';
+  const nl = s => diEscapar(s).replace(/\n/g, '<br>');
+  const contagens = DI_STATUS.map(s => ({ s: s, n: linhas.filter(a => a.status === s.v).length })).filter(x => x.n);
+  const periodo = m.diarioInicio ? 'Histórico consolidado: ' + fmtBR(m.diarioInicio) + ' → ' + fmtBR(dia) : '';
+  const corpo = linhas.length ? linhas.map((a, i) => {
+    const s = diSt(a.status), bg = i % 2 ? 'background:#F6F8F9;' : 'background:#ffffff;';
+    const atras = diAtrasado(a);
+    return '<tr>' +
+      td(diEscapar(a.codigo), bg + 'font-weight:bold;color:#014479;white-space:nowrap;') +
+      td(diEscapar(a.modulo), bg) +
+      td(nl(a.descricao), bg) +
+      td(diEscapar(a.responsavel), bg) +
+      td(diEscapar(a.time), bg) +
+      td('<span style="color:' + (DI_PR_HEX[a.prioridade] || '#1b2a33') + ';font-weight:bold;">' + diEscapar(a.prioridade) + '</span>', bg) +
+      td('<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:' + s.hex[1] + ';color:' + s.hex[0] + ';font-weight:bold;white-space:nowrap;">' + diEscapar(a.status) + '</span>', bg) +
+      td(fmtBR(a.prazo) + (atras ? '<br><span style="color:#B3322B;font-weight:bold;font-size:11px;">atrasada</span>' : ''), bg + 'white-space:nowrap;') +
+      td(nl(a.obs), bg) +
+      td(fmtBR(a.atualizadoEm), bg + 'white-space:nowrap;') +
+      '</tr>';
+  }).join('') :
+    '<tr><td colspan="10" style="' + F + 'font-size:13px;color:#667;padding:18px;text-align:center;border:1px solid #D5DCE0;">Nenhuma atividade registrada em ' + fmtBR(dia) + '.</td></tr>';
+  return '<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;' + F + '">' +
+    '<tr><td colspan="10" style="' + F + 'background:#12202E;color:#ffffff;padding:14px 12px;font-size:16px;font-weight:bold;letter-spacing:.3px;">DAILY SPRINT · ' +
+      diEscapar(String(m.name || '').toUpperCase()) + ' — ' + diEscapar(String(m.client || '').toUpperCase()) +
+      ' · Atualizado ' + fmtBR(dia) + '</td></tr>' +
+    '<tr><td colspan="10" style="' + F + 'background:#E9EFF5;color:#4A5A64;padding:8px 12px;font-size:12px;">' +
+      diEscapar(periodo) + (periodo ? ' &nbsp;·&nbsp; ' : '') + linhas.length + ' atividade(s)' +
+      (contagens.length ? ' &nbsp;·&nbsp; ' + contagens.map(x => diEscapar(x.s.v) + ': <b>' + x.n + '</b>').join(' &nbsp; ') : '') +
+      '</td></tr>' +
+    '<tr>' + th('ID', '56px') + th('Módulo', '110px') + th('Atividade / Detalhes') + th('Responsável', '110px') +
+      th('Time', '80px') + th('Prioridade', '72px') + th('Status', '110px') + th('Prazo', '78px') +
+      th('Bloqueios / Observações', '200px') + th('Data Atualização', '84px') + '</tr>' +
+    corpo + '</table>';
 }
 
-function montarFolhasDiario(dados) {
-  const folhas = [];
-  let f = folhaDiario(1, dados);
-  folhas.push(f);
-  const virar = () => { f = folhaDiario(folhas.length + 1, dados); folhas.push(f); };
-
-  const titulo = (txt, sub) => {
-    if (f.y > f.fim - 60) virar();
-    f.y += 8;
-    f.T(f.M, f.y, txt, 11, 700, CORES_ST.planejado);
-    if (sub) f.T(f.W - f.M, f.y, sub, 8.5, 400, CORES_ST.tinta3, 'end');
-    f.y += 5;
-    f.L(f.M, f.y, f.W - f.M, f.y, CORES_ST.linha, 1);
-    f.y += 14;
-  };
-
-  /* Colunas da folha. A atividade ocupa o grosso da largura porque é o que o
-     cliente lê; o resto são etiquetas curtas. */
-  const cx = { cod: 0, ativ: 52, resp: 330, stat: 415, prazo: 510 };
-  const largAtiv = cx.resp - cx.ativ - 10;
-
-  const cabecalhoTabela = () => {
-    f.T(f.M + cx.cod, f.y, 'ID', 7.5, 700, CORES_ST.tinta3);
-    f.T(f.M + cx.ativ, f.y, 'ATIVIDADE', 7.5, 700, CORES_ST.tinta3);
-    f.T(f.M + cx.resp, f.y, 'RESPONSÁVEL', 7.5, 700, CORES_ST.tinta3);
-    f.T(f.M + cx.stat, f.y, 'STATUS', 7.5, 700, CORES_ST.tinta3);
-    f.T(f.M + cx.prazo, f.y, 'PRAZO', 7.5, 700, CORES_ST.tinta3);
-    f.y += 4;
-    f.L(f.M, f.y, f.W - f.M, f.y, CORES_ST.linha, 0.6);
-    f.y += 11;
-  };
-
-  const linha = (it) => {
-    const corpo = envolver(String(it.texto || '').replace(/\n+/g, ' · '), largAtiv, 8.5);
-    const obs = it.obs ? envolver('⚠ ' + it.obs, largAtiv, 7.5) : [];
-    const alturaNec = Math.max(corpo.length, 1) * 11 + obs.length * 9.5 + 8;
-    if (f.y + alturaNec > f.fim) { virar(); cabecalhoTabela(); }
-    const y0 = f.y;
-    const st = diStatus(it.status);
-    f.T(f.M + cx.cod, y0, it.cod || '—', 8, 700, CORES_ST.tinta3);
-    if (it.modulo) f.T(f.M + cx.cod, y0 + 10, it.modulo.slice(0, 12), 6.5, 400, CORES_ST.tinta3);
-    let y = y0;
-    corpo.forEach((ln, i) => { f.T(f.M + cx.ativ, y, ln, 8.5, i === 0 ? 600 : 400, CORES_ST.tinta); y += 11; });
-    for (const ln of obs) { f.T(f.M + cx.ativ, y, ln, 7.5, 400, '#8A5A00'); y += 9.5; }
-    f.T(f.M + cx.resp, y0, (it.resp || '—') + (it.time ? ' (' + it.time + ')' : ''), 8, 400, CORES_ST.tinta2);
-    f.T(f.M + cx.stat, y0, st.rot, 8, 700, st.pdf);
-    const atrasado = diAtrasado(it);
-    f.T(f.M + cx.prazo, y0, it.prazo ? fmtBR(it.prazo) : '—', 8, atrasado ? 700 : 400,
-      atrasado ? '#C00000' : CORES_ST.tinta2);
-    if (atrasado) f.T(f.M + cx.prazo, y0 + 9, 'vencido', 6.5, 700, '#C00000');
-    f.y = Math.max(y, y0 + 14) + 6;
-    f.L(f.M, f.y - 4, f.W - f.M, f.y - 4, '#EEF2F5', 0.6);
-  };
-
-  const bloco = (rot, itens, sub, vazio) => {
-    titulo(rot, sub);
-    if (!itens.length) {
-      f.T(f.M, f.y, vazio, 9, 400, CORES_ST.tinta3);
-      f.y += 18;
-      return;
+async function diCopiarRico(html, texto, alvo) {
+  try {
+    if (window.ClipboardItem && navigator.clipboard && navigator.clipboard.write) {
+      await navigator.clipboard.write([new ClipboardItem({
+        'text/html': new Blob([html], { type: 'text/html' }),
+        'text/plain': new Blob([texto], { type: 'text/plain' })
+      })]);
+      return true;
     }
-    cabecalhoTabela();
-    for (const it of itens) linha(it);
-    f.y += 6;
-  };
-
-  bloco('MOVIMENTAÇÕES DE ' + fmtBR(dados.dia),
-    dados.hoje, fmtNum(dados.hoje.length) + ' atividade(s)',
-    'Nenhuma movimentação registrada neste dia.');
-  bloco('SITUAÇÃO GERAL — EM ABERTO',
-    dados.abertos, fmtNum(dados.abertos.length) + ' em aberto de ' + fmtNum(dados.total),
-    'Nenhuma atividade em aberto.');
-
-  return folhas.map(x => x.pg);
+  } catch (e) { }
+  // sem a API moderna, seleciona a área e usa o caminho antigo
+  try {
+    const sel = window.getSelection(), r = document.createRange();
+    r.selectNodeContents(alvo); sel.removeAllRanges(); sel.addRange(r);
+    const ok = document.execCommand('copy'); sel.removeAllRanges(); return ok;
+  } catch (e) { return false; }
+}
+async function diCopiarTexto(t) {
+  try { await navigator.clipboard.writeText(t); return true; } catch (e) { return false; }
 }
 
 function janelaRelatorioDiario() {
-  const dados = dadosRelatorioDiario(todayISO());
   modal('Relatório do dia', (body, close) => {
+    const barra = el('div'); barra.style.cssText = 'display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:10px';
+    const campo = (rot, no, larg) => {
+      const f = el('div', 'field'); f.style.cssText = 'margin:0;' + (larg ? 'flex:1;min-width:' + larg + ';' : '');
+      f.appendChild(el('label', '', rot)); f.appendChild(no); return f;
+    };
+    const iData = el('input', 'inp'); iData.type = 'date'; iData.value = todayISO();
+    const sEsc = el('select', 'inp');
+    for (const o of [
+      ['dia', 'Só atividades inseridas ou atualizadas nesta data'],
+      ['abertas', 'Todas em aberto + concluídas nesta data'],
+      ['todas', 'Todas as atividades do projeto']
+    ]) { const x = el('option', '', o[1]); x.value = o[0]; sEsc.appendChild(x); }
+    barra.appendChild(campo('Data do relatório', iData, '140px'));
+    barra.appendChild(campo('O que incluir', sEsc, '280px'));
+    body.appendChild(barra);
+
     body.appendChild(el('div', 'hint',
-      'O relatório sai em duas partes: o que mexeu hoje, que é o que o cliente abre o e-mail para ler, ' +
-      'e a situação geral do que está em aberto, para quem não acompanhou os dias anteriores. ' +
-      'A prévia abaixo serve para conferir e para tirar print; o botão baixa o PDF em A4.'));
+      'Clique em “Copiar para o e-mail” e cole (Ctrl/Cmd+V) no corpo da mensagem no Outlook ou no Gmail: ' +
+      'a tabela vai formatada, sem precisar de print nem de anexo. Se preferir o print, a área branca abaixo ' +
+      'já é a imagem pronta; e o PDF serve quando o cliente pede o arquivo para arquivar.'));
 
-    const dia = el('div', 'field');
-    dia.appendChild(el('label', '', 'Dia do relatório'));
-    const iDia = el('input', 'inp'); iDia.type = 'date'; iDia.value = dados.dia;
-    dia.appendChild(iDia); body.appendChild(dia);
+    const dest = el('div'); dest.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:12.5px;margin:10px 0';
+    const mails = ST.P.meta.diarioEmails || '';
+    if (mails) {
+      const rot = el('span', '', 'Para:'); rot.style.color = 'var(--ink-3)';
+      const cod = el('code', '', mails);
+      cod.style.cssText = 'font-family:var(--f-mono);font-size:11.5px;background:var(--surface-2);padding:3px 8px;border-radius:6px;user-select:all';
+      const bm = el('button', 'btn', 'Copiar e-mails');
+      bm.style.cssText = 'padding:3px 9px;font-size:12px';
+      bm.addEventListener('click', async () => toast(await diCopiarTexto(mails) ? 'E-mails copiados.' : 'Selecione e copie à mão.'));
+      dest.appendChild(rot); dest.appendChild(cod); dest.appendChild(bm);
+    } else {
+      const av = el('span', '', 'Sem e-mails cadastrados para este cliente — acrescente no ⚙ da aba.');
+      av.style.color = 'var(--ink-3)'; dest.appendChild(av);
+    }
+    body.appendChild(dest);
 
-    const previa = el('div');
-    previa.style.cssText = 'max-height:46vh;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:12px;background:var(--surface)';
-    body.appendChild(previa);
+    const folha = el('div');
+    folha.style.cssText = 'background:#fff;padding:0;border:1px solid var(--line);border-radius:10px;overflow:auto;max-height:46vh';
+    const dentro = el('div'); dentro.style.cssText = 'min-width:900px';
+    folha.appendChild(dentro); body.appendChild(folha);
 
-    let atual = dados;
-    const tabela = (itens, vazio) => {
-      if (!itens.length) { const d = el('div', '', vazio); d.style.cssText = 'color:var(--ink-3);font-size:12px;padding:4px 0 10px'; return d; }
-      const tb = el('table', 'data');
-      const hr = el('tr');
-      for (const c of ['ID', 'Atividade', 'Responsável', 'Status', 'Prazo']) hr.appendChild(el('th', '', c));
-      const th = el('thead'); th.appendChild(hr); tb.appendChild(th);
-      const tbo = el('tbody');
-      for (const it of itens) {
-        const tr = el('tr');
-        const tdc = el('td', '', it.cod || '—');
-        tdc.style.cssText = 'font-family:var(--f-mono);font-size:11px;color:var(--ink-3)';
-        tr.appendChild(tdc);
-        const tdt = el('td');
-        tdt.style.cssText = 'max-width:320px;white-space:normal;line-height:1.35';
-        const t1 = el('div', '', String(it.texto || '').split(/\n/)[0]); t1.style.fontWeight = '600';
-        tdt.appendChild(t1);
-        if (it.obs) { const o = el('div', '', '⚠ ' + it.obs); o.style.cssText = 'color:var(--warn);font-size:11px;margin-top:2px'; tdt.appendChild(o); }
-        tr.appendChild(tdt);
-        tr.appendChild(el('td', '', (it.resp || '—') + (it.time ? ' (' + it.time + ')' : '')));
-        const st = diStatus(it.status);
-        const tds = el('td'); tds.appendChild(el('span', 'stchip ' + st.cls, st.rot)); tr.appendChild(tds);
-        const tdz = el('td', 'num', it.prazo ? fmtBR(it.prazo) : '—');
-        if (diAtrasado(it)) { tdz.style.color = 'var(--critical)'; tdz.style.fontWeight = '600'; }
-        tr.appendChild(tdz);
-        tbo.appendChild(tr);
-      }
-      tb.appendChild(tbo);
-      const sc = el('div', 'tscroll'); sc.appendChild(tb); return sc;
-    };
-    const montarPrevia = () => {
-      atual = dadosRelatorioDiario(iDia.value || todayISO());
-      previa.textContent = '';
-      const h1 = el('h3', '', 'Movimentações de ' + fmtBR(atual.dia));
-      h1.style.cssText = 'margin:0 0 6px;font-size:13px';
-      previa.appendChild(h1);
-      previa.appendChild(tabela(atual.hoje, 'Nenhuma movimentação registrada neste dia.'));
-      const h2 = el('h3', '', 'Situação geral — em aberto');
-      h2.style.cssText = 'margin:14px 0 6px;font-size:13px';
-      previa.appendChild(h2);
-      previa.appendChild(tabela(atual.abertos, 'Nenhuma atividade em aberto.'));
-    };
-    iDia.addEventListener('change', montarPrevia);
-    montarPrevia();
+    const montar = () => { dentro.innerHTML = diTabelaHTML(iData.value || todayISO(), sEsc.value); };
+    iData.addEventListener('change', montar); sEsc.addEventListener('change', montar);
+    montar();
 
-    const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;margin-top:12px';
-    const bC = el('button', 'btn', 'Fechar'); bC.addEventListener('click', close);
-    const bPdf = el('button', 'btn primary', '⤓ Baixar PDF');
+    const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:12px';
+    const bAss = el('button', 'btn', 'Copiar assunto');
+    bAss.addEventListener('click', async () =>
+      toast(await diCopiarTexto(diAssunto(iData.value || todayISO())) ? 'Assunto copiado.' : 'Não consegui copiar.'));
+    const bPdf = el('button', 'btn', '⤓ PDF');
     bPdf.addEventListener('click', async () => {
       bPdf.disabled = true;
-      try {
-        const folhas = montarFolhasDiario(atual);
-        const pgs = [];
-        for (const pg of folhas) pgs.push(await svgParaJPEG(pg, 595, 842, 2.6, 0.94));
-        await offerDownload('diario-' + slug((ST.P.meta.client || '') + '-' + (ST.P.meta.name || 'projeto')) +
-          '-' + atual.dia + '.pdf', new Blob([montarPDFMulti(pgs)], { type: 'application/pdf' }));
-      } catch (e) { toast('Não consegui gerar o PDF: ' + ((e && e.message) || 'erro')); }
+      try { await diBaixarPDF(iData.value || todayISO(), sEsc.value); }
+      catch (e) { toast('Não consegui gerar o PDF.'); }
       bPdf.disabled = false;
     });
-    linha.appendChild(bC); linha.appendChild(bPdf);
+    const bCop = el('button', 'btn primary', 'Copiar para o e-mail');
+    bCop.addEventListener('click', async () => {
+      const dia = iData.value || todayISO();
+      const linhas = diLinhasRelatorio(dia, sEsc.value);
+      const texto = diAssunto(dia) + '\n\n' + linhas.map(a =>
+        [a.codigo, a.modulo, String(a.descricao || '').replace(/\n/g, ' '), a.responsavel, a.status,
+        'Prazo ' + fmtBR(a.prazo)].filter(Boolean).join(' | ') + (a.obs ? ' | ' + String(a.obs).replace(/\n/g, ' ') : '')).join('\n');
+      toast(await diCopiarRico(diTabelaHTML(dia, sEsc.value), texto, dentro)
+        ? 'Tabela copiada. Cole no corpo do e-mail.'
+        : 'Não deu para copiar sozinho — selecione a área branca e copie.');
+    });
+    const bF = el('button', 'btn', 'Fechar'); bF.addEventListener('click', close);
+    linha.appendChild(bF); linha.appendChild(bAss); linha.appendChild(bPdf); linha.appendChild(bCop);
     body.appendChild(linha);
   }, []);
   const cx = document.querySelector('.modalwrap .modal'); if (cx) cx.classList.add('larga');
+}
+
+/** O PDF é o mesmo conteúdo em folha A4, para quem precisa do arquivo. */
+async function diBaixarPDF(dia, escopo) {
+  const m = ST.P.meta, linhas = diLinhasRelatorio(dia, escopo);
+  const W = 842, H = 595, M = 28;            // A4 deitado: a tabela é larga
+  const folhas = [];
+  let pg, T, R, L, y;
+  const nova = () => {
+    pg = sv('svg', { xmlns: SVGNS, viewBox: '0 0 ' + W + ' ' + H, width: W, height: H });
+    T = (x, yy, t, fs, peso, cor, anc) => {
+      const e = sv('text', { x: x, y: yy, 'font-size': fs, 'font-weight': peso || 400, fill: cor || CORES_ST.tinta, 'font-family': FONTE_ST });
+      if (anc) e.setAttribute('text-anchor', anc);
+      e.textContent = t == null ? '' : String(t); pg.appendChild(e); return e;
+    };
+    R = (x, yy, w, h, f) => pg.appendChild(sv('rect', { x: x, y: yy, width: Math.max(0, w), height: Math.max(0, h), fill: f }));
+    L = (x1, y1, x2, y2, c, w) => pg.appendChild(sv('line', { x1: x1, y1: y1, x2: x2, y2: y2, stroke: c, 'stroke-width': w || 1 }));
+    R(0, 0, W, H, '#FFFFFF');
+    R(M, 24, W - 2 * M, 26, '#12202E');
+    T(M + 10, 41, 'DAILY SPRINT · ' + String(m.name || '').toUpperCase() + ' — ' + String(m.client || '').toUpperCase(), 11, 700, '#FFFFFF');
+    T(W - M - 10, 41, 'Atualizado ' + fmtBR(dia), 10, 700, '#FFFFFF', 'end');
+    R(M, 50, W - 2 * M, 16, '#E9EFF5');
+    const per = m.diarioInicio ? 'Histórico consolidado: ' + fmtBR(m.diarioInicio) + ' → ' + fmtBR(dia) + '  ·  ' : '';
+    T(M + 10, 61, per + fmtNum(linhas.length) + ' atividade(s)', 8, 400, CORES_ST.tinta2);
+    T(W - M - 10, H - 16, 'página ' + (folhas.length + 1), 7.5, 400, CORES_ST.tinta3, 'end');
+    T(M, H - 16, 'Gerado pelo MILEST em ' + fmtBR(todayISO()), 7.5, 400, CORES_ST.tinta3);
+    y = 78;
+    folhas.push(pg);
+  };
+  const cx = [0, 46, 118, 400, 470, 530, 620, 672, 790];
+  const cabec = () => {
+    R(M, y - 10, W - 2 * M, 14, '#014479');
+    const rot = ['ID', 'MÓDULO', 'ATIVIDADE / DETALHES', 'RESP.', 'TIME', 'STATUS', 'PRAZO', 'OBSERVAÇÕES'];
+    rot.forEach((r, i) => T(M + cx[i] + 4, y, r, 7, 700, '#FFFFFF'));
+    y += 16;
+  };
+  nova(); cabec();
+  linhas.forEach((a, idx) => {
+    const desc = envolver(String(a.descricao || '').replace(/\n+/g, ' · '), cx[3] - cx[2] - 10, 7.5);
+    const obs = a.obs ? envolver(String(a.obs).replace(/\n+/g, ' '), W - 2 * M - cx[7] - 10, 7) : [];
+    const alt = Math.max(desc.length * 9, obs.length * 8.5, 12) + 7;
+    if (y + alt > H - 28) { nova(); cabec(); }
+    if (idx % 2) R(M, y - 9, W - 2 * M, alt, '#F6F8F9');
+    const s = diSt(a.status);
+    T(M + cx[0] + 4, y, a.codigo || '', 7.5, 700, '#014479');
+    T(M + cx[1] + 4, y, String(a.modulo || '').slice(0, 16), 7.5, 400, CORES_ST.tinta2);
+    let yy = y;
+    desc.forEach(ln => { T(M + cx[2] + 4, yy, ln, 7.5, 400, CORES_ST.tinta); yy += 9; });
+    T(M + cx[3] + 4, y, String(a.responsavel || '').slice(0, 14), 7.5, 400, CORES_ST.tinta2);
+    T(M + cx[4] + 4, y, String(a.time || '').slice(0, 12), 7.5, 400, CORES_ST.tinta2);
+    T(M + cx[5] + 4, y, a.status || '', 7.5, 700, s.hex[0]);
+    const atras = diAtrasado(a);
+    T(M + cx[6] + 4, y, fmtBR(a.prazo), 7.5, atras ? 700 : 400, atras ? '#B3322B' : CORES_ST.tinta2);
+    if (atras) T(M + cx[6] + 4, y + 8, 'atrasada', 6.5, 700, '#B3322B');
+    let yo = y;
+    obs.forEach(ln => { T(M + cx[7] + 4, yo, ln, 7, 400, '#8A5A00'); yo += 8.5; });
+    y += alt;
+    L(M, y - 7, W - M, y - 7, '#E3E9ED', 0.5);
+  });
+  if (!linhas.length) T(M + 10, y + 6, 'Nenhuma atividade registrada em ' + fmtBR(dia) + '.', 9, 400, CORES_ST.tinta3);
+  const pgs = [];
+  for (const f of folhas) pgs.push(await svgParaJPEG(f, W, H, 2.4, 0.94));
+  await offerDownload('daily-' + slug((m.client || '') + '-' + (m.name || 'projeto')) + '-' + dia + '.pdf',
+    new Blob([montarPDFMulti(pgs)], { type: 'application/pdf' }));
 }
 
 /* ============ orquestração ============ */
