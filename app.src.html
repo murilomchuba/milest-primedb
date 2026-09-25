@@ -997,7 +997,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-25.5';
+const VERSAO = '2026-09-25.7';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -8498,18 +8498,46 @@ function janelaRelatorioDiario() {
 /** Desenha o relatório. Em 'a4' pagina em folhas deitadas, para o PDF; em
  *  'unica' devolve UMA folha da altura exata do conteúdo, que é o que serve
  *  para imagem: print de relatório cortado ao meio não serve para nada, e
- *  ninguém quer receber quatro arquivos para ler um relatório. */
+ *  ninguém quer receber quatro arquivos para ler um relatório.
+ *
+ *  Nenhuma célula corta texto. Todas quebram em linha, e a altura da linha é a
+ *  da célula mais alta — "ONDA 1 (21 máquinas)" tem de aparecer inteiro, e um
+ *  módulo virando "ONDA 1 (21 máqui" num relatório que vai para o cliente é o
+ *  tipo de detalhe que faz o resto parecer descuidado. */
 function diMontarFolhas(dia, escopo, modo) {
   const m = ST.P.meta, linhas = diLinhasRelatorio(dia, escopo);
-  const W = 842, M = 28, TOPO = 78, RODAPE = 28;
-  const cx = [0, 46, 118, 400, 470, 530, 620, 672, 790];
-  const largDesc = cx[3] - cx[2] - 10, largObs = W - 2 * M - cx[7] - 10;
+  const W = 842, M = 28, TOPO = 78, RODAPE = 28, PASSO = 9;
+  /* Larguras pensadas para o conteúdo real: módulo e time recebem nomes
+     compostos ("Fundação/PrimeDB"), e observações é onde mora o texto longo. */
+  const cx = [0, 40, 140, 350, 430, 516, 598, 642, 786];
+  const larg = i => cx[i + 1] - cx[i] - 8;
 
-  // mede antes de desenhar: é a altura que decide se pagina e qual folha usar
+  const quebrar = (txt, i, fs) => {
+    let s = String(txt == null ? '' : txt).replace(/\n+/g, ' · ').trim();
+    if (!s) return [];
+    const L = larg(i);
+    /* Palavra comprida sem espaço — "Fundação/PrimeDB", "Gustavo/Bruno" — só
+       tem onde quebrar na barra. Sem isso ela racha no meio ("Fundação/PrimeD"
+       e "B" na linha de baixo), que é pior do que uma linha a mais. A folga só
+       é aberta quando o texto de fato não cabe, para o caso curto ficar limpo. */
+    const maiorToken = s.split(/\s+/).reduce((x, t) => Math.max(x, medirTexto(t, fs, 400, FONTE_ST)), 0);
+    if (maiorToken > L) s = s.replace(/([\/])(?=\S)/g, '$1 ');
+    return envolver(s, L, fs);
+  };
   const medidas = linhas.map(a => {
-    const desc = envolver(String(a.descricao || '').replace(/\n+/g, ' · '), largDesc, 7.5);
-    const obs = a.obs ? envolver(String(a.obs).replace(/\n+/g, ' '), largObs, 7) : [];
-    return { a: a, desc: desc, obs: obs, alt: Math.max(desc.length * 9, obs.length * 8.5, 12) + 7 };
+    const b = {
+      cod: quebrar(a.codigo, 0, 7.5),
+      mod: quebrar(a.modulo, 1, 7),
+      desc: quebrar(a.descricao, 2, 7.5),
+      resp: quebrar(a.responsavel, 3, 7.5),
+      time: quebrar(a.time, 4, 7.5),
+      stat: quebrar(a.status, 5, 7.5),
+      prazo: [],
+      obs: quebrar(a.obs, 7, 7)
+    };
+    const n = Math.max(1, b.cod.length, b.mod.length, b.desc.length, b.resp.length,
+      b.time.length, b.stat.length, b.obs.length);
+    return { a: a, b: b, alt: n * PASSO + 8 };
   });
 
   const folhas = [];
@@ -8554,20 +8582,22 @@ function diMontarFolhas(dia, escopo, modo) {
 
   medidas.forEach((mm, idx) => {
     if (modo === 'a4' && y + mm.alt > H - RODAPE) { nova(ALT_A4); cabec(); }
-    const a = mm.a, s = diSt(a.status);
+    const a = mm.a, b = mm.b, s = diSt(a.status), atras = diAtrasado(a);
     if (idx % 2) R(M, y - 9, W - 2 * M, mm.alt, '#F6F8F9');
-    T(M + cx[0] + 4, y, a.codigo || '', 7.5, 700, '#014479');
-    T(M + cx[1] + 4, y, String(a.modulo || '').slice(0, 16), 7.5, 400, CORES_ST.tinta2);
-    let yy = y;
-    mm.desc.forEach(ln => { T(M + cx[2] + 4, yy, ln, 7.5, 400, CORES_ST.tinta); yy += 9; });
-    T(M + cx[3] + 4, y, String(a.responsavel || '').slice(0, 14), 7.5, 400, CORES_ST.tinta2);
-    T(M + cx[4] + 4, y, String(a.time || '').slice(0, 12), 7.5, 400, CORES_ST.tinta2);
-    T(M + cx[5] + 4, y, a.status || '', 7.5, 700, s.hex[0]);
-    const atras = diAtrasado(a);
-    T(M + cx[6] + 4, y, fmtBR(a.prazo), 7.5, atras ? 700 : 400, atras ? '#B3322B' : CORES_ST.tinta2);
-    if (atras) T(M + cx[6] + 4, y + 8, 'atrasada', 6.5, 700, '#B3322B');
-    let yo = y;
-    mm.obs.forEach(ln => { T(M + cx[7] + 4, yo, ln, 7, 400, '#8A5A00'); yo += 8.5; });
+    const bloco = (linhas2, i, fs, peso, cor) => {
+      let yy = y;
+      for (const ln of linhas2) { T(M + cx[i] + 4, yy, ln, fs, peso, cor); yy += PASSO; }
+    };
+    bloco(b.cod, 0, 7.5, 700, '#014479');
+    bloco(b.mod, 1, 7, 400, CORES_ST.tinta2);
+    bloco(b.desc, 2, 7.5, 400, CORES_ST.tinta);
+    bloco(b.resp, 3, 7.5, 400, CORES_ST.tinta2);
+    bloco(b.time, 4, 7.5, 400, CORES_ST.tinta2);
+    bloco(b.stat, 5, 7.5, 700, s.hex[0]);
+    T(M + cx[6] + 4, y, a.prazo ? fmtBR(a.prazo) : '—', 7.5, atras ? 700 : 400,
+      atras ? '#B3322B' : (a.prazo ? CORES_ST.tinta2 : CORES_ST.tinta3));
+    if (atras) T(M + cx[6] + 4, y + PASSO, 'atrasada', 6.5, 700, '#B3322B');
+    bloco(b.obs, 7, 7, 400, '#8A5A00');
     y += mm.alt;
     L(M, y - 7, W - M, y - 7, '#E3E9ED', 0.5);
   });
