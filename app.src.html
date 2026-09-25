@@ -997,7 +997,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-25.9';
+const VERSAO = '2026-09-25.10';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -3820,6 +3820,39 @@ function porCliente(lista) {
     return d !== 0 ? d : COTEJO.compare(nom(a), nom(b));
   });
 }
+/* Dois projetos podem ter, de verdade, o mesmo nome no mesmo cliente: uma
+   segunda onda, um contrato novo com o escopo repetido, um cronograma refeito
+   do zero. O banco os distingue pelo código; a tela não distinguia nada, e a
+   carteira parecia mostrar o mesmo projeto duas ou três vezes — foi assim que
+   isso apareceu como se fosse defeito. Quando há homônimos, e só nesse caso,
+   o código curto entra ao lado do nome. Quem não tem homônimo não ganha
+   sujeira nenhuma na linha. */
+function codigoCurto(id) { return String(id || '').slice(-4).toUpperCase(); }
+function acharHomonimos(lista) {
+  const chave = it => ((((it.meta && it.meta.client) || '').trim().toLowerCase())
+    + '\u0000' + (((it.meta && it.meta.name) || '').trim().toLowerCase()));
+  const conta = new Map();
+  for (const it of (lista || [])) { const k = chave(it); conta.set(k, (conta.get(k) || 0) + 1); }
+  let nomes = 0;
+  for (const n of conta.values()) if (n > 1) nomes++;
+  return {
+    nomes: nomes,
+    repetido: it => (conta.get(chave(it)) || 1) > 1,
+    quantos: it => conta.get(chave(it)) || 1
+  };
+}
+/* A etiqueta vai na célula do nome, discreta, e o title explica o que é —
+   sem isso o código viraria mais um enigma na tela. */
+function marcarHomonimo(td, it, hom) {
+  if (!td || !hom || !hom.repetido(it)) return;
+  const cod = codigoCurto(it.id);
+  const tag = el('span', '', '#' + cod);
+  tag.style.cssText = 'margin-left:6px;font-weight:600;font-size:10px;letter-spacing:.04em;'
+    + 'color:var(--ink-3);border:1px solid var(--line);border-radius:4px;padding:1px 4px;vertical-align:1px';
+  tag.title = 'São ' + hom.quantos(it) + ' projetos diferentes com este mesmo nome e mesmo cliente. '
+    + 'Este é o de código ' + cod + '. Use o ✎ da linha para renomear e acabar com a ambiguidade.';
+  td.appendChild(tag);
+}
 function soEncerrados(lista) { return (lista || []).filter(it => ehEncerrado(it.meta)); }
 /* O Portfólio separa em três: o que anda, o que está parado e o que acabou.
    soAtivos (tudo que não foi encerrado) continua valendo para a Visão geral
@@ -4516,6 +4549,7 @@ function renderOverview() {
      acompanha o que acabou. Ela mostra o registro de fechamento: quando
      encerrou, quanto durou, quanto escorregou da linha de base e como as
      horas fecharam. Tudo vem do retrato congelado no dia do encerramento. */
+  let hom = null;                           // homônimos da carteira inteira, não da aba
   const tabelaEncerrados = (alvo) => {
     if (!alvo.length) {
       const vaz = el('div', 'empty');
@@ -4550,6 +4584,7 @@ function renderOverview() {
       const tdc = el('td', '', m.client || '—'); tdc.style.color = m.client ? 'var(--ink-2)' : 'var(--ink-3)';
       tr.appendChild(tdc);
       const tdn = el('td', '', m.name || 'Projeto'); tdn.style.fontWeight = '600';
+      marcarHomonimo(tdn, it, hom);
       tr.appendChild(tdn);
       const tde = el('td', 'num', fmtBR(m.encerradoEm));
       if (m.encerradoPor) tde.title = 'Encerrado por ' + m.encerradoPor;
@@ -4628,6 +4663,7 @@ function renderOverview() {
       const tdc = el('td', '', m.client || '—'); tdc.style.color = m.client ? 'var(--ink-2)' : 'var(--ink-3)';
       tr.appendChild(tdc);
       const tdn = el('td', '', m.name || 'Projeto'); tdn.style.fontWeight = '600';
+      marcarHomonimo(tdn, it, hom);
       tr.appendChild(tdn);
       const tdp = el('td', 'num', fmtBR(m.pausadoEm));
       if (m.pausadoPor) tdp.title = 'Pausado por ' + m.pausadoPor;
@@ -4667,6 +4703,7 @@ function renderOverview() {
     corpo.textContent = '';
     if (!lista || !lista.length) { corpo.appendChild(el('div', 'empty', 'Nenhum projeto ainda. Use “＋ Novo projeto”.')); return; }
     const ativos = soEmAndamento(lista), parados = soPausados(lista), fechados = soEncerrados(lista);
+    hom = acharHomonimos(lista);      // a conta é da carteira toda: dois homônimos podem estar em abas diferentes
     /* O alternador aparece sempre, mesmo com zero concluídos. Escondê-lo até
        existir o primeiro deixava a funcionalidade invisível justamente para
        quem ainda não a conhece — e a lista vazia é quem explica como encerrar. */
@@ -4681,6 +4718,17 @@ function renderOverview() {
     bota('pausados', 'Pausados', parados.length);
     bota('encerrados', 'Concluídos', fechados.length);
     corpo.appendChild(nav);
+    if (hom.nomes) {
+      const av = el('div', 'tagline', (hom.nomes === 1
+        ? 'Há um nome de projeto repetido dentro do mesmo cliente'
+        : 'Há ' + fmtNum(hom.nomes) + ' nomes de projeto repetidos dentro do mesmo cliente')
+        + ' — são projetos diferentes, com cronogramas diferentes, e não a mesma linha duas vezes. '
+        + 'O código depois do nome (#XXXX) diz qual é qual, e aparece também no seletor do topo. '
+        + 'Para acabar com a ambiguidade, renomeie um deles pelo ✎ da linha.');
+      av.style.cssText = 'margin:0 0 8px;padding:7px 10px;border:1px solid var(--line);'
+        + 'border-left:3px solid var(--warn);border-radius:6px;background:var(--surface-2)';
+      corpo.appendChild(av);
+    }
     if (ABA_PORT === 'encerrados') { tabelaEncerrados(fechados); return; }
     if (ABA_PORT === 'pausados') { tabelaPausados(parados); return; }
     const alvo = porCliente(ativos);
@@ -4721,6 +4769,7 @@ function renderOverview() {
       const tdc = el('td', '', m.client || '—'); tdc.style.color = m.client ? 'var(--ink-2)' : 'var(--ink-3)';
       tr.appendChild(tdc);
       const tdn = el('td', '', m.name || 'Projeto'); tdn.style.fontWeight = '600';
+      marcarHomonimo(tdn, it, hom);
       if (mereceEncerrar(m, i2)) {
         // terminou tudo: o sistema levanta a mão, mas não encerra sozinho —
         // 100% técnico não quer dizer aceite, medição e nota emitida
@@ -11789,12 +11838,24 @@ $('#btnImport').addEventListener('click', () => {
 function renderProjectList() {
   ST.portfolioEm = 0;                       // a lista mudou: o portfólio precisa ser relido
   const sel = $('#projSel'); sel.textContent = '';
+  /* O seletor mostra "Cliente · Projeto". Com dois projetos de mesmo nome no
+     mesmo cliente, as duas opções ficavam idênticas e não havia como escolher
+     a certa — o código curto resolve isso, e só aparece onde é necessário. */
+  const vistos = new Map();
+  for (const p of ST.projects) {
+    const atual0 = p.id === ST.pid;
+    const k = (((atual0 ? (ST.P.meta.client || '') : (p.client || '')).trim().toLowerCase())
+      + '\u0000' + ((atual0 ? (ST.P.meta.name || p.name) : p.name) || '').trim().toLowerCase());
+    vistos.set(k, (vistos.get(k) || 0) + 1);
+  }
   for (const p of ST.projects) {
     // o projeto aberto usa o que está em memória, que pode ter acabado de mudar
     const atual = p.id === ST.pid;
     const nome = atual ? (ST.P.meta.name || p.name) : p.name;
     const cli = atual ? (ST.P.meta.client || '') : (p.client || '');
-    const o = el('option', '', cli ? cli + ' · ' + nome : nome);
+    const k = ((cli || '').trim().toLowerCase() + '\u0000' + (nome || '').trim().toLowerCase());
+    const marca = (vistos.get(k) || 1) > 1 ? '  #' + codigoCurto(p.id) : '';
+    const o = el('option', '', (cli ? cli + ' · ' + nome : nome) + marca);
     o.value = p.id; sel.appendChild(o);
   }
   sel.value = ST.pid;
