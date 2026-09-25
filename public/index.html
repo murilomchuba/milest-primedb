@@ -1006,7 +1006,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-25.4';
+const VERSAO = '2026-09-25.5';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -8470,13 +8470,22 @@ function janelaRelatorioDiario() {
     const bAss = el('button', 'btn', 'Copiar assunto');
     bAss.addEventListener('click', async () =>
       toast(await diCopiarTexto(diAssunto(iData.value || todayISO())) ? 'Assunto copiado.' : 'Não consegui copiar.'));
-    const bPdf = el('button', 'btn', '⤓ PDF');
-    bPdf.addEventListener('click', async () => {
-      bPdf.disabled = true;
-      try { await diBaixarPDF(iData.value || todayISO(), sEsc.value); }
-      catch (e) { toast('Não consegui gerar o PDF.'); }
-      bPdf.disabled = false;
-    });
+    /* Três saídas para três hábitos: colar no e-mail, mandar a imagem no
+       WhatsApp, anexar o arquivo para arquivar. A imagem sai numa folha só,
+       da altura do conteúdo — relatório cortado ao meio não serve de print. */
+    const baixar = (rot, dica, fn) => {
+      const b2 = el('button', 'btn', rot); b2.title = dica;
+      b2.addEventListener('click', async () => {
+        b2.disabled = true;
+        try { await fn(iData.value || todayISO(), sEsc.value); }
+        catch (e) { toast('Não consegui gerar o arquivo: ' + ((e && e.message) || 'erro')); }
+        b2.disabled = false;
+      });
+      return b2;
+    };
+    const bPng = baixar('⤓ PNG', 'Imagem única, da altura do conteúdo — para colar numa conversa', (d, e2) => diBaixarImagem(d, e2, 'png'));
+    const bJpg = baixar('⤓ JPG', 'Mesma imagem, arquivo mais leve', (d, e2) => diBaixarImagem(d, e2, 'jpg'));
+    const bPdf = baixar('⤓ PDF', 'Folhas A4, para anexar e arquivar', diBaixarPDF);
     const bCop = el('button', 'btn primary', 'Copiar para o e-mail');
     bCop.addEventListener('click', async () => {
       const dia = iData.value || todayISO();
@@ -8489,19 +8498,33 @@ function janelaRelatorioDiario() {
         : 'Não deu para copiar sozinho — selecione a área branca e copie.');
     });
     const bF = el('button', 'btn', 'Fechar'); bF.addEventListener('click', close);
-    linha.appendChild(bF); linha.appendChild(bAss); linha.appendChild(bPdf); linha.appendChild(bCop);
+    linha.appendChild(bF); linha.appendChild(bAss); linha.appendChild(bPng); linha.appendChild(bJpg); linha.appendChild(bPdf); linha.appendChild(bCop);
     body.appendChild(linha);
   }, []);
   const cx = document.querySelector('.modalwrap .modal'); if (cx) cx.classList.add('larga');
 }
 
-/** O PDF é o mesmo conteúdo em folha A4, para quem precisa do arquivo. */
-async function diBaixarPDF(dia, escopo) {
+/** Desenha o relatório. Em 'a4' pagina em folhas deitadas, para o PDF; em
+ *  'unica' devolve UMA folha da altura exata do conteúdo, que é o que serve
+ *  para imagem: print de relatório cortado ao meio não serve para nada, e
+ *  ninguém quer receber quatro arquivos para ler um relatório. */
+function diMontarFolhas(dia, escopo, modo) {
   const m = ST.P.meta, linhas = diLinhasRelatorio(dia, escopo);
-  const W = 842, H = 595, M = 28;            // A4 deitado: a tabela é larga
+  const W = 842, M = 28, TOPO = 78, RODAPE = 28;
+  const cx = [0, 46, 118, 400, 470, 530, 620, 672, 790];
+  const largDesc = cx[3] - cx[2] - 10, largObs = W - 2 * M - cx[7] - 10;
+
+  // mede antes de desenhar: é a altura que decide se pagina e qual folha usar
+  const medidas = linhas.map(a => {
+    const desc = envolver(String(a.descricao || '').replace(/\n+/g, ' · '), largDesc, 7.5);
+    const obs = a.obs ? envolver(String(a.obs).replace(/\n+/g, ' '), largObs, 7) : [];
+    return { a: a, desc: desc, obs: obs, alt: Math.max(desc.length * 9, obs.length * 8.5, 12) + 7 };
+  });
+
   const folhas = [];
-  let pg, T, R, L, y;
-  const nova = () => {
+  let pg, T, R, L, y, H;
+  const nova = (altura) => {
+    H = altura;
     pg = sv('svg', { xmlns: SVGNS, viewBox: '0 0 ' + W + ' ' + H, width: W, height: H });
     T = (x, yy, t, fs, peso, cor, anc) => {
       const e = sv('text', { x: x, y: yy, 'font-size': fs, 'font-weight': peso || 400, fill: cor || CORES_ST.tinta, 'font-family': FONTE_ST });
@@ -8516,31 +8539,36 @@ async function diBaixarPDF(dia, escopo) {
     T(W - M - 10, 41, 'Atualizado ' + fmtBR(dia), 10, 700, '#FFFFFF', 'end');
     R(M, 50, W - 2 * M, 16, '#E9EFF5');
     const per = m.diarioInicio ? 'Histórico consolidado: ' + fmtBR(m.diarioInicio) + ' → ' + fmtBR(dia) + '  ·  ' : '';
-    T(M + 10, 61, per + fmtNum(linhas.length) + ' atividade(s)', 8, 400, CORES_ST.tinta2);
-    T(W - M - 10, H - 16, 'página ' + (folhas.length + 1), 7.5, 400, CORES_ST.tinta3, 'end');
+    const cont = DI_STATUS.map(s => ({ s: s, n: linhas.filter(a => a.status === s.v).length })).filter(x => x.n);
+    T(M + 10, 61, per + fmtNum(linhas.length) + ' atividade(s)' +
+      (cont.length ? '  ·  ' + cont.map(x => x.s.v + ': ' + x.n).join('   ') : ''), 8, 400, CORES_ST.tinta2);
     T(M, H - 16, 'Gerado pelo MILEST em ' + fmtBR(todayISO()), 7.5, 400, CORES_ST.tinta3);
-    y = 78;
+    if (modo === 'a4') T(W - M - 10, H - 16, 'página ' + (folhas.length + 1), 7.5, 400, CORES_ST.tinta3, 'end');
+    y = TOPO;
     folhas.push(pg);
   };
-  const cx = [0, 46, 118, 400, 470, 530, 620, 672, 790];
   const cabec = () => {
     R(M, y - 10, W - 2 * M, 14, '#014479');
-    const rot = ['ID', 'MÓDULO', 'ATIVIDADE / DETALHES', 'RESP.', 'TIME', 'STATUS', 'PRAZO', 'OBSERVAÇÕES'];
-    rot.forEach((r, i) => T(M + cx[i] + 4, y, r, 7, 700, '#FFFFFF'));
+    ['ID', 'MÓDULO', 'ATIVIDADE / DETALHES', 'RESP.', 'TIME', 'STATUS', 'PRAZO', 'OBSERVAÇÕES']
+      .forEach((r, i) => T(M + cx[i] + 4, y, r, 7, 700, '#FFFFFF'));
     y += 16;
   };
-  nova(); cabec();
-  linhas.forEach((a, idx) => {
-    const desc = envolver(String(a.descricao || '').replace(/\n+/g, ' · '), cx[3] - cx[2] - 10, 7.5);
-    const obs = a.obs ? envolver(String(a.obs).replace(/\n+/g, ' '), W - 2 * M - cx[7] - 10, 7) : [];
-    const alt = Math.max(desc.length * 9, obs.length * 8.5, 12) + 7;
-    if (y + alt > H - 28) { nova(); cabec(); }
-    if (idx % 2) R(M, y - 9, W - 2 * M, alt, '#F6F8F9');
-    const s = diSt(a.status);
+
+  const ALT_A4 = 595;
+  const total = medidas.reduce((s, x) => s + x.alt, 0);
+  // a folha única termina logo depois da última linha: sobra de papel em
+  // branco no fim de um print parece relatório interrompido
+  nova(modo === 'a4' ? ALT_A4 : Math.max(150, TOPO + 16 + total + RODAPE));
+  cabec();
+
+  medidas.forEach((mm, idx) => {
+    if (modo === 'a4' && y + mm.alt > H - RODAPE) { nova(ALT_A4); cabec(); }
+    const a = mm.a, s = diSt(a.status);
+    if (idx % 2) R(M, y - 9, W - 2 * M, mm.alt, '#F6F8F9');
     T(M + cx[0] + 4, y, a.codigo || '', 7.5, 700, '#014479');
     T(M + cx[1] + 4, y, String(a.modulo || '').slice(0, 16), 7.5, 400, CORES_ST.tinta2);
     let yy = y;
-    desc.forEach(ln => { T(M + cx[2] + 4, yy, ln, 7.5, 400, CORES_ST.tinta); yy += 9; });
+    mm.desc.forEach(ln => { T(M + cx[2] + 4, yy, ln, 7.5, 400, CORES_ST.tinta); yy += 9; });
     T(M + cx[3] + 4, y, String(a.responsavel || '').slice(0, 14), 7.5, 400, CORES_ST.tinta2);
     T(M + cx[4] + 4, y, String(a.time || '').slice(0, 12), 7.5, 400, CORES_ST.tinta2);
     T(M + cx[5] + 4, y, a.status || '', 7.5, 700, s.hex[0]);
@@ -8548,15 +8576,44 @@ async function diBaixarPDF(dia, escopo) {
     T(M + cx[6] + 4, y, fmtBR(a.prazo), 7.5, atras ? 700 : 400, atras ? '#B3322B' : CORES_ST.tinta2);
     if (atras) T(M + cx[6] + 4, y + 8, 'atrasada', 6.5, 700, '#B3322B');
     let yo = y;
-    obs.forEach(ln => { T(M + cx[7] + 4, yo, ln, 7, 400, '#8A5A00'); yo += 8.5; });
-    y += alt;
+    mm.obs.forEach(ln => { T(M + cx[7] + 4, yo, ln, 7, 400, '#8A5A00'); yo += 8.5; });
+    y += mm.alt;
     L(M, y - 7, W - M, y - 7, '#E3E9ED', 0.5);
   });
   if (!linhas.length) T(M + 10, y + 6, 'Nenhuma atividade registrada em ' + fmtBR(dia) + '.', 9, 400, CORES_ST.tinta3);
+  return { folhas: folhas, W: W, H: H };
+}
+
+const diNomeArquivo = dia => 'daily-' + slug((ST.P.meta.client || '') + '-' + (ST.P.meta.name || 'projeto')) + '-' + dia;
+
+async function diBaixarPDF(dia, escopo) {
+  const r = diMontarFolhas(dia, escopo, 'a4');
   const pgs = [];
-  for (const f of folhas) pgs.push(await svgParaJPEG(f, W, H, 2.4, 0.94));
-  await offerDownload('daily-' + slug((m.client || '') + '-' + (m.name || 'projeto')) + '-' + dia + '.pdf',
-    new Blob([montarPDFMulti(pgs)], { type: 'application/pdf' }));
+  for (const f of r.folhas) pgs.push(await svgParaJPEG(f, r.W, 595, 2.4, 0.94));
+  await offerDownload(diNomeArquivo(dia) + '.pdf', new Blob([montarPDFMulti(pgs)], { type: 'application/pdf' }));
+}
+
+/** PNG para colar em conversa, JPG quando o peso importa mais que a nitidez. */
+async function diBaixarImagem(dia, escopo, tipo) {
+  const r = diMontarFolhas(dia, escopo, 'unica');
+  const pg = r.folhas[0];
+  const ESC = 2;                              // legível em tela cheia e no celular
+  const txt = new XMLSerializer().serializeToString(pg);
+  const url = URL.createObjectURL(new Blob(['<?xml version="1.0" encoding="UTF-8"?>' + txt], { type: 'image/svg+xml;charset=utf-8' }));
+  try {
+    const img = await new Promise((ok, err) => {
+      const im = new Image(); im.onload = () => ok(im); im.onerror = () => err(new Error('desenho')); im.src = url;
+    });
+    const cv = document.createElement('canvas');
+    cv.width = Math.round(r.W * ESC); cv.height = Math.round(r.H * ESC);
+    const ctx = cv.getContext('2d');
+    ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, 0, cv.width, cv.height);   // JPEG não tem transparência
+    ctx.drawImage(img, 0, 0, cv.width, cv.height);
+    const png = tipo === 'jpg';
+    const blob = await new Promise(ok => cv.toBlob(ok, png ? 'image/jpeg' : 'image/png', png ? 0.93 : undefined));
+    if (!blob) throw new Error('imagem');
+    await offerDownload(diNomeArquivo(dia) + (png ? '.jpg' : '.png'), blob);
+  } finally { setTimeout(() => URL.revokeObjectURL(url), 4000); }
 }
 
 /* ============ orquestração ============ */
