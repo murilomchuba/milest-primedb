@@ -1005,7 +1005,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-25.8';
+const VERSAO = '2026-09-25.9';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -8249,14 +8249,14 @@ async function importarDiario(txt, modo) {
   const mapa = achado.mapa;
   const corpo = linhas.slice(achado.linha + 1);
   if (modo === 'replace') {
-    for (const it of (DIARIO || []).slice()) await apagarItemDiario(it.id);
-    DIARIO = [];
+    if (!await apagarDiarioTodo()) { toast('Não consegui limpar o diário antes de importar.'); return; }
   }
   const g = (l, k) => (mapa[k] != null) ? String(l[mapa[k]] == null ? '' : l[mapa[k]]).trim() : '';
   /* Prestação de contas do que entrou e do que ficou de fora. Uma importação
      que diz só "47 importadas" obriga quem usa a conferir na mão se faltou
      alguma coisa — e a desconfiar do sistema quando o número surpreende. */
   const conta = { lidas: linhas.length, cabecalho: achado.linha + 1, brancas: 0, semDescricao: 0, exemplo: 0, falhas: 0 };
+  const novos = [];
   let n = 0, puladas = 0;
   for (const l of corpo) {
     const desc = g(l, 'descricao');
@@ -8280,11 +8280,65 @@ async function importarDiario(txt, modo) {
       obs: g(l, 'obs'),
       atualizadoEm: diData(g(l, 'atualizadoEm')) || todayISO()
     });
-    if (await salvarItemDiario(it)) n++; else conta.falhas++;
+    novos.push(it);
   }
+  /* Gravação em LOTE, não uma a uma. Noventa e cinco idas ao banco em fila são
+     noventa e cinco chances de uma falhar — e quando uma falha no meio, a
+     memória fica com tudo e o banco com um pedaço: a tela mostra o número
+     certo até alguém recarregar, e aí some metade. Em lote, ou o bloco inteiro
+     entra ou nenhum dele entra, e o relatório diz qual bloco ficou de fora. */
+  const r = await gravarDiarioEmLote(novos);
+  n = r.gravados; conta.falhas = r.falhas;
   conta.entraram = n;
   renderDiario();
   relatarImportacao(conta);
+}
+
+/** O Firestore aceita até 500 operações por lote; 400 deixa margem. */
+async function gravarDiarioEmLote(itens) {
+  let gravados = 0, falhas = 0;
+  if (!itens.length) return { gravados: 0, falhas: 0 };
+  if (ST.mode !== 'db') {
+    DIARIO = (DIARIO || []).concat(itens).sort(diPorCodigo);
+    try {
+      const all = localLoad() || { projects: {} };
+      all.projects[ST.pid] = all.projects[ST.pid] || {};
+      all.projects[ST.pid].diario = JSON.parse(JSON.stringify(DIARIO));
+      localStorage.setItem(LSKEY, JSON.stringify(all));
+      return { gravados: itens.length, falhas: 0 };
+    } catch (e) { return { gravados: 0, falhas: itens.length }; }
+  }
+  for (let i = 0; i < itens.length; i += 400) {
+    const bloco = itens.slice(i, i + 400);
+    try {
+      const lote = ST.db.batch();
+      for (const it of bloco) lote.set(ST.db.doc(cDiario() + '/' + it.id), JSON.parse(JSON.stringify(it)));
+      await lote.commit();
+      DIARIO = (DIARIO || []).concat(bloco);
+      gravados += bloco.length;
+    } catch (e) {
+      falhas += bloco.length;
+      toast('Um bloco não gravou: ' + ((e && e.message) || 'erro'));
+    }
+  }
+  DIARIO.sort(diPorCodigo);
+  return { gravados: gravados, falhas: falhas };
+}
+
+/** Limpar antes de substituir, também em lote. */
+async function apagarDiarioTodo() {
+  const todos = (DIARIO || []).slice();
+  if (!todos.length) return true;
+  if (ST.mode !== 'db') { DIARIO = []; return true; }
+  try {
+    for (let i = 0; i < todos.length; i += 400) {
+      const lote = ST.db.batch();
+      for (const it of todos.slice(i, i + 400)) lote.delete(ST.db.doc(cDiario() + '/' + it.id));
+      await lote.commit();
+    }
+    DIARIO = [];
+    return true;
+  } catch (e) { return false; }
 }
 
 /** O que o importador viu, em números. Silencioso quando tudo entrou; explica
