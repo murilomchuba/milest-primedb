@@ -1006,7 +1006,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-28.1';
+const VERSAO = '2026-09-28.2';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -3845,15 +3845,19 @@ function celulaExcedente(h) {
   return td;
 }
 
+/* A ordem da carteira, num lugar só: primeiro de quem, depois o quê. A tabela
+   do Portfólio e o seletor do topo usam esta mesma função — quando duas telas
+   listam a mesma coisa em ordens diferentes, quem procura desconfia da lista. */
+function compararClienteProjeto(ca, na, cb, nb) {
+  const a = (ca || '').trim(), b = (cb || '').trim();
+  if (!a !== !b) return a ? -1 : 1;              // sem cliente fica por último
+  const d = COTEJO.compare(a, b);
+  return d !== 0 ? d : COTEJO.compare(na || '', nb || '');
+}
 function porCliente(lista) {
-  const cli = it => ((it.meta && it.meta.client) || '').trim();
+  const cli = it => (it.meta && it.meta.client) || '';
   const nom = it => (it.meta && it.meta.name) || '';
-  return (lista || []).slice().sort((a, b) => {
-    const ca = cli(a), cb = cli(b);
-    if (!ca !== !cb) return ca ? -1 : 1;          // sem cliente fica por último
-    const d = COTEJO.compare(ca, cb);
-    return d !== 0 ? d : COTEJO.compare(nom(a), nom(b));
-  });
+  return (lista || []).slice().sort((a, b) => compararClienteProjeto(cli(a), nom(a), cli(b), nom(b)));
 }
 /* Dois projetos podem ter, de verdade, o mesmo nome no mesmo cliente: uma
    segunda onda, um contrato novo com o escopo repetido, um cronograma refeito
@@ -11964,22 +11968,29 @@ function renderProjectList() {
   /* O seletor mostra "Cliente · Projeto". Com dois projetos de mesmo nome no
      mesmo cliente, as duas opções ficavam idênticas e não havia como escolher
      a certa — o código curto resolve isso, e só aparece onde é necessário. */
+  /* O projeto aberto usa o que está em memória, que pode ter acabado de mudar
+     — por isso o nome e o cliente de cada item são resolvidos antes de
+     qualquer coisa, e é sobre esses valores que a ordem e a contagem de
+     homônimos trabalham. */
+  const itens = ST.projects.map(p => {
+    const atual = p.id === ST.pid;
+    return {
+      id: p.id,
+      nome: (atual ? (ST.P.meta.name || p.name) : p.name) || 'Projeto',
+      cli: (atual ? (ST.P.meta.client || '') : (p.client || ''))
+    };
+  });
   const vistos = new Map();
-  for (const p of ST.projects) {
-    const atual0 = p.id === ST.pid;
-    const k = (((atual0 ? (ST.P.meta.client || '') : (p.client || '')).trim().toLowerCase())
-      + '\u0000' + ((atual0 ? (ST.P.meta.name || p.name) : p.name) || '').trim().toLowerCase());
+  for (const it of itens) {
+    const k = it.cli.trim().toLowerCase() + '\u0000' + it.nome.trim().toLowerCase();
     vistos.set(k, (vistos.get(k) || 0) + 1);
   }
-  for (const p of ST.projects) {
-    // o projeto aberto usa o que está em memória, que pode ter acabado de mudar
-    const atual = p.id === ST.pid;
-    const nome = atual ? (ST.P.meta.name || p.name) : p.name;
-    const cli = atual ? (ST.P.meta.client || '') : (p.client || '');
-    const k = ((cli || '').trim().toLowerCase() + '\u0000' + (nome || '').trim().toLowerCase());
-    const marca = (vistos.get(k) || 1) > 1 ? '  #' + codigoCurto(p.id) : '';
-    const o = el('option', '', (cli ? cli + ' · ' + nome : nome) + marca);
-    o.value = p.id; sel.appendChild(o);
+  itens.sort((a, b) => compararClienteProjeto(a.cli, a.nome, b.cli, b.nome));
+  for (const it of itens) {
+    const k = it.cli.trim().toLowerCase() + '\u0000' + it.nome.trim().toLowerCase();
+    const marca = (vistos.get(k) || 1) > 1 ? '  #' + codigoCurto(it.id) : '';
+    const o = el('option', '', (it.cli ? it.cli + ' · ' + it.nome : it.nome) + marca);
+    o.value = it.id; sel.appendChild(o);
   }
   sel.value = ST.pid;
   sel.title = (ST.P.meta.client ? ST.P.meta.client + ' · ' : '') + (ST.P.meta.name || '');
