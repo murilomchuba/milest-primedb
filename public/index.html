@@ -1006,7 +1006,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-25.12';
+const VERSAO = '2026-09-28.1';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -3819,6 +3819,32 @@ const COTEJO = (() => {
    assim que a carteira é lida na prática: primeiro de quem, depois o quê.
    Projeto sem cliente vai para o fim: string vazia ordenaria antes de tudo e
    os "—" abririam a lista, que não é o que se espera de uma lista por cliente. */
+/* Quanto o projeto passou do previsto, em % das horas contratadas. Só o
+   estouro: dentro do orçamento a célula fica muda, porque "0%" e "—" contam
+   histórias diferentes e a segunda é a verdadeira. Sem previsto cadastrado não
+   há com o que comparar, e fingir que há seria pior do que não mostrar. */
+function celulaExcedente(h) {
+  const hp = h || { prev: 0, feitas: 0 };
+  const td = el('td', 'num');
+  if (!(hp.prev > 0)) {
+    td.textContent = '—'; td.style.color = 'var(--ink-3)';
+    td.title = 'Sem horas previstas cadastradas — use o ✎ da linha para informar';
+    return td;
+  }
+  const sobra = hp.prev - hp.feitas;
+  if (sobra >= 0) {
+    td.textContent = '—'; td.style.color = 'var(--ink-3)';
+    td.title = 'Dentro do previsto: ainda há ' + fmtH(sobra) + ' de ' + fmtH(hp.prev);
+    return td;
+  }
+  const excesso = -sobra;
+  td.textContent = '+' + fmtNum(excesso / hp.prev * 100, 1).replace('.', ',') + '%';
+  td.style.color = 'var(--critical)';
+  td.style.fontWeight = '600';
+  td.title = 'Consumiu ' + fmtH(excesso) + ' além das ' + fmtH(hp.prev) + ' previstas';
+  return td;
+}
+
 function porCliente(lista) {
   const cli = it => ((it.meta && it.meta.client) || '').trim();
   const nom = it => (it.meta && it.meta.name) || '';
@@ -4597,7 +4623,7 @@ function renderOverview() {
     const hr = el('tr');
     const cols = [['#', 'num'], ['Cliente', ''], ['Projeto', ''], ['Encerrado em', 'num'], ['Início', 'num'], ['Término', 'num'],
     ['Duração', 'num'], ['vs. base', 'num'], ['% Realiz.', 'num'], ['IDP', 'num'], ['IDC', 'num'],
-    ['H. prev.', 'num'], ['H. real.', 'num'], ['Saldo', 'num'], ['', '']];
+    ['H. prev.', 'num'], ['H. real.', 'num'], ['Saldo', 'num'], ['% exced.', 'num'], ['', '']];
     for (const c of cols) hr.appendChild(el('th', c[1], c[0]));
     const th = el('thead'); th.appendChild(hr); tb.appendChild(th);
     const tbo = el('tbody');
@@ -4644,6 +4670,7 @@ function renderOverview() {
       const tds = el('td', 'num', h.prev ? fmtH(h.saldo) : '—');
       if (h.prev) tds.style.color = h.saldo < 0 ? 'var(--critical)' : 'var(--ok)';
       tr.appendChild(tds);
+      tr.appendChild(celulaExcedente(h));
       tr.appendChild(acoesDaLinha(it));
       tbo.appendChild(tr);
     }
@@ -4773,7 +4800,7 @@ function renderOverview() {
     const hr = el('tr');
     const cols = [['#', 'num'], ['Cliente', ''], ['Projeto', ''], ['Início', 'num'], ['Término', 'num'], ['Duração', 'num'],
     ['% Planej.', 'num'], ['% Realiz.', 'num'], ['IDP', 'num'], ['Situação', ''], ['IDC', 'num'],
-    ['H. prev.', 'num'], ['H. real.', 'num'], ['Saldo', 'num'], ['Atividades', 'num'], ['', '']];
+    ['H. prev.', 'num'], ['H. real.', 'num'], ['Saldo', 'num'], ['% exced.', 'num'], ['Atividades', 'num'], ['', '']];
     for (const c of cols) hr.appendChild(el('th', c[1], c[0]));
     const th = el('thead'); th.appendChild(hr); tb.appendChild(th);
     const tbo = el('tbody');
@@ -4790,8 +4817,8 @@ function renderOverview() {
       if (it.erro) {
         tr.appendChild(el('td', '', ''));
         tr.appendChild(el('td', '', it.meta.name || 'Projeto'));
-        // (# + cliente + nome + aviso com colSpan 12 + ações = as 16 colunas)
-        const td = el('td', '', 'não foi possível ler este projeto'); td.colSpan = 12;
+        // (# + cliente + nome + aviso com colSpan 13 + ações = as 17 colunas)
+        const td = el('td', '', 'não foi possível ler este projeto'); td.colSpan = 13;
         td.style.color = 'var(--critical)'; tr.appendChild(td);
         tr.appendChild(acoesDaLinha(it));
         tbo.appendChild(tr); continue;
@@ -4867,6 +4894,7 @@ function renderOverview() {
       if (hp.prev) tdsa.style.color = hp.saldo < 0 ? 'var(--critical)' : 'var(--ok)';
       if (hp.prev && hp.saldo < 0) tdsa.title = 'Estourou o previsto em ' + fmtH(-hp.saldo);
       tr.appendChild(tdsa);
+      tr.appendChild(celulaExcedente(hp));
       tr.appendChild(el('td', 'num', fmtNum(i2.feitas) + ' / ' + fmtNum(i2.folhas)));
       tr.appendChild(acoesDaLinha(it));
       tbo.appendChild(tr);
@@ -9197,10 +9225,15 @@ function resumoPortfolio(lista) {
   const bons = (lista || []).filter(x => x && !x.erro && x.ind);
   const cont = { saudavel: 0, atencao: 0, critico: 0, sem: 0 };
   let prev = 0, feitas = 0, somaIDP = 0, nIDP = 0, somaIDC = 0, nIDC = 0;
+  /* O saldo é líquido: um projeto que economizou 50h anula outro que estourou
+     50h e o total aparece zerado, como se não houvesse problema. O estouro é
+     somado projeto a projeto, sem compensação — é o tamanho real do rombo. */
+  let excedido = 0, nExced = 0;
   let EVh = 0, ACh = 0, pesoReal = 0, pesoPlan = 0, peso = 0, pesoAv = 0;
   for (const x of bons) {
     const i = x.ind, h = i.horas || { prev: 0, feitas: 0 };
     prev += h.prev; feitas += h.feitas;
+    if (h.prev > 0 && h.feitas > h.prev) { excedido += h.feitas - h.prev; nExced++; }
     cont[semaforoDe(i).id]++;
     if (i.IDP != null) { somaIDP += i.IDP; nIDP++; }
     if (i.IDC != null) { somaIDC += i.IDC; nIDC++; }
@@ -9212,6 +9245,8 @@ function resumoPortfolio(lista) {
   return {
     n: bons.length, comErro: (lista || []).length - bons.length, cont: cont,
     prev: prev, feitas: feitas, saldo: prev - feitas,
+    excedido: excedido, nExced: nExced,
+    pctExced: prev > 0 ? excedido / prev * 100 : null,
     taxa: prev > 0 ? feitas / prev * 100 : null,
     avanco: peso > 0 ? pesoAv / peso : 0,
     IDPmedio: nIDP ? somaIDP / nIDP : null, nIDP: nIDP,
@@ -10045,6 +10080,11 @@ function renderPainel() {
     tile('Horas consumidas', fmtNum(r.feitas), 'lançadas na aba Horas');
     tile('Saldo de horas', fmtNum(r.saldo), r.saldo < 0 ? 'o portfólio estourou o previsto' : 'ainda disponível',
       r.prev ? (r.saldo < 0 ? 'bad' : 'ok') : '');
+    tile('Horas excedidas', fmtNum(r.excedido),
+      r.excedido > 0
+        ? r.nExced + ' projeto(s) passaram do previsto · ' + pct1(r.pctExced) + ' do previsto total'
+        : (r.prev ? 'nenhum projeto passou do previsto' : 'sem horas previstas cadastradas'),
+      r.excedido > 0 ? 'bad' : (r.prev ? 'ok' : ''));
     tile('Taxa de consumo', pct1(r.taxa), 'contra ' + pct1(r.avanco) + ' de avanço físico',
       r.taxa == null ? '' : (r.taxa > r.avanco + 10 ? 'bad' : r.taxa > r.avanco + 3 ? 'warn' : 'ok'));
     tile('IDP médio', num2(r.IDPport), 'ponderado por duração · simples ' + num2(r.IDPmedio),
@@ -10055,6 +10095,9 @@ function renderPainel() {
     corpo.appendChild(el('div', 'tagline',
       'IDP é o quanto o projeto entregou dividido pelo que deveria ter entregue na data de status. ' +
       'IDC é o que entregou dividido pelo que consumiu — horas previstas × avanço ÷ horas lançadas. ' +
+      'Repare na diferença entre os dois cartões de horas: o saldo é líquido, então um projeto que ' +
+      'economizou anula outro que estourou e o total pode parecer saudável; “horas excedidas” soma só ' +
+      'os estouros, projeto a projeto, sem compensação — é o que de fato foi trabalhado além do contratado. ' +
       'Acima de 1,00, os dois são boa notícia. O semáforo dos projetos está saindo pelo ' + semBase() +
       '; o seletor no alto desta tela troca para o outro.'));
 
@@ -10119,11 +10162,14 @@ function desenharPainelSVG(lista, LW, LH) {
     ['Horas previstas', fmtNum(r.prev), r.comHoras + ' projeto(s)', 'var(--ink)'],
     ['Horas consumidas', fmtNum(r.feitas), 'lançadas', 'var(--ink)'],
     ['Saldo', fmtNum(r.saldo), r.saldo < 0 ? 'estourou' : 'disponível', r.saldo < 0 ? '#C00000' : '#1F8A5B'],
+    ['Horas excedidas', fmtNum(r.excedido),
+      r.excedido > 0 ? r.nExced + ' proj. · ' + pct1(r.pctExced) + ' do previsto' : 'nenhum estouro',
+      r.excedido > 0 ? '#C00000' : '#1F8A5B'],
     ['Consumo', pct1(r.taxa), 'avanço ' + pct1(r.avanco), 'var(--ink)'],
     ['IDP médio', num2(r.IDPport), 'ponderado', r.IDPport != null && r.IDPport < 1 ? '#C00000' : '#1F8A5B'],
     ['IDC médio', num2(r.IDCport), 'ponderado', r.IDCport != null && r.IDCport < 0.995 ? '#C00000' : '#1F8A5B']
   ];
-  const nC = 5, gapC = 8, cw = (PW - 2 * M - (nC - 1) * gapC) / nC, ch = 62;
+  const nC = 6, gapC = 8, cw = (PW - 2 * M - (nC - 1) * gapC) / nC, ch = 62;
   y += 14;
   cards.forEach((c, i) => {
     const cx = M + (i % nC) * (cw + gapC), cy = y + Math.floor(i / nC) * (ch + gapC);

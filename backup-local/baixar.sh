@@ -25,6 +25,20 @@ if [ -z "${GCLOUD:-}" ]; then
   log "ERRO: gcloud não encontrado. Veja o LEIA-ME.md."; exit 1
 fi
 
+# O gcloud exige Python 3.10+ e o macOS ainda entrega 3.9. O pacote do gcloud
+# traz o seu próprio Python, mas só depois que o install.sh roda — e uma tarefa
+# agendada não herda variável de ambiente nenhuma. Então aponto na mão.
+if [ -z "${CLOUDSDK_PYTHON:-}" ]; then
+  for c in "$HOME/google-cloud-sdk/platform/bundledpython/bin/python3" \
+           "$HOME"/google-cloud-sdk/platform/bundledpython*/bin/python3 \
+           /usr/local/bin/python3.1[0-9] /opt/homebrew/bin/python3.1[0-9] \
+           /Library/Frameworks/Python.framework/Versions/3.1[0-9]/bin/python3; do
+    [ -x "${c:-}" ] || continue
+    v=$("$c" -c 'import sys;print(sys.version_info[0]*100+sys.version_info[1])' 2>/dev/null || echo 0)
+    if [ "${v:-0}" -ge 310 ] 2>/dev/null; then export CLOUDSDK_PYTHON="$c"; break; fi
+  done
+fi
+
 # onde guardar: Google Drive se houver, senão OneDrive, senão Documentos
 DESTINO=""
 for d in "$HOME/Library/CloudStorage"/GoogleDrive-*/"My Drive" \
