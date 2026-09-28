@@ -114,18 +114,28 @@ button,input,select,textarea{font:inherit;color:inherit}
    reticências —, porque um rótulo de aba partido ao meio é o que fica feio. */
 /* A tira de abas é a última a ceder: quando nem assim couber, ela rola por
    dentro em vez de empurrar a página inteira. */
+/* As abas são texto, não botões: fundo da própria barra, sem moldura, e a
+   ativa marcada por um traço embaixo. Fonte maior porque esta é a navegação
+   principal do sistema — era o único lugar com 12,5px numa tela de 13px. */
 .tabs{
-  display:flex;gap:2px;margin-left:auto;flex:0 1 auto;min-width:0;
+  display:flex;gap:0;margin-left:auto;flex:0 1 auto;min-width:0;align-self:stretch;
   overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none;
-  background:var(--surface-2);padding:3px;border-radius:8px;border:1px solid var(--line);
 }
 .tabs::-webkit-scrollbar{display:none}
 .tab{
-  border:0;background:transparent;padding:5px 11px;border-radius:5px;cursor:pointer;white-space:nowrap;
-  font-family:var(--f-display);font-weight:600;font-size:12.5px;color:var(--ink-2);
+  border:0;background:transparent;padding:0 13px;border-radius:0;cursor:pointer;white-space:nowrap;
+  font-family:var(--f-display);font-weight:500;font-size:14px;color:var(--ink-2);
+  display:flex;align-items:center;align-self:stretch;
 }
-.tab:hover{color:var(--ink)}
-.tab[aria-selected="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.12)}
+.tab:hover{color:var(--accent);background:var(--surface-2)}
+.tab[aria-selected="true"]{color:var(--accent);font-weight:700;box-shadow:inset 0 -3px 0 var(--accent)}
+/* Os limiares abaixo foram MEDIDOS com as onze abas, não estimados: 14px cabe
+   até 1460, 13px até 1230, 12,3px até 1160, 11,6px até 1090. Cada um leva uma
+   folga de ~20px para absorver um nome de projeto mais longo no seletor.
+   Abaixo de 1090 as abas rolam, que é melhor do que encolher mais a fonte. */
+@media (max-width:1480px){ .tab{padding:0 10px;font-size:13px} }
+@media (max-width:1250px){ .tab{padding:0 8px;font-size:12.3px} }
+@media (max-width:1180px){ .tab{padding:0 6.5px;font-size:11.6px} }
 .syncdot{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--ink-3);font-family:var(--f-mono);min-width:0;flex:0 40 auto}
 .syncdot span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:140px}
 .syncdot i{width:7px;height:7px;border-radius:50%;background:var(--ink-3);display:block;flex:none}
@@ -389,17 +399,14 @@ td.ordem{color:var(--ink-3);font-family:var(--f-mono);font-size:11.5px;width:34p
   .projpick select{max-width:260px}
 }
 @media (max-width:1620px){
-  #userEmail{display:none}
-  .tab{padding:5px 8px;font-size:11.8px}
   .projpick select{max-width:240px}
 }
 @media (max-width:1400px){
-  .tab{padding:5px 6.5px;font-size:11.2px}
+  #userEmail{display:none}
   .projpick select{max-width:200px}
 }
 @media (max-width:1340px){
   .topbar .brand .mark{display:none}
-  .tab{padding:5px 6px;font-size:11px}
   .userchip .papel{display:none}
   .userchip .org{max-width:130px}
   .projpick select{max-width:170px}
@@ -771,12 +778,12 @@ body.embutido .view{height:100%}
   <div class="userchip" id="userChip" hidden><span class="org" id="orgChip" hidden></span><span class="papel" id="userRole" hidden></span><span id="userEmail"></span><button class="btn icon" id="btnSenha" title="Criar ou trocar a senha desta conta" hidden>Senha</button><button class="btn icon" id="btnSignOut" title="Sair da conta">Sair</button></div>
   <div class="tabs" role="tablist">
     <button class="tab" role="tab" data-view="overview" aria-selected="true">Portfólio</button>
-    <button class="tab" role="tab" data-view="kpi" aria-selected="false">Visão geral</button>
+    <button class="tab" role="tab" data-view="kpi" aria-selected="false">Visão</button>
     <button class="tab" role="tab" data-view="canvas" aria-selected="false">Canvas</button>
     <button class="tab" role="tab" data-view="schedule" aria-selected="false">Cronograma</button>
     <button class="tab" role="tab" data-view="resources" aria-selected="false">Recursos</button>
     <button class="tab" role="tab" data-view="horas" aria-selected="false" id="tabHoras">Horas</button>
-    <button class="tab" role="tab" data-view="status" aria-selected="false">Status Report</button>
+    <button class="tab" role="tab" data-view="status" aria-selected="false">Status</button>
     <button class="tab" role="tab" data-view="diario" aria-selected="false">Diário</button>
     <button class="tab" role="tab" data-view="docs" aria-selected="false">Documentos</button>
     <button class="tab" role="tab" data-view="curve" aria-selected="false">Curva S</button>
@@ -1006,7 +1013,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-28.2';
+const VERSAO = '2026-09-28.3';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -12538,6 +12545,17 @@ async function baixarMarcaProvisoria() {
   } catch (e) { }
 }
 
+/* "murilo.chuba@primedb.solutions" na barra é endereço de máquina ocupando o
+   lugar de um nome de gente. Vira "Murilo Chuba"; o endereço inteiro fica no
+   title, que é onde se procura quando a dúvida é qual conta está aberta. */
+function nomeDeExibicao(email) {
+  const parte = String(email || '').split('@')[0];
+  if (!parte) return '';
+  const nome = parte.replace(/[._-]+/g, ' ').trim()
+    .split(/\s+/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
+  return nome || parte;
+}
+
 function gateMsg(txt, isErr) {
   const p = $('#gateMsg'); p.textContent = txt; p.classList.toggle('err', !!isErr);
 }
@@ -12722,7 +12740,9 @@ async function bootFirebase(cfg) {
         return;
       }
       ST.perfil = perfil; ST.orgId = perfil.orgId;
-      $('#userEmail').textContent = user.email || '';
+      const elEmail = $('#userEmail');
+      elEmail.textContent = nomeDeExibicao(user.email || '');
+      elEmail.title = user.email || '';
       chip.hidden = false; gate.hidden = true;
       $('#btnSenha').hidden = false;
       // entrou com a senha temporária que o administrador passou: troca agora
