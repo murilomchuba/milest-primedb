@@ -132,6 +132,26 @@ async function expurgar(bucket, agora, dias) {
   return apagados;
 }
 
+/* O balde do Storage não existe até alguém ligar o Storage no console do
+   Firebase. Sem esta conferência o erro chega como "INTERNAL", que não diz
+   nada a quem está olhando a tela — e foi exatamente o que aconteceu. */
+async function conferirBalde(bucket) {
+  const nome = (bucket && bucket.name) || '(sem nome)';
+  let existe = false;
+  try {
+    const r = await bucket.exists();
+    existe = Array.isArray(r) ? r[0] : !!r;
+  } catch (e) {
+    throw new Error('não consegui falar com o armazenamento (' + nome + '): ' + ((e && e.message) || 'erro'));
+  }
+  if (!existe) {
+    throw new Error('o armazenamento do projeto ainda não foi criado. No console do Firebase, '
+      + 'abra Criação → Storage → "Vamos começar" e aceite o local sugerido. '
+      + 'O balde esperado é ' + nome + '.');
+  }
+  return nome;
+}
+
 async function gravar(bucket, nome, texto, tipo) {
   await bucket.file(nome).save(texto, {
     contentType: tipo || 'application/json; charset=utf-8',
@@ -144,6 +164,7 @@ async function gravar(bucket, nome, texto, tipo) {
 async function rodarBackup(dep) {
   const agora = dep.agora || Date.now();
   const dia = diaDe(agora);
+  const balde = await conferirBalde(dep.bucket);
 
   let dados = await coletarTudo(dep.db, { versao: dep.versao, agora: agora });
   let texto = JSON.stringify(dados);
@@ -172,7 +193,7 @@ async function rodarBackup(dep) {
   }
 
   const apagados = await expurgar(dep.bucket, agora, dep.dias);
-  return Object.assign({ arquivo: nome, pagina: pagina, bytes: texto.length, anexos: dados.anexos, apagados: apagados.length }, contar(dados));
+  return Object.assign({ balde: balde, arquivo: nome, pagina: pagina, bytes: texto.length, anexos: dados.anexos, apagados: apagados.length }, contar(dados));
 }
 
-module.exports = { coletarTudo, rodarBackup, expurgar, contar, montarHTML, baixarApp, DIAS_GUARDADOS, TETO_COM_ANEXOS, APP_URL };
+module.exports = { coletarTudo, rodarBackup, expurgar, contar, montarHTML, baixarApp, conferirBalde, DIAS_GUARDADOS, TETO_COM_ANEXOS, APP_URL };

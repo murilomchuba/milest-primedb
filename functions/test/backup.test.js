@@ -16,8 +16,10 @@ function fakeDb(dados) {
     }
   };
 }
-function fakeBucket(arquivos) {
+function fakeBucket(arquivos, existe) {
   return {
+    name: 'milest-app.firebasestorage.app',
+    exists: async () => [existe !== false],
     file(nome) {
       return { save: async (texto) => { arquivos[nome] = texto; },
                delete: async () => { delete arquivos[nome]; } };
@@ -187,4 +189,31 @@ test('só quem opera a plataforma pede o backup', () => {
     'administrador de empresa não leva o arquivo com os dados de todas as outras');
   assert.ok(!decidirBackup({ quem: 'z@x.com', idxQuem: null }).ok);
   assert.ok(!decidirBackup({ quem: 'z@x.com', idxQuem: { plataforma: 'sim' } }).ok, 'só o booleano vale');
+});
+
+
+/* ---- o balde que não existe ---- */
+const { conferirBalde } = require('../backup');
+
+test('Storage desligado vira uma frase que diz o que fazer, não INTERNAL', async () => {
+  await assert.rejects(() => conferirBalde(fakeBucket({}, false)),
+    /ainda não foi criado.*Criação → Storage/s);
+  await assert.rejects(
+    () => conferirBalde({ name: 'b', exists: async () => { throw new Error('rede caiu'); } }),
+    /não consegui falar com o armazenamento.*rede caiu/s);
+});
+
+test('sem o balde, o backup nem começa a ler o banco', async () => {
+  let leituras = 0;
+  const db = { collection: () => { leituras++; return { get: async () => ({ docs: [] }) }; } };
+  await assert.rejects(() => rodarBackup({ db, bucket: fakeBucket({}, false), agora: Date.now() }),
+    /ainda não foi criado/);
+  assert.equal(leituras, 0, 'não adianta varrer o banco inteiro para depois não ter onde gravar');
+});
+
+test('com o balde de pé, o resumo diz em qual armazenamento ficou', async () => {
+  const arq = {};
+  const r = await rodarBackup({ db: fakeDb(BANCO), bucket: fakeBucket(arq), agora: Date.UTC(2026, 8, 28),
+    buscar: async () => ({ ok: true, status: 200, text: async () => APP_FALSO }) });
+  assert.equal(r.balde, 'milest-app.firebasestorage.app');
 });

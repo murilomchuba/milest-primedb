@@ -1,4 +1,4 @@
-// versão 2026-09-25.1
+// versão 2026-09-28.1
 /* MILEST — funções do servidor.
 
    acesso: cria a conta de uma pessoa (ou refaz a senha dela) já com o e-mail
@@ -226,6 +226,10 @@ exports.enviarPesquisa = onCall({ cors: ORIGENS, secrets: [RESEND_API_KEY], time
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { rodarBackup, DIAS_GUARDADOS } = require('./backup');
 
+/* O callable devolve "INTERNAL" para qualquer exceção não tratada, e quem está
+   na tela fica sem saber o que fazer. Aqui a causa vira texto. */
+const comoTexto = e => (e && e.message) || 'erro desconhecido';
+
 exports.backupDiario = onSchedule({
   schedule: '10 21 * * *',
   timeZone: 'America/Sao_Paulo',
@@ -233,12 +237,19 @@ exports.backupDiario = onSchedule({
   timeoutSeconds: 540,
   retryCount: 2
 }, async () => {
-  const r = await rodarBackup({
-    db: admin.firestore(),
-    bucket: admin.storage().bucket(),
-    versao: 'servidor',
-    dias: DIAS_GUARDADOS
-  });
+  let r;
+  try {
+    r = await rodarBackup({
+      db: admin.firestore(),
+      bucket: admin.storage().bucket(),
+      versao: 'servidor',
+      dias: DIAS_GUARDADOS
+    });
+  } catch (e) {
+    // sem isto a noite falha em silêncio e só se descobre quando o backup faz falta
+    console.error('backupDiario NÃO rodou:', comoTexto(e));
+    throw e;
+  }
   // esta linha é o que se procura no console quando a dúvida é "rodou ontem?"
   console.log('backupDiario', JSON.stringify(r));
 });
@@ -260,7 +271,20 @@ exports.backupAgora = onCall({ cors: ORIGENS, timeoutSeconds: 540, memory: '1GiB
   const v = decidirBackup({ quem, idxQuem });
   if (!v.ok) throw new HttpsError('permission-denied', v.motivo);
 
-  const r = await rodarBackup({ db, bucket: admin.storage().bucket(), versao: 'servidor', dias: DIAS_GUARDADOS });
+  let bucket;
+  try { bucket = admin.storage().bucket(); }
+  catch (e) {
+    throw new HttpsError('failed-precondition',
+      'o armazenamento do projeto ainda não foi criado. No console do Firebase, abra '
+      + 'Criação → Storage → "Vamos começar" e aceite o local sugerido. (' + comoTexto(e) + ')');
+  }
+  let r;
+  try {
+    r = await rodarBackup({ db, bucket, versao: 'servidor', dias: DIAS_GUARDADOS });
+  } catch (e) {
+    console.error('backupAgora falhou', e);
+    throw new HttpsError('failed-precondition', comoTexto(e));
+  }
   console.log('backupAgora', { quem, r });
   return r;
 });
