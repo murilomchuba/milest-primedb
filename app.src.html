@@ -1004,7 +1004,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-28.3';
+const VERSAO = '2026-09-29.1';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -11689,7 +11689,25 @@ function modal(title, buildBody, actions) {
     bt.addEventListener('click', () => a.fn(() => wrap.remove())); f.appendChild(bt);
   }
   m.appendChild(h); m.appendChild(b); if (f.childNodes.length) m.appendChild(f);
-  wrap.appendChild(m); wrap.addEventListener('click', e => { if (e.target === wrap) wrap.remove(); });
+  wrap.appendChild(m);
+  /* Clicar no fundo fecha — mas só quando o clique NASCEU no fundo e a janela
+     já está aberta há um instante. Sem as duas condições, dois acidentes
+     comuns fechavam a janela na cara de quem ia usá-la:
+
+     1. Duplo clique numa linha da lista. O primeiro clique abre a janela, que
+        cobre a tela inteira; o segundo cai no fundo que acabou de surgir sob o
+        cursor. Abrir e fechar viravam o mesmo gesto — e duplo clique é
+        exatamente o que se faz para abrir um item numa tabela.
+     2. Selecionar texto dentro da janela e soltar o botão fora dela. O clique
+        conta como "no fundo" e o formulário se fecha com o que foi digitado. */
+  const nasceuEm = Date.now();
+  let desceuNoFundo = false;
+  wrap.addEventListener('mousedown', e => { desceuNoFundo = (e.target === wrap); });
+  wrap.addEventListener('click', e => {
+    if (e.target !== wrap || !desceuNoFundo) return;
+    if (Date.now() - nasceuEm < 400) return;      // ainda é o segundo clique do duplo
+    wrap.remove();
+  });
   $('#modalHost').appendChild(wrap);
   return wrap;
 }
