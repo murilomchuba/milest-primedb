@@ -1013,7 +1013,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-29.1';
+const VERSAO = '2026-09-29.2';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -11054,15 +11054,25 @@ function medirTexto(txt, fs, peso, fam) {
 /** Decide o que vale para o documento inteiro — altura de linha, quantas
  *  páginas, largura das colunas e a régua de datas — e devolve uma folha por
  *  página. Enquanto a linha couber com folga, continua sendo uma folha só. */
-function montarFolhasCronograma() {
-  const PH = 794;
+/* `unica: true` devolve UMA folha alta o bastante para tudo caber, em vez de
+   fatiar em A4. É o que serve para colar num e-mail ou num chat: quem recebe
+   rola a imagem, e não precisa juntar três pedaços de papel na cabeça. */
+function montarFolhasCronograma(opcoes) {
+  const so1 = !!(opcoes && opcoes.unica);
+  const PH = so1 ? 0 : 794;
   const meta = ST.P.meta, sch = ST.sch;
   const vis = visibleTasks();
   const yTop = (meta.client ? 74 : 68), yFim = PH - 26, hCab = 22;
   const disp = yFim - yTop - hCab;
   const n = Math.max(1, vis.length);
-  let rowH, porPagina;
-  if (n * 9.5 <= disp) { porPagina = n; rowH = clamp(disp / n, 9.5, 18); }
+  let rowH, porPagina, alturaFolha = 0;
+  if (so1) {
+    /* Altura de linha confortável e fixa: numa folha que cresce não há motivo
+       para espremer. O rodapé ganha 24pt para não encostar na última linha. */
+    rowH = 15;
+    porPagina = n;
+    alturaFolha = yTop + hCab + n * rowH + 26 + 24;
+  } else if (n * 9.5 <= disp) { porPagina = n; rowH = clamp(disp / n, 9.5, 18); }
   else { porPagina = Math.max(8, Math.floor(disp / 13)); rowH = disp / porPagina; }
   const paginas = Math.max(1, Math.ceil(n / porPagina));
   // a régua de datas é a mesma em todas as páginas: elas se alinham quando
@@ -11073,7 +11083,7 @@ function montarFolhasCronograma() {
     if (o.start < ini) ini = o.start; if (o.finish > fim) fim = o.finish;
     if (t.bl) { if (t.bl.start < ini) ini = t.bl.start; if (t.bl.finish > fim) fim = t.bl.finish; }
   }
-  const ctx = { rowH: rowH, ini: addDays(ini, -2), fim: addDays(fim, 3), paginas: paginas, todas: vis, larg: null };
+  const ctx = { rowH: rowH, ini: addDays(ini, -2), fim: addDays(fim, 3), paginas: paginas, todas: vis, larg: null, alturaFolha: alturaFolha };
   const saida = [];
   for (let p = 0; p < paginas; p++) {
     ctx.pagina = p + 1;
@@ -11083,7 +11093,7 @@ function montarFolhasCronograma() {
 }
 
 function desenharFolhaCronograma(fatia, ctx) {
-  const PW = 1123, PH = 794, M = 26;
+  const PW = 1123, PH = (ctx && ctx.alturaFolha) || 794, M = 26;
   const meta = ST.P.meta, sch = ST.sch, comCusto = costsOn();
   const vis = fatia;
   const cor = v => v;
@@ -11373,6 +11383,44 @@ function montarPDF(jpeg, iw, ih, largPt, altPt) {
 }
 
 /** Rasteriza um SVG solto (fora do DOM) e devolve o JPEG pronto para o PDF. */
+/* O mesmo desenho, agora como arquivo para o usuário. A escala cai sozinha se
+   a folha for muito alta: o canvas do navegador tem teto (por volta de 16 mil
+   pixels) e, estourando, ele devolve uma imagem em branco sem avisar. */
+async function svgParaArquivoImagem(pg, larg, alt, tipo) {
+  const ESC = Math.max(1, Math.min(2, 14000 / Math.max(larg, alt)));
+  const txt = new XMLSerializer().serializeToString(pg);
+  const url = URL.createObjectURL(new Blob(['<?xml version="1.0" encoding="UTF-8"?>' + txt], { type: 'image/svg+xml;charset=utf-8' }));
+  try {
+    const img = await new Promise((ok, err) => {
+      const im = new Image(); im.onload = () => ok(im); im.onerror = () => err(new Error('desenho')); im.src = url;
+    });
+    const cv = document.createElement('canvas');
+    cv.width = Math.round(larg * ESC); cv.height = Math.round(alt * ESC);
+    const cx = cv.getContext('2d');
+    cx.fillStyle = '#FFFFFF'; cx.fillRect(0, 0, cv.width, cv.height);   // JPEG não tem transparência
+    cx.drawImage(img, 0, 0, cv.width, cv.height);
+    const ehJpg = tipo === 'jpg';
+    const blob = await new Promise(ok => cv.toBlob(ok, ehJpg ? 'image/jpeg' : 'image/png', ehJpg ? 0.93 : undefined));
+    if (!blob) throw new Error('imagem');
+    return { blob: blob, w: cv.width, h: cv.height };
+  } finally { setTimeout(() => URL.revokeObjectURL(url), 4000); }
+}
+
+async function gerarImagemCronograma(tipo) {
+  try {
+    const folhas = montarFolhasCronograma({ unica: true });
+    const pg = folhas[0];
+    resolverVarsDOM(pg);
+    const larg = Number(pg.getAttribute('width')) || 1123;
+    const alt = Number(pg.getAttribute('height')) || 794;
+    const r = await svgParaArquivoImagem(pg, larg, alt, tipo);
+    await offerDownload(slug(ST.P.meta.name) + '-cronograma.' + (tipo === 'jpg' ? 'jpg' : 'png'), r.blob);
+    toast('Imagem de ' + r.w + '×' + r.h + ' px — ' + tamBonito(r.blob.size) + '.');
+  } catch (e) {
+    toast('Não consegui gerar a imagem: ' + ((e && e.message) || 'erro'));
+  }
+}
+
 async function svgParaJPEG(pg, larg, alt, escala, qual) {
   const svgTxt = new XMLSerializer().serializeToString(pg);
   const url = URL.createObjectURL(new Blob(['<?xml version="1.0" encoding="UTF-8"?>' + svgTxt], { type: 'image/svg+xml;charset=utf-8' }));
@@ -11391,7 +11439,7 @@ async function svgParaJPEG(pg, larg, alt, escala, qual) {
 
 $('#btnPrint').addEventListener('click', () => {
   if (VIEW !== 'schedule') setView('schedule');
-  modal('Gerar PDF', (body, close) => {
+  modal('Gerar PDF ou imagem', (body, close) => {
     body.appendChild(el('div', 'hint',
       'O PDF sai em A4 deitado, com a tabela de atividades à esquerda e o Gantt à direita, na mesma altura de linha. ' +
       'Cabe tudo numa folha só enquanto as linhas couberem; passando disso, o cronograma segue em quantas páginas forem ' +
@@ -11406,6 +11454,16 @@ $('#btnPrint').addEventListener('click', () => {
     b2.title = 'Layout longo, em várias páginas — mais lento';
     b2.addEventListener('click', () => { close(); montarImpressao(); setTimeout(() => window.print(), 60); });
     linha.appendChild(b1); linha.appendChild(bG); linha.appendChild(b2); body.appendChild(linha);
+    body.appendChild(el('div', 'hint',
+      'A imagem sai numa folha só, alta o quanto for preciso — nada de dividir em páginas. '
+      + 'É o formato para colar num e-mail, no WhatsApp ou numa apresentação. '
+      + 'JPG é menor; PNG deixa o texto mais nítido e é melhor quando o cronograma é grande.'));
+    const linha2 = el('div'); linha2.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap';
+    const bJ = el('button', 'btn', '🖼 Baixar JPG');
+    bJ.addEventListener('click', async () => { close(); toast('Gerando a imagem…'); await gerarImagemCronograma('jpg'); });
+    const bP = el('button', 'btn', '🖼 Baixar PNG');
+    bP.addEventListener('click', async () => { close(); toast('Gerando a imagem…'); await gerarImagemCronograma('png'); });
+    linha2.appendChild(bJ); linha2.appendChild(bP); body.appendChild(linha2);
   }, []);
 });
 
