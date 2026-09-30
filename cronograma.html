@@ -8221,6 +8221,10 @@ function janelaTabelaDiario(original) {
   const t = diNormalizarTabela(Object.assign(novaTabelaDiario(), JSON.parse(JSON.stringify(original || {}))));
 
   modal(nova ? 'Nova tabela' : 'Editar tabela', (body, close) => {
+    /* A grade e o conteudo aqui, e a janela padrao e estreita demais para ela.
+       O corpo so entra na janela depois que esta funcao retorna, entao a
+       classe tem de esperar o proximo instante para achar o pai. */
+    setTimeout(() => { const j = body.closest('.modal'); if (j) j.classList.add('larga'); }, 0);
     const fN = el('div', 'field'); fN.appendChild(el('label', '', 'Nome da tabela'));
     const iN = el('input', 'inp'); iN.value = t.nome || '';
     iN.placeholder = 'Ex.: Ambientes migrados, Bases de dados, Licenças';
@@ -8236,22 +8240,48 @@ function janelaTabelaDiario(original) {
     const rodape = el('div'); rodape.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;margin:10px 0';
     body.appendChild(rodape);
 
+    /* Reordenar em vez de apagar e reconstruir: a coluna leva junto o
+       conteudo de todas as linhas, senao mover vira perder dados. */
+    const mover = (arr, de, para) => { const x = arr.splice(de, 1)[0]; arr.splice(para, 0, x); };
+    const moverColuna = (de, para) => {
+      if (para < 0 || para >= t.colunas.length) return;
+      mover(t.colunas, de, para);
+      t.linhas.forEach(l => mover(l, de, para));
+      desenhar();
+    };
+    const moverLinha = (de, para) => {
+      if (para < 0 || para >= t.linhas.length) return;
+      mover(t.linhas, de, para); desenhar();
+    };
+    const setinha = (rotulo, dica, ligado, acao) => {
+      const b = el('button', 'btn icon', rotulo);
+      b.title = dica;
+      b.style.cssText = 'padding:2px 5px;font-size:11px;line-height:1;min-width:0';
+      if (!ligado) { b.disabled = true; b.style.opacity = '.28'; b.style.cursor = 'default'; }
+      else b.addEventListener('click', acao);
+      return b;
+    };
+
     const desenhar = () => {
       cx.textContent = '';
       const tb = el('table', 'data'); tb.style.minWidth = '100%';
       const th = el('thead'); const hr = el('tr');
       hr.appendChild(el('th', 'num', '#'));
       t.colunas.forEach((c, j) => {
-        const cel = el('th'); cel.style.minWidth = '120px';
-        const linhaC = el('div'); linhaC.style.cssText = 'display:flex;gap:4px;align-items:center';
-        const i2 = el('input', 'inp'); i2.value = c; i2.style.cssText = 'font-weight:700;padding:3px 6px;font-size:12px';
+        const cel = el('th'); cel.style.minWidth = '132px';
+        const linhaC = el('div'); linhaC.style.cssText = 'display:flex;gap:3px;align-items:center;justify-content:center;margin-top:3px';
+        const i2 = el('input', 'inp'); i2.value = c; i2.style.cssText = 'font-weight:700;padding:3px 6px;font-size:12px;width:100%';
         i2.addEventListener('input', () => { t.colunas[j] = i2.value; });
         const x = el('button', 'btn icon', '✕'); x.title = 'Remover esta coluna';
         x.addEventListener('click', () => {
           if (t.colunas.length <= 1) { toast('A tabela precisa de pelo menos uma coluna.'); return; }
           t.colunas.splice(j, 1); t.linhas.forEach(l => l.splice(j, 1)); desenhar();
         });
-        linhaC.appendChild(i2); linhaC.appendChild(x); cel.appendChild(linhaC); hr.appendChild(cel);
+        linhaC.appendChild(setinha('\u25c0', 'Mover esta coluna para a esquerda', j > 0, () => moverColuna(j, j - 1)));
+        linhaC.appendChild(setinha('\u25b6', 'Mover esta coluna para a direita', j < t.colunas.length - 1, () => moverColuna(j, j + 1)));
+        x.style.cssText = 'padding:2px 5px;font-size:11px;line-height:1;min-width:0';
+        linhaC.appendChild(x);
+        cel.appendChild(i2); cel.appendChild(linhaC); hr.appendChild(cel);
       });
       hr.appendChild(el('th', '', ''));
       th.appendChild(hr); tb.appendChild(th);
@@ -8266,13 +8296,17 @@ function janelaTabelaDiario(original) {
           inp.addEventListener('input', () => { t.linhas[i][j] = inp.value; });
           td.appendChild(inp); tr.appendChild(td);
         });
-        const tdx = el('td');
+        const tdx = el('td'); tdx.style.whiteSpace = 'nowrap';
+        const cxL = el('div'); cxL.style.cssText = 'display:flex;gap:3px;align-items:center';
+        cxL.appendChild(setinha('\u2191', 'Mover esta linha para cima', i > 0, () => moverLinha(i, i - 1)));
+        cxL.appendChild(setinha('\u2193', 'Mover esta linha para baixo', i < t.linhas.length - 1, () => moverLinha(i, i + 1)));
         const x = el('button', 'btn icon', '✕'); x.title = 'Remover esta linha';
+        x.style.cssText = 'padding:2px 5px;font-size:11px;line-height:1;min-width:0';
         x.addEventListener('click', () => {
           if (t.linhas.length <= 1) { t.linhas[0] = t.colunas.map(() => ''); desenhar(); return; }
           t.linhas.splice(i, 1); desenhar();
         });
-        tdx.appendChild(x); tr.appendChild(tdx);
+        cxL.appendChild(x); tdx.appendChild(cxL); tr.appendChild(tdx);
         tbo.appendChild(tr);
       });
       tb.appendChild(tbo); cx.appendChild(tb);
