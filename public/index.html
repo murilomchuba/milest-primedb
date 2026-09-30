@@ -1013,7 +1013,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-09-29.3';
+const VERSAO = '2026-09-30.1';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -8132,6 +8132,215 @@ function janelaItemDiario(original) {
   }, []);
 }
 
+/* ============ tabelas do diário ============
+   O diário resolve o acompanhamento de atividades, mas o cliente também
+   recebe LISTAS: ambientes migrados, bases, servidores, licenças. Isso não
+   cabe numa linha de atividade — é uma planilha à parte, e era o último
+   motivo para sair do sistema na hora de mandar o relatório.
+
+   A tabela é VIVA: uma por projeto, editada conforme as coisas andam, e sai
+   no relatório sempre com os valores do momento. Foi a escolha do Murilo
+   contra congelar uma cópia por dia — mais prático no uso diário, com a
+   contrapartida de que o relatório de ontem não se reproduz igual.
+
+   Mora em meta.diarioTabelas, então acompanha o projeto na nuvem, no backup
+   e na restauração sem nenhum caminho novo a tratar. */
+const DI_MAX_LINHAS = 400, DI_MAX_COLS = 12;
+
+function diTabelas() {
+  const m = ST.P.meta;
+  if (!Array.isArray(m.diarioTabelas)) m.diarioTabelas = [];
+  return m.diarioTabelas;
+}
+function novaTabelaDiario() {
+  return {
+    id: uid('tb'), nome: '', colunas: ['Item', 'Situação', 'Observação'],
+    linhas: [['', '', '']], noRelatorio: true, atualizadoEm: todayISO()
+  };
+}
+/** Deixa toda linha com exatamente o número de colunas do cabeçalho: colar do
+ *  Excel traz linhas irregulares, e uma célula a mais desalinha a tabela toda. */
+function diNormalizarTabela(t) {
+  t.colunas = (t.colunas || []).slice(0, DI_MAX_COLS).map(c => String(c == null ? '' : c));
+  if (!t.colunas.length) t.colunas = ['Item'];
+  t.linhas = (t.linhas || []).slice(0, DI_MAX_LINHAS).map(l => {
+    const r = (l || []).slice(0, t.colunas.length).map(c => String(c == null ? '' : c));
+    while (r.length < t.colunas.length) r.push('');
+    return r;
+  });
+  if (!t.linhas.length) t.linhas = [t.colunas.map(() => '')];
+  return t;
+}
+function diTabelaVazia(t) {
+  return !(t.linhas || []).some(l => l.some(c => String(c || '').trim()));
+}
+
+async function salvarTabelasDiario() {
+  markMeta();
+  try { await flushSave(); return true; }
+  catch (e) { toast('Não consegui salvar: ' + ((e && e.message) || 'erro')); return false; }
+}
+
+/** Colar um retângulo do Excel. O mesmo parseDelimitado da importação de
+ *  atividades, que já sabe lidar com TAB, ponto e vírgula e aspas. */
+function janelaColarTabela(aplicar) {
+  modal('Colar do Excel', (body, close) => {
+    body.appendChild(el('div', 'hint',
+      'No Excel, selecione as células (pode incluir o cabeçalho), copie com Ctrl/Cmd+C '
+      + 'e cole aqui embaixo. Colunas separadas por TAB, ponto e vírgula ou vírgula funcionam.'));
+    const ta = el('textarea', 'inp');
+    ta.style.cssText = 'min-height:150px;font-family:var(--f-mono);font-size:12px';
+    ta.placeholder = 'Ambiente\tTipo\tStatus\nLIVEKPL\tProdução\tMigrado\nAPIECOMM\tHomologação\tEm andamento';
+    body.appendChild(ta);
+    const lb = el('label'); lb.style.cssText = 'display:flex;gap:7px;align-items:center;margin:8px 0';
+    const ck = el('input'); ck.type = 'checkbox'; ck.checked = true; ck.style.width = 'auto';
+    lb.appendChild(ck); lb.appendChild(document.createTextNode('A primeira linha é o cabeçalho'));
+    body.appendChild(lb);
+    const aviso = el('div', 'hint'); aviso.style.color = 'var(--critical)'; aviso.hidden = true;
+    body.appendChild(aviso);
+    const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
+    const bC = el('button', 'btn', 'Cancelar'); bC.addEventListener('click', close);
+    const bOk = el('button', 'btn primary', 'Usar estes dados');
+    bOk.addEventListener('click', () => {
+      const grade = parseDelimitado(ta.value || '').filter(l => l.some(c => String(c || '').trim()));
+      if (!grade.length) { aviso.textContent = 'Não encontrei nada para colar.'; aviso.hidden = false; return; }
+      let colunas, linhas;
+      if (ck.checked) { colunas = grade[0]; linhas = grade.slice(1); }
+      else { colunas = grade[0].map((_, i) => 'Coluna ' + (i + 1)); linhas = grade; }
+      if (!linhas.length) { aviso.textContent = 'Só veio o cabeçalho — faltam as linhas.'; aviso.hidden = false; return; }
+      close();
+      aplicar(colunas, linhas, grade.length);
+    });
+    linha.appendChild(bC); linha.appendChild(bOk); body.appendChild(linha);
+    setTimeout(() => { try { ta.focus(); } catch (e) { } }, 30);
+  }, []);
+}
+
+function janelaTabelaDiario(original) {
+  if (semPermissao()) return;
+  const nova = !original;
+  const t = diNormalizarTabela(Object.assign(novaTabelaDiario(), JSON.parse(JSON.stringify(original || {}))));
+
+  modal(nova ? 'Nova tabela' : 'Editar tabela', (body, close) => {
+    const fN = el('div', 'field'); fN.appendChild(el('label', '', 'Nome da tabela'));
+    const iN = el('input', 'inp'); iN.value = t.nome || '';
+    iN.placeholder = 'Ex.: Ambientes migrados, Bases de dados, Licenças';
+    fN.appendChild(iN); body.appendChild(fN);
+
+    const lb = el('label'); lb.style.cssText = 'display:flex;gap:7px;align-items:center;margin:2px 0 10px';
+    const ck = el('input'); ck.type = 'checkbox'; ck.checked = t.noRelatorio !== false; ck.style.width = 'auto';
+    lb.appendChild(ck); lb.appendChild(document.createTextNode('Incluir no relatório que vai ao cliente'));
+    body.appendChild(lb);
+
+    const cx = el('div', 'tscroll'); cx.style.cssText = 'max-height:46vh;overflow:auto;border:1px solid var(--line);border-radius:7px';
+    body.appendChild(cx);
+    const rodape = el('div'); rodape.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;margin:10px 0';
+    body.appendChild(rodape);
+
+    const desenhar = () => {
+      cx.textContent = '';
+      const tb = el('table', 'data'); tb.style.minWidth = '100%';
+      const th = el('thead'); const hr = el('tr');
+      hr.appendChild(el('th', 'num', '#'));
+      t.colunas.forEach((c, j) => {
+        const cel = el('th'); cel.style.minWidth = '120px';
+        const linhaC = el('div'); linhaC.style.cssText = 'display:flex;gap:4px;align-items:center';
+        const i2 = el('input', 'inp'); i2.value = c; i2.style.cssText = 'font-weight:700;padding:3px 6px;font-size:12px';
+        i2.addEventListener('input', () => { t.colunas[j] = i2.value; });
+        const x = el('button', 'btn icon', '✕'); x.title = 'Remover esta coluna';
+        x.addEventListener('click', () => {
+          if (t.colunas.length <= 1) { toast('A tabela precisa de pelo menos uma coluna.'); return; }
+          t.colunas.splice(j, 1); t.linhas.forEach(l => l.splice(j, 1)); desenhar();
+        });
+        linhaC.appendChild(i2); linhaC.appendChild(x); cel.appendChild(linhaC); hr.appendChild(cel);
+      });
+      hr.appendChild(el('th', '', ''));
+      th.appendChild(hr); tb.appendChild(th);
+
+      const tbo = el('tbody');
+      t.linhas.forEach((l, i) => {
+        const tr = el('tr');
+        tr.appendChild(el('td', 'num ordem', String(i + 1)));
+        l.forEach((v, j) => {
+          const td = el('td');
+          const inp = el('input', 'inp'); inp.value = v; inp.style.cssText = 'padding:3px 6px;font-size:12.5px';
+          inp.addEventListener('input', () => { t.linhas[i][j] = inp.value; });
+          td.appendChild(inp); tr.appendChild(td);
+        });
+        const tdx = el('td');
+        const x = el('button', 'btn icon', '✕'); x.title = 'Remover esta linha';
+        x.addEventListener('click', () => {
+          if (t.linhas.length <= 1) { t.linhas[0] = t.colunas.map(() => ''); desenhar(); return; }
+          t.linhas.splice(i, 1); desenhar();
+        });
+        tdx.appendChild(x); tr.appendChild(tdx);
+        tbo.appendChild(tr);
+      });
+      tb.appendChild(tbo); cx.appendChild(tb);
+
+      rodape.textContent = '';
+      const bL = el('button', 'btn', '＋ Linha');
+      bL.addEventListener('click', () => {
+        if (t.linhas.length >= DI_MAX_LINHAS) { toast('Limite de ' + DI_MAX_LINHAS + ' linhas por tabela.'); return; }
+        t.linhas.push(t.colunas.map(() => '')); desenhar();
+        setTimeout(() => { cx.scrollTop = cx.scrollHeight; }, 10);
+      });
+      const bC2 = el('button', 'btn', '＋ Coluna');
+      bC2.addEventListener('click', () => {
+        if (t.colunas.length >= DI_MAX_COLS) { toast('Limite de ' + DI_MAX_COLS + ' colunas.'); return; }
+        t.colunas.push('Coluna ' + (t.colunas.length + 1));
+        t.linhas.forEach(l => l.push('')); desenhar();
+      });
+      const bP = el('button', 'btn', '⤒ Colar do Excel');
+      bP.title = 'Substitui o conteúdo desta tabela pelo que você colar';
+      bP.addEventListener('click', () => janelaColarTabela((colunas, linhas, total) => {
+        t.colunas = colunas; t.linhas = linhas; diNormalizarTabela(t); desenhar();
+        toast(t.linhas.length + ' linha(s) e ' + t.colunas.length + ' coluna(s) coladas.'
+          + (total > DI_MAX_LINHAS ? ' O limite é ' + DI_MAX_LINHAS + ' linhas.' : ''));
+      }));
+      const conta = el('div', 'hint');
+      conta.style.cssText = 'margin-left:auto;align-self:center';
+      conta.textContent = t.linhas.length + ' linha(s) · ' + t.colunas.length + ' coluna(s)';
+      rodape.appendChild(bL); rodape.appendChild(bC2); rodape.appendChild(bP); rodape.appendChild(conta);
+    };
+    desenhar();
+
+    const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;justify-content:space-between;align-items:center;margin-top:4px';
+    const esq = el('div');
+    if (!nova) {
+      const bDel = el('button', 'btn danger', 'Excluir tabela');
+      let armado = false;
+      bDel.addEventListener('click', async () => {
+        if (!armado) { armado = true; bDel.textContent = 'Clique de novo para confirmar'; setTimeout(() => { if (bDel.isConnected) { armado = false; bDel.textContent = 'Excluir tabela'; } }, 4000); return; }
+        const lista = diTabelas();
+        const i = lista.findIndex(x => x.id === t.id);
+        if (i >= 0) lista.splice(i, 1);
+        close();
+        if (await salvarTabelasDiario()) { toast('Tabela excluída.'); renderDiario(); }
+      });
+      esq.appendChild(bDel);
+    }
+    const dir = el('div'); dir.style.cssText = 'display:flex;gap:8px';
+    const bC3 = el('button', 'btn', 'Cancelar'); bC3.addEventListener('click', close);
+    const bOk = el('button', 'btn primary', 'Salvar');
+    bOk.addEventListener('click', async () => {
+      t.nome = iN.value.trim();
+      t.noRelatorio = ck.checked;
+      t.atualizadoEm = todayISO();
+      if (!t.nome) { toast('Dê um nome à tabela — ele é o título dela no relatório.'); return; }
+      diNormalizarTabela(t);
+      const lista = diTabelas();
+      const i = lista.findIndex(x => x.id === t.id);
+      if (i >= 0) lista[i] = t; else lista.push(t);
+      close();
+      if (await salvarTabelasDiario()) { toast(nova ? 'Tabela criada.' : 'Tabela salva.'); renderDiario(); }
+    });
+    dir.appendChild(bC3); dir.appendChild(bOk);
+    linha.appendChild(esq); linha.appendChild(dir); body.appendChild(linha);
+    setTimeout(() => { try { iN.focus(); } catch (e) { } }, 30);
+  }, []);
+}
+
 /* ---- a aba ---- */
 function renderDiario() {
   const host = $('#diView'); if (!host) return;
@@ -8284,6 +8493,79 @@ function renderDiario() {
   corpo.appendChild(el('div', 'empty', 'Carregando…'));
   carregarDiario().then(() => { if (VIEW === 'diario') desenhar(); })
     .catch(() => { corpo.textContent = ''; corpo.appendChild(el('div', 'empty', 'Não consegui carregar o diário.')); });
+
+  host.appendChild(painelTabelasDiario());
+}
+
+/** As tabelas do projeto, embaixo das atividades. Ficam num painel próprio
+ *  porque são outra coisa: atividade é o que anda, tabela é o que se lista. */
+function painelTabelasDiario() {
+  const p = el('div', 'panel');
+  const cab = el('h3', '', 'Tabelas do projeto');
+  cab.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap';
+  const bNova = el('button', 'btn primary reqedit', '＋ Nova tabela');
+  bNova.addEventListener('click', () => janelaTabelaDiario(null));
+  cab.appendChild(bNova); p.appendChild(cab);
+
+  const tabs = diTabelas();
+  if (!tabs.length) {
+    const vaz = el('div', 'empty');
+    vaz.appendChild(el('div', '', 'Nenhuma tabela ainda.'));
+    const como = el('div', '', 'Use para as listas que hoje viram planilha anexa: ambientes migrados, '
+      + 'bases de dados, servidores, licenças. Você cola direto do Excel, edita conforme as coisas andam, '
+      + 'e a tabela sai junto no relatório do dia — sem anexo.');
+    como.style.cssText = 'margin-top:8px;max-width:64ch;margin-left:auto;margin-right:auto;line-height:1.5';
+    vaz.appendChild(como); p.appendChild(vaz);
+    return p;
+  }
+
+  const corpo = el('div'); corpo.style.cssText = 'padding:4px 16px 14px;display:flex;flex-direction:column;gap:10px';
+  for (const t of tabs) {
+    const cx = el('div');
+    cx.style.cssText = 'border:1px solid var(--line);border-radius:8px;overflow:hidden';
+    const topo = el('div');
+    topo.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 11px;background:var(--surface-2);flex-wrap:wrap';
+    const nome = el('div', '', t.nome || 'Sem nome');
+    nome.style.cssText = 'font-weight:700;font-size:13px';
+    const meta2 = el('div', '', (t.linhas || []).length + ' linha(s) · ' + (t.colunas || []).length + ' coluna(s)');
+    meta2.style.cssText = 'font-size:11.5px;color:var(--ink-3)';
+    topo.appendChild(nome); topo.appendChild(meta2);
+    const selo = el('span', '', t.noRelatorio !== false ? 'sai no relatório' : 'só interna');
+    selo.style.cssText = 'font-size:10.5px;font-weight:700;font-family:var(--f-mono);padding:2px 8px;border-radius:999px;'
+      + (t.noRelatorio !== false
+        ? 'color:#1F8A5B;background:#DFF0E4;border:1px solid #B7DCC4'
+        : 'color:var(--ink-3);background:var(--surface);border:1px solid var(--line)');
+    topo.appendChild(selo);
+    const acoes = el('div'); acoes.style.cssText = 'margin-left:auto;display:flex;gap:6px';
+    const bEd = el('button', 'btn icon reqedit', '✎'); bEd.title = 'Editar esta tabela';
+    bEd.addEventListener('click', () => janelaTabelaDiario(t));
+    acoes.appendChild(bEd); topo.appendChild(acoes);
+    cx.appendChild(topo);
+
+    /* Prévia curta: a tabela inteira vive no editor e no relatório. Aqui só
+       o bastante para reconhecer qual é sem precisar abrir. */
+    const sc = el('div', 'tscroll');
+    const tb = el('table', 'data');
+    const th = el('thead'); const hr = el('tr');
+    for (const c of (t.colunas || [])) hr.appendChild(el('th', '', c));
+    th.appendChild(hr); tb.appendChild(th);
+    const tbo = el('tbody');
+    for (const l of (t.linhas || []).slice(0, 5)) {
+      const tr = el('tr');
+      for (const v of l) tr.appendChild(el('td', '', v));
+      tbo.appendChild(tr);
+    }
+    tb.appendChild(tbo); sc.appendChild(tb); cx.appendChild(sc);
+    if ((t.linhas || []).length > 5) {
+      cx.appendChild(el('div', 'tagline', '+ ' + ((t.linhas || []).length - 5) + ' linha(s) — abra no ✎ para ver tudo.'));
+    }
+    corpo.appendChild(cx);
+  }
+  p.appendChild(corpo);
+  p.appendChild(el('div', 'tagline',
+    'As tabelas marcadas como “sai no relatório” entram no fim do relatório do dia, '
+    + 'depois das atividades — no e-mail, no PDF e na imagem. Elas são vivas: saem sempre com os valores de agora.'));
+  return p;
 }
 
 /* ---- ajustes do diário no projeto ---- */
@@ -8645,7 +8927,30 @@ function diTabelaHTML(dia, escopo) {
     '<tr>' + th('ID', '56px') + th('Módulo', '110px') + th('Atividade / Detalhes') + th('Responsável', '110px') +
       th('Time', '80px') + th('Prioridade', '72px') + th('Status', '110px') + th('Prazo', '78px') +
       th('Bloqueios / Observações', '200px') + th('Data Atualização', '84px') + '</tr>' +
-    corpo + '</table>';
+    corpo + '</table>' + diTabelasHTML();
+}
+
+/** As tabelas do projeto, em HTML de e-mail (estilo em cada célula, que é o
+ *  que Outlook e Gmail respeitam). Vazias ficam de fora: uma tabela só com o
+ *  cabeçalho no relatório do cliente parece descuido, não informação. */
+function diTabelasHTML() {
+  const F = 'font-family:Arial,Helvetica,sans-serif;';
+  const tabs = diTabelas().filter(t => t.noRelatorio !== false && !diTabelaVazia(t));
+  if (!tabs.length) return '';
+  return tabs.map(t => {
+    const nc = t.colunas.length;
+    const th = t.colunas.map(c => '<th style="' + F + 'background:#014479;color:#ffffff;font-size:12px;font-weight:bold;text-align:left;padding:8px 10px;border:1px solid #013A68;">' + diEscapar(c) + '</th>').join('');
+    const corpo = t.linhas.filter(l => l.some(c => String(c || '').trim())).map((l, i) => {
+      const bg = i % 2 ? 'background:#F6F8F9;' : 'background:#ffffff;';
+      return '<tr>' + l.map(v => '<td style="' + F + 'font-size:12px;color:#1b2a33;padding:7px 10px;border:1px solid #D5DCE0;vertical-align:top;' + bg + '">'
+        + diEscapar(v).replace(/\n/g, '<br>') + '</td>').join('') + '</tr>';
+    }).join('');
+    return '<div style="height:22px;line-height:22px;">&nbsp;</div>'
+      + '<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;' + F + '">'
+      + '<tr><td colspan="' + nc + '" style="' + F + 'background:#12202E;color:#ffffff;padding:11px 12px;font-size:14px;font-weight:bold;letter-spacing:.3px;">'
+      + diEscapar(String(t.nome || '').toUpperCase()) + '</td></tr>'
+      + '<tr>' + th + '</tr>' + corpo + '</table>';
+  }).join('');
 }
 
 async function diCopiarRico(html, texto, alvo) {
@@ -8800,6 +9105,41 @@ function diMontarFolhas(dia, escopo, modo) {
     return { a: a, b: b, alt: n * PASSO + 8 };
   });
 
+  /* ---- tabelas do projeto, no fim do relatorio ---- */
+  const LARG_UTIL = W - 2 * M;
+  /* Coluna nao tem largura fixa: a tabela e do usuario, pode ter 2 ou 12
+     colunas com qualquer conteudo. Mede-se o texto real e reparte-se a folha
+     em proporcao, com piso para nenhuma coluna virar um fio e teto para uma
+     coluna de texto longo nao engolir as outras. */
+  const medirTabela = t => {
+    const peso = t.colunas.map((c, i) => {
+      let mx = medirTexto(String(c == null ? '' : c), 7, 700, FONTE_ST);
+      for (const ln of t.linhas) mx = Math.max(mx, medirTexto(String(ln[i] == null ? '' : ln[i]).slice(0, 180), 7.5, 400, FONTE_ST));
+      return Math.max(34, Math.min(300, mx + 12));
+    });
+    const soma = peso.reduce((a, b) => a + b, 0) || 1;
+    const w = peso.map(x => Math.max(30, Math.round(x / soma * LARG_UTIL)));
+    /* a sobra do arredondamento vai para a coluna mais larga, que aguenta */
+    const maior = w.indexOf(Math.max.apply(null, w));
+    w[maior] += LARG_UTIL - w.reduce((a, b) => a + b, 0);
+    const xs = []; let ac = 0;
+    for (const ww of w) { xs.push(ac); ac += ww; }
+    const cab = t.colunas.map((c, i) => envolver(String(c == null ? '' : c).toUpperCase(), w[i] - 8, 7, 700));
+    const altCab = Math.max.apply(null, [1].concat(cab.map(x => x.length))) * PASSO + 6;
+    const corpo = t.linhas.map(ln => {
+      const cel = w.map((ww, i) => envolver(String(ln[i] == null ? '' : ln[i]).replace(/\n+/g, ' \u00b7 ').trim(), ww - 8, 7.5, 400));
+      return { cel: cel, alt: Math.max.apply(null, [1].concat(cel.map(x => x.length))) * PASSO + 7 };
+    });
+    return {
+      nome: t.nome, w: w, xs: xs, cab: cab, altCab: altCab, corpo: corpo,
+      alt: 20 + altCab + corpo.reduce((a, r) => a + r.alt, 0) + 10
+    };
+  };
+  const tabs = diTabelas()
+    .filter(t => t.noRelatorio !== false && !diTabelaVazia(t))
+    .map(t => medirTabela(diNormalizarTabela(t)));
+  const altTabs = tabs.reduce((a, x) => a + x.alt, 0);
+
   const folhas = [];
   let pg, T, R, L, y, H;
   const nova = (altura) => {
@@ -8837,7 +9177,7 @@ function diMontarFolhas(dia, escopo, modo) {
   const total = medidas.reduce((s, x) => s + x.alt, 0);
   // a folha única termina logo depois da última linha: sobra de papel em
   // branco no fim de um print parece relatório interrompido
-  nova(modo === 'a4' ? ALT_A4 : Math.max(150, TOPO + 16 + total + RODAPE));
+  nova(modo === 'a4' ? ALT_A4 : Math.max(150, TOPO + 16 + total + altTabs + RODAPE));
   cabec();
 
   medidas.forEach((mm, idx) => {
@@ -8861,7 +9201,38 @@ function diMontarFolhas(dia, escopo, modo) {
     y += mm.alt;
     L(M, y - 7, W - M, y - 7, '#E3E9ED', 0.5);
   });
-  if (!linhas.length) T(M + 10, y + 6, 'Nenhuma atividade registrada em ' + fmtBR(dia) + '.', 9, 400, CORES_ST.tinta3);
+  /* sem atividades, o aviso ocupa a faixa onde a primeira tabela comecaria */
+  if (!linhas.length) { T(M + 10, y + 6, 'Nenhuma atividade registrada em ' + fmtBR(dia) + '.', 9, 400, CORES_ST.tinta3); y += 18; }
+
+  const cabTabela = tb => {
+    R(M, y - 9, LARG_UTIL, tb.altCab, '#014479');
+    tb.cab.forEach((ls, i) => {
+      let yy = y;
+      for (const ln of ls) { T(M + tb.xs[i] + 4, yy, ln, 7, 700, '#FFFFFF'); yy += PASSO; }
+    });
+    y += tb.altCab;
+  };
+  tabs.forEach(tb => {
+    /* titulo sozinho no pe da pagina e pior do que uma quebra: leva-se o
+       titulo e as duas primeiras linhas juntos para a folha seguinte */
+    const minimo = 20 + tb.altCab + tb.corpo.slice(0, 2).reduce((a, r) => a + r.alt, 0);
+    if (modo === 'a4' && y + minimo > H - RODAPE) nova(ALT_A4);
+    y += 10;
+    R(M, y - 9, LARG_UTIL, 18, '#12202E');
+    T(M + 8, y + 3, String(tb.nome || 'Tabela').toUpperCase(), 8.5, 700, '#FFFFFF');
+    y += 20;
+    cabTabela(tb);
+    tb.corpo.forEach((r, idx) => {
+      if (modo === 'a4' && y + r.alt > H - RODAPE) { nova(ALT_A4); cabTabela(tb); }
+      if (idx % 2) R(M, y - 9, LARG_UTIL, r.alt, '#F6F8F9');
+      r.cel.forEach((ls, i) => {
+        let yy = y;
+        for (const ln of ls) { T(M + tb.xs[i] + 4, yy, ln, 7.5, 400, CORES_ST.tinta); yy += PASSO; }
+      });
+      y += r.alt;
+      L(M, y - 7, W - M, y - 7, '#E3E9ED', 0.5);
+    });
+  });
   return { folhas: folhas, W: W, H: H };
 }
 
@@ -11413,6 +11784,33 @@ async function svgParaArquivoImagem(pg, larg, alt, tipo) {
   } finally { setTimeout(() => URL.revokeObjectURL(url), 4000); }
 }
 
+/* O mesmo bloco de imagem serve as duas janelas — a do PDF e a do Exportar.
+   Duplicar os botões seria duplicar o padrão de tamanho e a dica junto, e é
+   assim que duas telas começam iguais e terminam diferentes. */
+function blocoImagemCronograma(body, close) {
+  body.appendChild(el('div', 'hint',
+    'A imagem sai numa folha só, alta o quanto for preciso — nada de dividir em páginas. '
+    + 'É o formato para colar num e-mail, no WhatsApp ou numa apresentação. '
+    + 'JPG é menor; PNG deixa o texto mais nítido e é melhor quando o cronograma é grande.'));
+  const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;align-items:center';
+  const fTam = el('div', 'field'); fTam.style.cssText = 'margin:0;min-width:150px';
+  fTam.appendChild(el('label', '', 'Tamanho do texto'));
+  const sTam = el('select', 'inp');
+  /* Texto maior não é de graça: a tabela cresce junto e o Gantt cede largura,
+     então nomes longos passam a quebrar em duas linhas. Por isso é escolha de
+     quem vai mandar a imagem, e não um número que eu chutei. */
+  for (const [r, v] of [['Normal', '1'], ['Grande', '1.3'], ['Maior', '1.6']]) {
+    const o = el('option', '', r); o.value = v; sTam.appendChild(o);
+  }
+  sTam.value = '1.3';
+  fTam.appendChild(sTam); linha.appendChild(fTam);
+  const bJ = el('button', 'btn', '🖼 Baixar JPG');
+  bJ.addEventListener('click', async () => { const k = Number(sTam.value); close(); toast('Gerando a imagem…'); await gerarImagemCronograma('jpg', k); });
+  const bP = el('button', 'btn', '🖼 Baixar PNG');
+  bP.addEventListener('click', async () => { const k = Number(sTam.value); close(); toast('Gerando a imagem…'); await gerarImagemCronograma('png', k); });
+  linha.appendChild(bJ); linha.appendChild(bP); body.appendChild(linha);
+}
+
 async function gerarImagemCronograma(tipo, texto) {
   try {
     const folhas = montarFolhasCronograma({ unica: true, texto: texto || 1 });
@@ -11461,27 +11859,7 @@ $('#btnPrint').addEventListener('click', () => {
     b2.title = 'Layout longo, em várias páginas — mais lento';
     b2.addEventListener('click', () => { close(); montarImpressao(); setTimeout(() => window.print(), 60); });
     linha.appendChild(b1); linha.appendChild(bG); linha.appendChild(b2); body.appendChild(linha);
-    body.appendChild(el('div', 'hint',
-      'A imagem sai numa folha só, alta o quanto for preciso — nada de dividir em páginas. '
-      + 'É o formato para colar num e-mail, no WhatsApp ou numa apresentação. '
-      + 'JPG é menor; PNG deixa o texto mais nítido e é melhor quando o cronograma é grande.'));
-    const linha2 = el('div'); linha2.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;align-items:center';
-    const fTam = el('div', 'field'); fTam.style.cssText = 'margin:0;min-width:150px';
-    fTam.appendChild(el('label', '', 'Tamanho do texto'));
-    const sTam = el('select', 'inp');
-    /* Texto maior não é de graça: a tabela cresce junto e o Gantt cede
-       largura, então nomes longos passam a quebrar em duas linhas. Por isso é
-       escolha de quem vai mandar a imagem, e não um número que eu chutei. */
-    for (const [r, v] of [['Normal', '1'], ['Grande', '1.3'], ['Maior', '1.6']]) {
-      const o = el('option', '', r); o.value = v; sTam.appendChild(o);
-    }
-    sTam.value = '1.3';
-    fTam.appendChild(sTam); linha2.appendChild(fTam);
-    const bJ = el('button', 'btn', '🖼 Baixar JPG');
-    bJ.addEventListener('click', async () => { const k = Number(sTam.value); close(); toast('Gerando a imagem…'); await gerarImagemCronograma('jpg', k); });
-    const bP = el('button', 'btn', '🖼 Baixar PNG');
-    bP.addEventListener('click', async () => { const k = Number(sTam.value); close(); toast('Gerando a imagem…'); await gerarImagemCronograma('png', k); });
-    linha2.appendChild(bJ); linha2.appendChild(bP); body.appendChild(linha2);
+    blocoImagemCronograma(body, close);
   }, []);
 });
 
@@ -11836,14 +12214,27 @@ async function offerDownload(filename, text) {
   }, []);
 }
 $('#btnExport').addEventListener('click', () => {
-  modal('Exportar', body => {
-    body.appendChild(el('div', 'hint', 'JSON guarda o projeto inteiro (atividades, dependências, recursos, linha de base) e pode ser importado de volta. CSV abre direto no Excel.'));
-    const r = el('div'); r.style.display = 'flex'; r.style.gap = '8px';
+  modal('Exportar', (body, close) => {
+    /* Exportar é onde se procura qualquer saída do cronograma, então tudo
+       aparece aqui: dado, papel e imagem. O botão PDF da barra continua
+       existindo — é atalho para o mesmo lugar, não um segundo caminho. */
+    body.appendChild(el('div', 'hint', 'Para trabalhar o dado: JSON guarda o projeto inteiro (atividades, dependências, recursos, linha de base) e pode ser importado de volta. CSV abre direto no Excel.'));
+    const r = el('div'); r.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap';
     const b1 = el('button', 'btn primary', 'Baixar JSON');
     b1.addEventListener('click', () => offerDownload(slug(ST.P.meta.name) + '.json', projectJSON()));
     const b2 = el('button', 'btn', 'Baixar CSV (Excel)');
     b2.addEventListener('click', () => offerDownload(slug(ST.P.meta.name) + '.csv', projectCSV()));
     r.appendChild(b1); r.appendChild(b2); body.appendChild(r);
+
+    const sep = el('div'); sep.style.cssText = 'border-top:1px solid var(--line);margin:14px 0 10px'; body.appendChild(sep);
+    body.appendChild(el('div', 'hint', 'Para apresentar: o PDF sai em A4 deitado, em quantas páginas forem necessárias.'));
+    const r2 = el('div'); r2.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap';
+    const bPdf = el('button', 'btn', '📄 Baixar PDF');
+    bPdf.addEventListener('click', async () => { close(); toast('Gerando o PDF…'); await gerarPDF(); });
+    r2.appendChild(bPdf); body.appendChild(r2);
+
+    const sep2 = el('div'); sep2.style.cssText = 'border-top:1px solid var(--line);margin:14px 0 10px'; body.appendChild(sep2);
+    blocoImagemCronograma(body, close);
   }, []);
 });
 const slug = s => String(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '').toLowerCase() || 'cronograma';
