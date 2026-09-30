@@ -1675,9 +1675,16 @@ async function flushSave() {
     for (const id of d.delR) jobs.push(db.doc(dRecurso(id)).delete());
     await Promise.all(jobs);
     autoVersao();
-  } catch (e) { toast('Não foi possível salvar: ' + (e && e.message ? e.message : 'erro')); }
+    return true;
+  } catch (e) {
+    toast('Não foi possível salvar: ' + (e && e.message ? e.message : 'erro'));
+    /* Quem espera por este retorno precisa saber que nao salvou: um "pronto"
+       depois de uma gravacao recusada e pior do que o erro, porque manda a
+       pessoa fechar a tela confiando em dado que nao existe. */
+    return false;
+  }
 }
-const stripMeta = m => JSON.parse(JSON.stringify(m));
+const stripMeta = m => diLinhasParaNuvem(JSON.parse(JSON.stringify(m)));
 const stripTask = t => JSON.parse(JSON.stringify(t));
 
 /* ============ colunas da grade ============ */
@@ -8149,7 +8156,26 @@ const DI_MAX_LINHAS = 400, DI_MAX_COLS = 12;
 function diTabelas() {
   const m = ST.P.meta;
   if (!Array.isArray(m.diarioTabelas)) m.diarioTabelas = [];
+  m.diarioTabelas.forEach(diLinhasDaNuvem);
   return m.diarioTabelas;
+}
+/* O Firestore recusa array dentro de array, e a tabela e exatamente isso:
+   linhas dentro da lista de linhas. No banco cada linha viaja embrulhada
+   ({ c: [...] }), que ele aceita; na memoria ela continua sendo uma lista
+   simples, que e o que o editor e o relatorio sabem ler. A troca acontece
+   so nas duas bordas: aqui na volta, e em stripMeta na ida. */
+function diLinhasDaNuvem(t) {
+  if (!t || !Array.isArray(t.linhas)) return t;
+  t.linhas = t.linhas.map(l => (l && !Array.isArray(l) && Array.isArray(l.c)) ? l.c : l);
+  return t;
+}
+function diLinhasParaNuvem(m) {
+  if (!m || !Array.isArray(m.diarioTabelas)) return m;
+  for (const t of m.diarioTabelas) {
+    if (!t || !Array.isArray(t.linhas)) continue;
+    t.linhas = t.linhas.map(l => Array.isArray(l) ? { c: l } : l);
+  }
+  return m;
 }
 function novaTabelaDiario() {
   return {
@@ -8176,7 +8202,7 @@ function diTabelaVazia(t) {
 
 async function salvarTabelasDiario() {
   markMeta();
-  try { await flushSave(); return true; }
+  try { return await flushSave() !== false; }
   catch (e) { toast('Não consegui salvar: ' + ((e && e.message) || 'erro')); return false; }
 }
 
