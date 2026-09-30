@@ -8198,13 +8198,34 @@ async function salvarTabelasDiario() {
   catch (e) { toast('Não consegui salvar: ' + ((e && e.message) || 'erro')); return false; }
 }
 
-/** Colar um retângulo do Excel. O mesmo parseDelimitado da importação de
- *  atividades, que já sabe lidar com TAB, ponto e vírgula e aspas. */
+/* O modelo destas tabelas nao pode ser um arquivo pronto, como o do diario:
+   la as colunas sao fixas e conhecidas, aqui elas sao do usuario. Entao o
+   modelo e so a forma — primeira linha com os nomes das colunas, o resto
+   sao os dados — com um exemplo para ficar claro o que trocar. Ponto e
+   virgula porque e o que o Excel em portugues escreve e le sem perguntar,
+   e BOM na frente para ele nao comer os acentos. */
+function modeloTabelaCSV() {
+  /* sem linha de instrucao em cima do cabecalho: aqui nao da para procurar
+     o cabecalho sozinho como no diario, entao o arquivo tem de chegar pronto */
+  const linhas = [
+    ['Base', 'Host destino', 'Tamanho', 'Situação'],
+    ['LIVEKPL', 'oci-db-prd-01', '840 GB', 'Migrada e validada'],
+    ['APIECOMM', 'oci-app-prd-02', '18 GB', 'Aguardando janela de corte'],
+    ['VCNPROD', 'oci-net', '—', 'Concluída']
+  ];
+  const csv = linhas.map(l => l.map(c => /[;"\n]/.test(c) ? '"' + c.replace(/"/g, '""') + '"' : c).join(';')).join('\r\n');
+  return '\ufeff' + csv;
+}
+
+/** Trazer uma tabela de fora: colada do Excel ou vinda de um .csv. O mesmo
+ *  parseDelimitado da importação de atividades, que já sabe lidar com TAB,
+ *  ponto e vírgula e aspas. */
 function janelaColarTabela(aplicar) {
-  modal('Colar do Excel', (body, close) => {
+  modal('Importar tabela', (body, close) => {
     body.appendChild(el('div', 'hint',
-      'No Excel, selecione as células (pode incluir o cabeçalho), copie com Ctrl/Cmd+C '
-      + 'e cole aqui embaixo. Colunas separadas por TAB, ponto e vírgula ou vírgula funcionam.'));
+      'Dois caminhos, o que for mais curto para você: escolher um arquivo .csv salvo da planilha, '
+      + 'ou selecionar as células no Excel, copiar com Ctrl/Cmd+C e colar aqui embaixo. '
+      + 'Colunas separadas por TAB, ponto e vírgula ou vírgula funcionam.'));
     const ta = el('textarea', 'inp');
     ta.style.cssText = 'min-height:150px;font-family:var(--f-mono);font-size:12px';
     ta.placeholder = 'Ambiente\tTipo\tStatus\nLIVEKPL\tProdução\tMigrado\nAPIECOMM\tHomologação\tEm andamento';
@@ -8215,7 +8236,32 @@ function janelaColarTabela(aplicar) {
     body.appendChild(lb);
     const aviso = el('div', 'hint'); aviso.style.color = 'var(--critical)'; aviso.hidden = true;
     body.appendChild(aviso);
-    const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
+    let nomeArquivo = '';
+    const arq = el('input'); arq.type = 'file'; arq.accept = '.csv,.tsv,.txt'; arq.hidden = true;
+    arq.addEventListener('change', () => {
+      const f = arq.files && arq.files[0]; if (!f) return;
+      const fr = new FileReader();
+      fr.onload = () => {
+        const r = decodificar(fr.result);
+        ta.value = r.texto;
+        /* o nome do arquivo costuma ser o nome da tabela ja pensado */
+        nomeArquivo = f.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim();
+        aviso.hidden = true;
+        toast('Arquivo carregado: ' + f.name);
+      };
+      fr.onerror = () => toast('Não consegui ler o arquivo.');
+      fr.readAsArrayBuffer(f);
+    });
+
+    const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;justify-content:space-between;align-items:center;margin-top:4px';
+    const esq = el('div'); esq.style.cssText = 'display:flex;gap:10px;align-items:center;flex-wrap:wrap';
+    const bArq = el('button', 'btn', 'Escolher arquivo .csv');
+    bArq.addEventListener('click', () => arq.click());
+    const bMod = el('button', 'btn', '↓ Baixar modelo (.csv)');
+    bMod.title = 'Uma planilha de exemplo para preencher e importar de volta';
+    bMod.addEventListener('click', () => offerDownload('modelo-tabela.csv', modeloTabelaCSV()));
+    esq.appendChild(bArq); esq.appendChild(arq); esq.appendChild(bMod);
+    const dir = el('div'); dir.style.cssText = 'display:flex;gap:8px';
     const bC = el('button', 'btn', 'Cancelar'); bC.addEventListener('click', close);
     const bOk = el('button', 'btn primary', 'Usar estes dados');
     bOk.addEventListener('click', () => {
@@ -8226,16 +8272,23 @@ function janelaColarTabela(aplicar) {
       else { colunas = grade[0].map((_, i) => 'Coluna ' + (i + 1)); linhas = grade; }
       if (!linhas.length) { aviso.textContent = 'Só veio o cabeçalho — faltam as linhas.'; aviso.hidden = false; return; }
       close();
-      aplicar(colunas, linhas, grade.length);
+      aplicar(colunas, linhas, grade.length, nomeArquivo);
     });
-    linha.appendChild(bC); linha.appendChild(bOk); body.appendChild(linha);
+    dir.appendChild(bC); dir.appendChild(bOk);
+    linha.appendChild(esq); linha.appendChild(dir); body.appendChild(linha);
+    body.appendChild(el('div', 'hint',
+      'A primeira linha vira o nome das colunas e o resto vira as linhas da tabela. '
+      + 'No modelo, troque os nomes da primeira linha pelas suas colunas e apague os exemplos — '
+      + 'pode ter quantas colunas quiser, até ' + DI_MAX_COLS + '.'));
     setTimeout(() => { try { ta.focus(); } catch (e) { } }, 30);
   }, []);
 }
 
-function janelaTabelaDiario(original) {
+function janelaTabelaDiario(original, ehNova) {
   if (semPermissao()) return;
-  const nova = !original;
+  /* importar abre esta mesma janela ja preenchida, mas ainda nao gravada:
+     e aqui que ela ganha nome e decide se vai ao cliente */
+  const nova = ehNova || !original;
   const t = diNormalizarTabela(Object.assign(novaTabelaDiario(), JSON.parse(JSON.stringify(original || {}))));
 
   modal(nova ? 'Nova tabela' : 'Editar tabela', (body, close) => {
@@ -8342,10 +8395,11 @@ function janelaTabelaDiario(original) {
         t.colunas.push('Coluna ' + (t.colunas.length + 1));
         t.linhas.forEach(l => l.push('')); desenhar();
       });
-      const bP = el('button', 'btn', '⤒ Colar do Excel');
-      bP.title = 'Substitui o conteúdo desta tabela pelo que você colar';
-      bP.addEventListener('click', () => janelaColarTabela((colunas, linhas, total) => {
+      const bP = el('button', 'btn', '⤒ Importar / colar');
+      bP.title = 'Substitui o conteúdo desta tabela pelo arquivo ou pela colagem';
+      bP.addEventListener('click', () => janelaColarTabela((colunas, linhas, total, sugestao) => {
         t.colunas = colunas; t.linhas = linhas; diNormalizarTabela(t); desenhar();
+        if (!iN.value.trim() && sugestao) { iN.value = sugestao; t.nome = sugestao; }
         toast(t.linhas.length + ' linha(s) e ' + t.colunas.length + ' coluna(s) coladas.'
           + (total > DI_MAX_LINHAS ? ' O limite é ' + DI_MAX_LINHAS + ' linhas.' : ''));
       }));
@@ -8554,17 +8608,29 @@ function painelTabelasDiario() {
   const p = el('div', 'panel');
   const cab = el('h3', '', 'Tabelas do projeto');
   cab.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap';
+  const acoes = el('div'); acoes.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap';
+  const bImp = el('button', 'btn reqedit', '⤒ Importar planilha');
+  bImp.title = 'Cria uma tabela a partir de um .csv ou de uma colagem do Excel';
+  bImp.addEventListener('click', () => janelaColarTabela((colunas, linhas, total, sugestao) => {
+    const t = novaTabelaDiario();
+    t.colunas = colunas; t.linhas = linhas; t.nome = sugestao || '';
+    diNormalizarTabela(t);
+    janelaTabelaDiario(t, true);
+    toast(t.linhas.length + ' linha(s) e ' + t.colunas.length + ' coluna(s) lidas.'
+      + (total > DI_MAX_LINHAS ? ' O limite é ' + DI_MAX_LINHAS + ' linhas.' : ''));
+  }));
   const bNova = el('button', 'btn primary reqedit', '＋ Nova tabela');
   bNova.addEventListener('click', () => janelaTabelaDiario(null));
-  cab.appendChild(bNova); p.appendChild(cab);
+  acoes.appendChild(bImp); acoes.appendChild(bNova);
+  cab.appendChild(acoes); p.appendChild(cab);
 
   const tabs = diTabelas();
   if (!tabs.length) {
     const vaz = el('div', 'empty');
     vaz.appendChild(el('div', '', 'Nenhuma tabela ainda.'));
     const como = el('div', '', 'Use para as listas que hoje viram planilha anexa: ambientes migrados, '
-      + 'bases de dados, servidores, licenças. Você cola direto do Excel, edita conforme as coisas andam, '
-      + 'e a tabela sai junto no relatório do dia — sem anexo.');
+      + 'bases de dados, servidores, licenças. Importe o .csv que você já tem, ou cole direto do Excel, '
+      + 'edite conforme as coisas andam, e a tabela sai junto no relatório do dia — sem anexo.');
     como.style.cssText = 'margin-top:8px;max-width:64ch;margin-left:auto;margin-right:auto;line-height:1.5';
     vaz.appendChild(como); p.appendChild(vaz);
     return p;
