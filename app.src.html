@@ -8659,22 +8659,32 @@ function painelTabelasDiario() {
     acoes.appendChild(bEd); topo.appendChild(acoes);
     cx.appendChild(topo);
 
-    /* Prévia curta: a tabela inteira vive no editor e no relatório. Aqui só
-       o bastante para reconhecer qual é sem precisar abrir. */
+    /* A previa so corta tabela longa, e quando corta diz quantas faltam num
+       botao que abre ali mesmo. Cortar em 5 com um aviso em letra miuda fazia
+       uma tabela de 6 linhas parecer uma tabela que perdeu uma linha. */
+    const LIM_PREVIA = 12;
     const sc = el('div', 'tscroll');
     const tb = el('table', 'data');
     const th = el('thead'); const hr = el('tr');
     for (const c of (t.colunas || [])) hr.appendChild(el('th', '', c));
     th.appendChild(hr); tb.appendChild(th);
     const tbo = el('tbody');
-    for (const l of (t.linhas || []).slice(0, 5)) {
+    const todas = t.linhas || [];
+    todas.forEach((l, i) => {
       const tr = el('tr');
       for (const v of l) tr.appendChild(el('td', '', v));
+      if (i >= LIM_PREVIA) tr.hidden = true;
       tbo.appendChild(tr);
-    }
+    });
     tb.appendChild(tbo); sc.appendChild(tb); cx.appendChild(sc);
-    if ((t.linhas || []).length > 5) {
-      cx.appendChild(el('div', 'tagline', '+ ' + ((t.linhas || []).length - 5) + ' linha(s) — abra no ✎ para ver tudo.'));
+    if (todas.length > LIM_PREVIA) {
+      const bMais = el('button', 'btn', 'Mostrar as ' + (todas.length - LIM_PREVIA) + ' linhas restantes');
+      bMais.style.cssText = 'margin:8px 11px';
+      bMais.addEventListener('click', () => {
+        for (const tr of tbo.children) tr.hidden = false;
+        bMais.remove();
+      });
+      cx.appendChild(bMais);
     }
     corpo.appendChild(cx);
   }
