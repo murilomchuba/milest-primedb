@@ -783,6 +783,7 @@ body.embutido .view{height:100%}
     <button class="tab" role="tab" data-view="overview" aria-selected="true">Portfólio</button>
     <button class="tab" role="tab" data-view="kpi" aria-selected="false">Visão</button>
     <button class="tab" role="tab" data-view="canvas" aria-selected="false">Canvas</button>
+    <button class="tab" role="tab" data-view="kickoff" aria-selected="false">Kickoff</button>
     <button class="tab" role="tab" data-view="schedule" aria-selected="false">Cronograma</button>
     <button class="tab" role="tab" data-view="resources" aria-selected="false">Recursos</button>
     <button class="tab" role="tab" data-view="raci" aria-selected="false">RACI</button>
@@ -873,6 +874,7 @@ body.embutido .view{height:100%}
 </div>
 
 <div class="view" id="view-canvas"><div class="scrollview" id="cvView"></div></div>
+<div class="view" id="view-kickoff"><div class="scrollview" id="koView"></div></div>
 <div class="view" id="view-resources"><div class="scrollview" id="resView"></div></div>
 <div class="view" id="view-raci"><div class="scrollview" id="raciView"></div></div>
 <div class="view" id="view-horas"><div class="scrollview" id="hrView"></div></div>
@@ -5873,6 +5875,626 @@ async function baixarDocumento(d, formato) {
   }
 }
 
+
+/* ============ Kickoff ============
+   A apresentação de abertura. O Canvas é onde o projeto é concebido; esta aba
+   é onde ele vira conversa com o cliente — e por isso o conteúdo é o mesmo,
+   escrito em outro tom.
+
+   Objetivo, escopo, premissas e equipes CAEM no que já existe quando o campo
+   está vazio: Canvas, RACI e cronograma. Escrever aqui sobrescreve, e só para
+   esta apresentação. É o mesmo arranjo das "atividades realizadas" do status
+   report, e existe pela mesma razão: duas cópias da mesma informação viram
+   duas versões da verdade na primeira semana corrida.
+
+   Fora do escopo, plano de comunicação, atividades macro e próximos passos
+   não existem em lugar nenhum — são campos próprios. Atividades macro é
+   digitada à mão de propósito: no kickoff muitas vezes ainda não há
+   cronograma, e esperar por ele seria esperar pelo que a reunião vai definir. */
+const KO_MAX = 40;
+
+function kickoffDados() {
+  const m = ST.P.meta;
+  if (!m.kickoff || typeof m.kickoff !== 'object' || Array.isArray(m.kickoff)) m.kickoff = {};
+  const k = m.kickoff;
+  for (const campo of ['objetivo', 'escopo', 'premissas', 'foraEscopo', 'proximos', 'escalonamento'])
+    if (typeof k[campo] !== 'string') k[campo] = '';
+  for (const campo of ['equipeNossa', 'equipeCliente', 'comunicacao', 'macro'])
+    if (!Array.isArray(k[campo])) k[campo] = [];
+  return k;
+}
+function salvarKickoff() { markMeta(); }
+
+const koLinhas = t => String(t || '').split('\n').map(x => x.trim()).filter(Boolean);
+
+/* ---- o que cada campo herda quando está vazio ---- */
+function koObjetivo() {
+  const k = kickoffDados();
+  if (k.objetivo.trim()) return koLinhas(k.objetivo);
+  const c = canvasDados();
+  return (c.objetivo || []).slice(0, 3);
+}
+function koEscopo() {
+  const k = kickoffDados();
+  if (k.escopo.trim()) return koLinhas(k.escopo);
+  const c = canvasDados();
+  return (c.produto || []).concat(c.requisitos || []);
+}
+function koPremissas() {
+  const k = kickoffDados();
+  if (k.premissas.trim()) return koLinhas(k.premissas);
+  return (canvasDados().premissas || []).concat(canvasDados().restricoes || []);
+}
+/** Equipe herdada: primeiro a RACI, que já separa os dois lados; depois o
+ *  Canvas, que não separa; e os recursos do plano como último recurso. */
+function koEquipe(lado) {
+  const k = kickoffDados();
+  const propria = lado === 'cliente' ? k.equipeCliente : k.equipeNossa;
+  if (propria.length) return propria.map(x => ({ nome: x.nome || '', papel: x.papel || '' }));
+  const papeis = (ST.P.meta.raciPapeis || []).filter(p => (p.lado === 'cliente') === (lado === 'cliente'));
+  if (papeis.length) return papeis.map(p => {
+    const r = (ST.P.resources || []).find(x => x.id === p.recursoId);
+    return { nome: (r && r.name) || '', papel: p.nome || '' };
+  });
+  if (lado === 'cliente') return [];
+  const c = canvasDados();
+  if ((c.equipe || []).length) return c.equipe.map(t => {
+    const m = /^(.*?)\s*[—–\-:]\s*(.*)$/.exec(t);
+    return m ? { nome: m[1].trim(), papel: m[2].trim() } : { nome: t, papel: '' };
+  });
+  return (ST.P.resources || []).map(r => ({ nome: r.name || '', papel: r.role || '' }));
+}
+/** Atividades macro herdadas das fases do cronograma, quando ele já existe. */
+function koMacroDoCronograma() {
+  const sch = ST.sch; if (!sch) return [];
+  return (ST.P.tasks || []).filter(t => {
+    const o = sch.out.get(t.id);
+    return o && o.sum && (t.level || 0) === 0;
+  }).map(t => {
+    const o = sch.out.get(t.id);
+    return { atividade: t.name || '', quando: fmtBR(o.start) + ' a ' + fmtBR(o.finish), responsavel: '' };
+  });
+}
+function koMacro() {
+  const k = kickoffDados();
+  return k.macro.length ? k.macro : [];
+}
+
+/* ---- a aba ---- */
+function renderKickoff() {
+  const host = $('#koView'); if (!host) return;
+  host.textContent = '';
+  const k = kickoffDados();
+  const editavel = podeEditar();
+
+  const topo = el('div', 'panel');
+  const cab = el('h3', '', 'Apresentação de abertura');
+  cab.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap';
+  const acoes = el('div'); acoes.style.cssText = 'display:flex;gap:7px;flex-wrap:wrap';
+  const bPdf = el('button', 'btn primary', 'Gerar PDF');
+  bPdf.title = 'Folhas 16:9, uma por assunto — só sai o que tem conteúdo';
+  bPdf.addEventListener('click', async () => { bPdf.disabled = true; toast('Montando a apresentação…'); await koBaixarPDF(); bPdf.disabled = false; });
+  const bPrev = el('button', 'btn', 'Pré-visualizar');
+  bPrev.addEventListener('click', () => koJanelaPrevia());
+  acoes.appendChild(bPrev); acoes.appendChild(bPdf);
+  cab.appendChild(acoes); topo.appendChild(cab);
+  topo.appendChild(el('div', 'tagline',
+    'Objetivo, escopo, premissas e equipes vêm do Canvas, da RACI e do cronograma quando você deixa em branco — '
+    + 'escrever aqui sobrescreve, só nesta apresentação. O resto é próprio do kickoff.'));
+  host.appendChild(topo);
+
+  /* ---- campos de texto com herança ---- */
+  const painelTexto = (titulo, chave, dica, herdado, linhas) => {
+    const p = el('div', 'panel');
+    const h = el('h3', '', titulo);
+    h.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap';
+    const selo = el('span', '', k[chave].trim() ? 'escrito aqui' : (herdado && herdado.length ? 'vindo do Canvas' : 'vazio'));
+    selo.style.cssText = 'font-size:10.5px;font-weight:700;font-family:var(--f-mono);padding:2px 9px;border-radius:999px;'
+      + (k[chave].trim()
+        ? 'color:#014479;background:#DCE8F2;border:1px solid #B9D2E6'
+        : (herdado && herdado.length
+          ? 'color:#1F8A5B;background:#DFF0E4;border:1px solid #B7DCC4'
+          : 'color:var(--ink-3);background:var(--surface-2);border:1px solid var(--line)'));
+    h.appendChild(selo); p.appendChild(h);
+    const corpo = el('div'); corpo.style.cssText = 'padding:4px 16px 14px';
+    const ta = el('textarea', 'inp'); ta.rows = linhas || 3;
+    ta.placeholder = (herdado && herdado.length)
+      ? herdado.slice(0, 4).join('\n') + (herdado.length > 4 ? '\n…' : '')
+      : dica;
+    ta.value = k[chave];
+    ta.disabled = !editavel;
+    ta.addEventListener('input', () => { k[chave] = ta.value; });
+    ta.addEventListener('change', () => { salvarKickoff(); renderKickoff(); });
+    corpo.appendChild(ta);
+    corpo.appendChild(el('div', 'hint', dica));
+    p.appendChild(corpo);
+    return p;
+  };
+
+  host.appendChild(painelTexto('Objetivo do projeto', 'objetivo',
+    'Uma frase. Em branco, usa o Objetivo SMART do Canvas.', koObjetivo(), 2));
+  host.appendChild(painelTexto('Escopo', 'escopo',
+    'Um item por linha: o que o projeto entrega. Em branco, usa Produto e Requisitos do Canvas.', koEscopo(), 5));
+  host.appendChild(painelTexto('Fora do escopo', 'foraEscopo',
+    'Um item por linha. É o slide mais barato da apresentação e o que mais evita discussão depois — '
+    + 'o que o projeto NÃO entrega, dito na semana 1 em vez da semana 20.', [], 4));
+  host.appendChild(painelTexto('Premissas', 'premissas',
+    'Um item por linha: o que você assume como verdade para poder planejar. Em branco, usa Premissas e Restrições do Canvas.', koPremissas(), 4));
+
+  /* ---- equipes ---- */
+  const painelEquipe = (titulo, lado, chave) => {
+    const p = el('div', 'panel');
+    const h = el('h3', '', titulo);
+    h.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap';
+    const propria = k[chave].length;
+    const selo = el('span', '', propria ? 'escrita aqui' : (koEquipe(lado).length ? 'vinda da RACI' : 'vazia'));
+    selo.style.cssText = 'font-size:10.5px;font-weight:700;font-family:var(--f-mono);padding:2px 9px;border-radius:999px;'
+      + (propria ? 'color:#014479;background:#DCE8F2;border:1px solid #B9D2E6'
+        : (koEquipe(lado).length ? 'color:#1F8A5B;background:#DFF0E4;border:1px solid #B7DCC4'
+          : 'color:var(--ink-3);background:var(--surface-2);border:1px solid var(--line)'));
+    const b = el('button', 'btn reqedit', propria ? 'Editar' : 'Escrever aqui');
+    b.addEventListener('click', () => koJanelaEquipe(titulo, lado, chave));
+    const dir = el('div'); dir.style.cssText = 'display:flex;gap:9px;align-items:center';
+    dir.appendChild(selo); dir.appendChild(b);
+    h.appendChild(dir); p.appendChild(h);
+    const corpo = el('div'); corpo.style.cssText = 'padding:4px 16px 14px;display:flex;flex-direction:column;gap:4px';
+    const lista = koEquipe(lado);
+    if (!lista.length) corpo.appendChild(el('div', 'hint', 'Ninguém ainda. Defina os papéis na aba RACI ou escreva aqui.'));
+    for (const x of lista) {
+      const d = el('div', '', (x.nome ? x.nome + ' — ' : '') + (x.papel || 'sem papel'));
+      d.style.cssText = 'font-size:13px;line-height:1.5';
+      corpo.appendChild(d);
+    }
+    p.appendChild(corpo);
+    return p;
+  };
+  host.appendChild(painelEquipe('Nossa equipe', 'empresa', 'equipeNossa'));
+  host.appendChild(painelEquipe('Equipe do cliente', 'cliente', 'equipeCliente'));
+
+  /* ---- atividades macro ---- */
+  host.appendChild(koPainelGrade('Atividades macro', 'macro',
+    ['Atividade', 'Quando', 'Responsável'], ['atividade', 'quando', 'responsavel'],
+    'No kickoff muitas vezes ainda não há cronograma. "Quando" é texto livre: "out/26", "semanas 1 a 3", "após o aceite".',
+    koMacroDoCronograma, 'Trazer as fases do cronograma'));
+
+  /* ---- comunicação ---- */
+  const pc = koPainelGrade('Plano de comunicação', 'comunicacao',
+    ['Evento', 'Quando', 'Quem participa', 'Canal'], ['evento', 'quando', 'quem', 'canal'],
+    'O que normalmente fica no ar e depois vira atrito: em que dia chega o relatório, quem entra na reunião, por onde se fala no dia a dia.',
+    () => ([
+      { evento: 'Reunião de status', quando: 'semanal', quem: '', canal: 'Teams' },
+      { evento: 'Relatório de status', quando: 'toda segunda', quem: '', canal: 'e-mail' },
+      { evento: 'Comitê do projeto', quando: 'mensal', quem: '', canal: 'presencial' },
+      { evento: 'Dia a dia', quando: 'sempre', quem: '', canal: 'grupo no WhatsApp' }
+    ]), 'Começar com um plano padrão');
+  host.appendChild(pc);
+
+  const pe = el('div', 'panel');
+  pe.appendChild(el('h3', '', 'Escalonamento'));
+  const ce = el('div'); ce.style.cssText = 'padding:4px 16px 14px';
+  const tae = el('textarea', 'inp'); tae.rows = 2; tae.value = k.escalonamento;
+  tae.placeholder = 'A quem recorrer quando trava, dos dois lados.\nEx.: Murilo Chuba (PrimeDB) → Diretoria de TI (cliente) em até 1 dia útil.';
+  tae.disabled = !editavel;
+  tae.addEventListener('input', () => { k.escalonamento = tae.value; });
+  tae.addEventListener('change', () => salvarKickoff());
+  ce.appendChild(tae);
+  ce.appendChild(el('div', 'hint', 'É a linha que ninguém combina e todo mundo precisa no primeiro impasse.'));
+  pe.appendChild(ce); host.appendChild(pe);
+
+  host.appendChild(painelTexto('Próximos passos', 'proximos',
+    'Um por linha: o que acontece nos próximos dias, de preferência com dono e data.', [], 4));
+
+  aplicarPermissoes();
+}
+
+/* ---- grade genérica (atividades macro e comunicação) ---- */
+function koPainelGrade(titulo, chave, titulos, campos, dica, sugerir, rotuloSugestao) {
+  const k = kickoffDados();
+  const p = el('div', 'panel');
+  const h = el('h3', '', titulo);
+  h.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap';
+  const dir = el('div'); dir.style.cssText = 'display:flex;gap:7px;flex-wrap:wrap';
+  if (sugerir) {
+    const bS = el('button', 'btn reqedit', rotuloSugestao);
+    bS.addEventListener('click', () => {
+      const s = sugerir();
+      if (!s.length) { toast('Não há nada para trazer.'); return; }
+      k[chave] = s.slice(0, KO_MAX); salvarKickoff(); renderKickoff();
+    });
+    dir.appendChild(bS);
+  }
+  const bE = el('button', 'btn primary reqedit', k[chave].length ? 'Editar' : 'Preencher');
+  bE.addEventListener('click', () => koJanelaGrade(titulo, chave, titulos, campos));
+  dir.appendChild(bE);
+  h.appendChild(dir); p.appendChild(h);
+
+  const corpo = el('div'); corpo.style.cssText = 'padding:4px 16px 14px';
+  if (!k[chave].length) corpo.appendChild(el('div', 'hint', dica));
+  else {
+    const tb = el('table', 'data'); tb.style.minWidth = '100%';
+    const th = el('thead'); const hr = el('tr');
+    for (const t of titulos) hr.appendChild(el('th', '', t));
+    th.appendChild(hr); tb.appendChild(th);
+    const tbo = el('tbody');
+    for (const linha of k[chave]) {
+      const tr = el('tr');
+      for (const c of campos) tr.appendChild(el('td', '', linha[c] || '—'));
+      tbo.appendChild(tr);
+    }
+    tb.appendChild(tbo); corpo.appendChild(tb);
+  }
+  p.appendChild(corpo);
+  p.appendChild(el('div', 'tagline', dica));
+  return p;
+}
+
+function koJanelaGrade(titulo, chave, titulos, campos) {
+  if (semPermissao()) return;
+  const k = kickoffDados();
+  const lista = k[chave].map(x => Object.assign({}, x));
+  modal(titulo, (body, close) => {
+    setTimeout(() => { const j = body.closest('.modal'); if (j) j.classList.add('larga'); }, 0);
+    const cx = el('div'); cx.style.cssText = 'max-height:52vh;overflow:auto;border:1px solid var(--line);border-radius:7px';
+    body.appendChild(cx);
+    const rodape = el('div'); rodape.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;margin:10px 0';
+    body.appendChild(rodape);
+
+    const mover = (de, para) => { if (para < 0 || para >= lista.length) return; const x = lista.splice(de, 1)[0]; lista.splice(para, 0, x); desenhar(); };
+    const seta = (rot, dica, ligado, acao) => {
+      const b = el('button', 'btn icon', rot); b.title = dica;
+      b.style.cssText = 'padding:2px 5px;font-size:11px;line-height:1;min-width:0';
+      if (!ligado) { b.disabled = true; b.style.opacity = '.28'; b.style.cursor = 'default'; } else b.addEventListener('click', acao);
+      return b;
+    };
+    const desenhar = () => {
+      cx.textContent = '';
+      const tb = el('table', 'data'); tb.style.minWidth = '100%';
+      const th = el('thead'); const hr = el('tr');
+      hr.appendChild(el('th', 'num', '#'));
+      for (const t of titulos) hr.appendChild(el('th', '', t));
+      hr.appendChild(el('th', '', ''));
+      th.appendChild(hr); tb.appendChild(th);
+      const tbo = el('tbody');
+      lista.forEach((linha, i) => {
+        const tr = el('tr');
+        tr.appendChild(el('td', 'num ordem', String(i + 1)));
+        campos.forEach((c, j) => {
+          const td = el('td');
+          const inp = el('input', 'inp'); inp.value = linha[c] || '';
+          inp.style.cssText = 'padding:3px 6px;font-size:12.5px';
+          if (j === 0) inp.style.minWidth = '220px';
+          inp.addEventListener('input', () => { linha[c] = inp.value; });
+          td.appendChild(inp); tr.appendChild(td);
+        });
+        const tdx = el('td'); tdx.style.whiteSpace = 'nowrap';
+        const g = el('div'); g.style.cssText = 'display:flex;gap:3px;align-items:center';
+        g.appendChild(seta('↑', 'Subir', i > 0, () => mover(i, i - 1)));
+        g.appendChild(seta('↓', 'Descer', i < lista.length - 1, () => mover(i, i + 1)));
+        const x = el('button', 'btn icon', '✕'); x.title = 'Remover';
+        x.style.cssText = 'padding:2px 5px;font-size:11px;line-height:1;min-width:0';
+        x.addEventListener('click', () => { lista.splice(i, 1); desenhar(); });
+        g.appendChild(x); tdx.appendChild(g); tr.appendChild(tdx);
+        tbo.appendChild(tr);
+      });
+      tb.appendChild(tbo); cx.appendChild(tb);
+      if (!lista.length) cx.appendChild(el('div', 'empty', 'Nada ainda.'));
+
+      rodape.textContent = '';
+      const bL = el('button', 'btn', '＋ Linha');
+      bL.addEventListener('click', () => {
+        if (lista.length >= KO_MAX) { toast('Limite de ' + KO_MAX + ' linhas.'); return; }
+        const nova = {}; for (const c of campos) nova[c] = '';
+        lista.push(nova); desenhar();
+        setTimeout(() => { cx.scrollTop = cx.scrollHeight; }, 10);
+      });
+      const conta = el('div', 'hint'); conta.style.cssText = 'margin-left:auto;align-self:center';
+      conta.textContent = lista.length + ' linha(s)';
+      rodape.appendChild(bL); rodape.appendChild(conta);
+    };
+    desenhar();
+
+    const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;margin-top:4px';
+    const bC = el('button', 'btn', 'Cancelar'); bC.addEventListener('click', close);
+    const bOk = el('button', 'btn primary', 'Salvar');
+    bOk.addEventListener('click', () => {
+      k[chave] = lista.filter(x => campos.some(c => String(x[c] || '').trim()));
+      salvarKickoff(); close(); renderKickoff();
+    });
+    linha.appendChild(bC); linha.appendChild(bOk); body.appendChild(linha);
+  }, []);
+}
+
+function koJanelaEquipe(titulo, lado, chave) {
+  if (semPermissao()) return;
+  const k = kickoffDados();
+  if (!k[chave].length) k[chave] = koEquipe(lado).map(x => Object.assign({}, x));
+  koJanelaGrade(titulo, chave, ['Nome', 'Papel'], ['nome', 'papel']);
+}
+
+/* ---- a apresentação em papel ----
+   Folhas 16:9, como o status report, porque é isso que se projeta numa sala.
+   Uma folha por assunto, e só sai o que tem conteúdo: slide vazio numa
+   abertura de projeto é pior do que assunto não tratado — parece descuido.
+
+   Nada de rolagem e nada de "e mais N itens": quando a lista não cabe, a
+   fonte desce até caber. Um slide que corta no meio é um slide que a sala
+   percebe. */
+const KO_W = 960, KO_H = 540, KO_M = 54;
+
+function koFolha(titulo, subtitulo) {
+  const m = ST.P.meta;
+  const pg = sv('svg', { xmlns: SVGNS, viewBox: '0 0 ' + KO_W + ' ' + KO_H, width: KO_W, height: KO_H });
+  const T = (x, y, t, fs, peso, cor, anc, fam) => {
+    const e = sv('text', {
+      x: x, y: y, 'font-size': fs, 'font-weight': peso || 400,
+      fill: cor || CORES_ST.tinta, 'font-family': fam || FONTE_ST
+    });
+    if (anc) e.setAttribute('text-anchor', anc);
+    e.textContent = t == null ? '' : String(t); pg.appendChild(e); return e;
+  };
+  const R = (x, y, w, h, f, raio, op) => {
+    const a = { x: x, y: y, width: Math.max(0, w), height: Math.max(0, h), fill: f };
+    if (raio) { a.rx = raio; a.ry = raio; }
+    if (op != null) a.opacity = op;
+    return pg.appendChild(sv('rect', a));
+  };
+  const L = (x1, y1, x2, y2, c, w) => pg.appendChild(sv('line', { x1: x1, y1: y1, x2: x2, y2: y2, stroke: c, 'stroke-width': w || 1 }));
+
+  R(0, 0, KO_W, KO_H, '#FFFFFF');
+  if (titulo != null) {
+    R(KO_M, 42, 5, 24, '#17ADC5');
+    T(KO_M + 16, 61, titulo, 23, 700, '#12202E');
+    if (subtitulo) T(KO_M + 16, 80, subtitulo, 11.5, 400, CORES_ST.tinta3);
+    T(KO_W - KO_M, 61, String(m.client || '').toUpperCase(), 10, 700, '#014479', 'end');
+    T(KO_W - KO_M, 76, String(m.name || ''), 9.5, 400, CORES_ST.tinta3, 'end');
+    L(KO_M, 94, KO_W - KO_M, 94, '#E3E9ED', 1);
+    T(KO_M, KO_H - 22, 'Reunião de abertura · ' + fmtBR(todayISO()), 8.5, 400, CORES_ST.tinta3);
+    marcasNoSVG(pg, KO_W - KO_M, KO_H - 40, 22, CORES_ST.tinta3);
+  }
+  return { pg: pg, T: T, R: R, L: L };
+}
+
+/** Escreve uma lista num retângulo, baixando a fonte até caber. Nunca corta. */
+function koListaEm(f, x, y, w, h, itens, fsMax, cor, marcador) {
+  if (!itens.length) return;
+  /* Começa grande e desce até caber. Um slide com cinco linhas em corpo 14
+     no alto de uma caixa vazia parece rascunho; o mesmo texto ocupando a
+     caixa parece decidido — e é o mesmo texto. */
+  for (let fs = fsMax; fs >= 8; fs -= 0.5) {
+    const passo = fs * 1.55, recuo = marcador ? 16 : 0;
+    const linhas = itens.map(t => envolver(String(t), w - recuo, fs, 400));
+    const alt = linhas.reduce((a, ls) => a + ls.length * passo + passo * 0.42, 0);
+    if (alt > h && fs > 8) continue;
+    let yy = y + fs;
+    linhas.forEach(ls => {
+      if (marcador) f.R(x + 1, yy - fs * 0.33, 5, 5, marcador, 1.2);
+      ls.forEach((ln, i) => { f.T(x + recuo, yy, ln, fs, 400, cor || CORES_ST.tinta); yy += passo; });
+      yy += passo * 0.42;
+    });
+    return;
+  }
+}
+
+function koCaixa(f, x, y, w, h, titulo, cor) {
+  f.R(x, y, w, h, '#F6F8FA', 10);
+  f.R(x, y, w, 26, cor, 10);
+  f.R(x, y + 16, w, 10, cor);
+  f.T(x + 14, y + 18, String(titulo).toUpperCase(), 10.5, 700, '#FFFFFF');
+}
+
+function koCapa() {
+  const m = ST.P.meta;
+  const f = koFolha(null);
+  f.R(0, 0, KO_W, KO_H, '#12202E');
+  f.R(0, 0, 8, KO_H, '#17ADC5');
+  f.T(KO_M, 196, String(m.client || '').toUpperCase(), 15, 700, '#17ADC5');
+  const nome = envolver(String(m.name || 'Projeto'), KO_W - 2 * KO_M - 60, 44, 700);
+  let y = 252;
+  for (const ln of nome.slice(0, 2)) { f.T(KO_M, y, ln, 44, 700, '#FFFFFF'); y += 52; }
+  f.R(KO_M, y - 18, 54, 3, '#17ADC5');
+  f.T(KO_M, y + 22, 'Reunião de abertura', 16, 400, '#AFC2D2');
+  f.T(KO_M, y + 44, fmtBR(todayISO()), 12, 400, '#7F96A8');
+  const cli = ST.P && ST.P.logo;
+  if (cli && cli.src) {
+    const alt = 44, esc = Math.min(alt / (cli.alt || 1), 200 / (cli.larg || 1));
+    const w = (cli.larg || 1) * esc, h = (cli.alt || 1) * esc;
+    const im = sv('image', { x: KO_W - KO_M - w, y: KO_M, width: w.toFixed(1), height: h.toFixed(1), preserveAspectRatio: 'xMidYMid meet' });
+    im.setAttribute('href', cli.src);
+    im.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', cli.src);
+    f.pg.appendChild(im);
+  }
+  return f.pg;
+}
+
+function koSlideObjetivo() {
+  const obj = koObjetivo(), esc = koEscopo();
+  if (!obj.length && !esc.length) return null;
+  const f = koFolha('Objetivo e escopo', 'o que este projeto entrega');
+  let y = 118;
+  if (obj.length) {
+    f.R(KO_M, y, KO_W - 2 * KO_M, 86, '#014479', 10);
+    koListaEm(f, KO_M + 22, y + 16, KO_W - 2 * KO_M - 44, 58, obj, 24, '#FFFFFF');
+    y += 104;
+  }
+  if (esc.length) {
+    koCaixa(f, KO_M, y, KO_W - 2 * KO_M, KO_H - y - 54, 'Escopo', '#17ADC5');
+    koListaEm(f, KO_M + 16, y + 38, KO_W - 2 * KO_M - 32, KO_H - y - 54 - 48, esc, 26, CORES_ST.tinta, '#17ADC5');
+  }
+  return f.pg;
+}
+
+function koSlideForaEPremissas() {
+  const fora = koLinhas(kickoffDados().foraEscopo), pre = koPremissas();
+  if (!fora.length && !pre.length) return null;
+  const f = koFolha('Fora do escopo e premissas', 'o que combinamos agora para não discutir depois');
+  const meia = (KO_W - 2 * KO_M - 22) / 2;
+  const y = 118, h = KO_H - y - 54;
+  if (fora.length) {
+    koCaixa(f, KO_M, y, meia, h, 'Não faz parte deste projeto', '#B3322B');
+    koListaEm(f, KO_M + 16, y + 38, meia - 32, h - 48, fora, 22, CORES_ST.tinta, '#B3322B');
+  }
+  if (pre.length) {
+    const x = KO_M + meia + 22;
+    koCaixa(f, x, y, meia, h, 'Premissas', '#8A5A00');
+    koListaEm(f, x + 16, y + 38, meia - 32, h - 48, pre, 22, CORES_ST.tinta, '#8A5A00');
+  }
+  return f.pg;
+}
+
+function koSlideEquipes() {
+  const nos = koEquipe('empresa'), deles = koEquipe('cliente');
+  if (!nos.length && !deles.length) return null;
+  const f = koFolha('Equipes', 'quem conduz, de cada lado');
+  const meia = (KO_W - 2 * KO_M - 22) / 2;
+  const y = 118, h = KO_H - y - 54;
+  const pessoas = (x, lista, titulo, cor) => {
+    koCaixa(f, x, y, meia, h, titulo, cor);
+    const n = Math.max(1, lista.length);
+    const passo = Math.min(62, (h - 48) / n);
+    const fs = clamp(passo * 0.36, 9, 20);
+    let yy = y + 44;
+    for (const p of lista) {
+      f.R(x + 16, yy - fs * 0.8, 3, fs * 1.9, cor, 1.5);
+      f.T(x + 28, yy, p.nome || p.papel || '—', fs, 700, CORES_ST.tinta);
+      if (p.nome && p.papel) f.T(x + 28, yy + fs * 1.05, p.papel, fs * 0.84, 400, CORES_ST.tinta3);
+      yy += passo;
+    }
+  };
+  if (nos.length) pessoas(KO_M, nos, 'Nossa equipe', '#014479');
+  if (deles.length) pessoas(KO_M + meia + 22, deles, ST.P.meta.client || 'Cliente', '#1C6A86');
+  return f.pg;
+}
+
+/** Tabela genérica que desce a fonte até caber, em vez de cortar linhas. */
+function koTabela(f, x, y, w, h, titulos, pesos, linhas, cor) {
+  const total = pesos.reduce((a, b) => a + b, 0);
+  const larg = pesos.map(p => w * p / total);
+  const xs = []; let ac = 0;
+  for (const l of larg) { xs.push(x + ac); ac += l; }
+  for (let fs = 22; fs >= 8; fs -= 0.5) {
+    const passo = fs * 1.5;
+    const cels = linhas.map(ln => ln.map((c, i) => envolver(String(c || '—'), larg[i] - 14, fs, 400)));
+    const alts = cels.map(cl => Math.max.apply(null, cl.map(x2 => x2.length)) * passo + 10);
+    const altTotal = alts.reduce((a, b) => a + b, 0) + 26;
+    if (altTotal > h && fs > 8) continue;
+    /* A sobra vai para a altura das linhas, até um limite: uma tabela curta
+       encostada no topo com meia folha em branco embaixo parece que o slide
+       ficou pela metade. */
+    const folga = Math.max(0, h - altTotal);
+    const extra = Math.min(folga / Math.max(1, linhas.length), fs * 1.6);
+    for (let i = 0; i < alts.length; i++) alts[i] += extra;
+    f.R(x, y, w, 24, cor, 6);
+    titulos.forEach((t, i) => f.T(xs[i] + 9, y + 16, String(t).toUpperCase(), fs * 0.72, 700, '#FFFFFF'));
+    let yy = y + 26;
+    cels.forEach((cl, i) => {
+      if (i % 2) f.R(x, yy, w, alts[i], '#F3F7FA');
+      cl.forEach((ls, j) => {
+        let ty = yy + fs + 2;
+        for (const ln of ls) { f.T(xs[j] + 9, ty, ln, fs, j === 0 ? 600 : 400, j === 0 ? CORES_ST.tinta : CORES_ST.tinta2); ty += passo; }
+      });
+      yy += alts[i];
+      f.L(x, yy, x + w, yy, '#E3E9ED', 0.6);
+    });
+    return;
+  }
+}
+
+function koSlideMacro() {
+  const lista = koMacro();
+  if (!lista.length) return null;
+  const f = koFolha('Atividades macro', 'os blocos de trabalho e quando acontecem');
+  koTabela(f, KO_M, 118, KO_W - 2 * KO_M, KO_H - 118 - 54,
+    ['Atividade', 'Quando', 'Responsável'], [5, 2, 2],
+    lista.map(x => [x.atividade, x.quando, x.responsavel]), '#014479');
+  return f.pg;
+}
+
+function koSlideComunicacao() {
+  const k = kickoffDados();
+  if (!k.comunicacao.length && !k.escalonamento.trim()) return null;
+  const f = koFolha('Plano de comunicação', 'como e quando falamos durante o projeto');
+  const temEsc = !!k.escalonamento.trim();
+  const hTab = KO_H - 118 - 54 - (temEsc ? 78 : 0);
+  if (k.comunicacao.length)
+    koTabela(f, KO_M, 118, KO_W - 2 * KO_M, hTab,
+      ['Evento', 'Quando', 'Quem participa', 'Canal'], [3, 2, 3, 2],
+      k.comunicacao.map(x => [x.evento, x.quando, x.quem, x.canal]), '#1C6A86');
+  if (temEsc) {
+    const y = KO_H - 54 - 66;
+    f.R(KO_M, y, KO_W - 2 * KO_M, 62, '#FDF3DF', 8);
+    f.R(KO_M, y, 4, 62, '#8A5A00');
+    f.T(KO_M + 18, y + 20, 'ESCALONAMENTO', 9.5, 700, '#8A5A00');
+    koListaEm(f, KO_M + 18, y + 26, KO_W - 2 * KO_M - 36, 30, koLinhas(k.escalonamento), 16, CORES_ST.tinta);
+  }
+  return f.pg;
+}
+
+function koSlideProximos() {
+  const itens = koLinhas(kickoffDados().proximos);
+  if (!itens.length) return null;
+  const f = koFolha('Próximos passos', 'o que acontece a partir de agora');
+  const y = 126, h = KO_H - y - 60;
+  const n = Math.max(1, itens.length);
+  const passo = Math.min(96, h / n);
+  const fs = clamp(passo * 0.33, 11, 26);
+  let yy = y + fs;
+  /* o disco acompanha a fonte: com tamanho fixo, o número crescia para fora
+     dele e virava uma mancha */
+  const d = Math.round(fs * 1.6), rec = d + 16;
+  itens.forEach((t, i) => {
+    f.R(KO_M, yy - fs * 0.92, d, d, '#014479', d / 2);
+    f.T(KO_M + d / 2, yy + fs * 0.28, String(i + 1), fs * 0.72, 700, '#FFFFFF', 'middle');
+    const ls = envolver(t, KO_W - 2 * KO_M - rec, fs, 400);
+    let ty = yy + fs * 0.26;
+    for (const ln of ls.slice(0, 2)) { f.T(KO_M + rec, ty, ln, fs, 400, CORES_ST.tinta); ty += fs * 1.3; }
+    yy += passo;
+  });
+  return f.pg;
+}
+
+function koFolhas() {
+  return [koCapa(), koSlideObjetivo(), koSlideForaEPremissas(), koSlideEquipes(),
+    koSlideMacro(), koSlideComunicacao(), koSlideProximos()].filter(Boolean);
+}
+
+async function koBaixarPDF() {
+  try {
+    const folhas = koFolhas();
+    if (folhas.length <= 1) { toast('Preencha pelo menos um assunto antes de gerar.'); return; }
+    const pgs = [];
+    for (const f of folhas) pgs.push(await svgParaJPEG(f, KO_W, KO_H, 2.5, 0.93));
+    await offerDownload(slug((ST.P.meta.client || '') + '-' + (ST.P.meta.name || 'projeto')) + '-kickoff.pdf',
+      new Blob([montarPDFMulti(pgs)], { type: 'application/pdf' }));
+    toast(folhas.length + ' folha(s) geradas.');
+  } catch (e) {
+    toast('Não consegui gerar: ' + ((e && e.message) || 'erro'));
+  }
+}
+
+function koJanelaPrevia() {
+  const folhas = koFolhas();
+  modal('Pré-visualização da abertura', (body, close) => {
+    setTimeout(() => { const j = body.closest('.modal'); if (j) j.classList.add('larga'); }, 0);
+    body.appendChild(el('div', 'hint',
+      folhas.length + ' folha(s). Só entra o assunto que tem conteúdo — slide vazio numa abertura '
+      + 'de projeto parece descuido, e é pior do que o assunto não aparecer.'));
+    const cx = el('div');
+    cx.style.cssText = 'max-height:62vh;overflow:auto;display:flex;flex-direction:column;gap:12px;background:#8A9AA8;padding:12px;border-radius:8px';
+    for (const f of folhas) {
+      resolverVarsDOM(f);
+      f.removeAttribute('width'); f.removeAttribute('height');
+      f.style.cssText = 'width:100%;display:block;box-shadow:0 2px 10px rgba(0,0,0,.25)';
+      cx.appendChild(f);
+    }
+    body.appendChild(cx);
+    const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;margin-top:10px';
+    const bF = el('button', 'btn', 'Fechar'); bF.addEventListener('click', close);
+    const bP = el('button', 'btn primary', 'Gerar PDF');
+    bP.addEventListener('click', async () => { close(); toast('Montando a apresentação…'); await koBaixarPDF(); });
+    linha.appendChild(bF); linha.appendChild(bP); body.appendChild(linha);
+  }, []);
+}
+
 /* ============ Matriz RACI ============
    Quem faz, quem responde, quem opina e quem fica sabendo — de cada lado.
 
@@ -10585,6 +11207,7 @@ function refresh() {
   if (VIEW === 'overview') renderOverview();
   else if (VIEW === 'kpi') renderPainel();
   else if (VIEW === 'canvas') renderCanvas();
+  else if (VIEW === 'kickoff') renderKickoff();
   else if (VIEW === 'schedule') { renderGrid(); renderGantt(); syncHeights(); atualizarChipFiltro(); }
   else if (VIEW === 'resources') renderResources();
   else if (VIEW === 'raci') renderRACI();
@@ -10605,7 +11228,7 @@ function setView(v) {
   document.querySelectorAll('.tab').forEach(b => b.setAttribute('aria-selected', String(b.dataset.view === v)));
   document.querySelectorAll('.view').forEach(x => x.classList.toggle('on', x.id === 'view-' + v));
   $('#toolbar').style.display = v === 'schedule' ? '' : 'none';
-  $('#kpis').style.display = (v === 'overview' || v === 'kpi' || v === 'canvas' || v === 'docs' || v === 'diario' || v === 'users' || v === 'plataforma') ? 'none' : '';
+  $('#kpis').style.display = (v === 'overview' || v === 'kpi' || v === 'canvas' || v === 'kickoff' || v === 'docs' || v === 'diario' || v === 'users' || v === 'plataforma') ? 'none' : '';
   refresh();
 }
 
