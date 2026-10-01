@@ -6112,6 +6112,180 @@ function janelaLinhasRACI(aoFechar) {
   }, []);
 }
 
+/* ---- a matriz em papel ----
+   RACI é documento de abertura: vai assinado, vai anexado na ata, vai para a
+   pasta do contrato. Por isso sai no mesmo desenho do relatório do diário, e
+   em paisagem — uma matriz é larga por natureza, e espremer dez papéis numa
+   folha em pé é o jeito certo de ninguém ler.
+
+   As colunas de papel não têm largura fixa: o número delas é do usuário. A
+   primeira coluna leva uma fatia maior porque é ela que carrega texto; o
+   resto da folha é repartido em partes iguais, que é o que faz a matriz
+   parecer uma grade e não uma tabela torta. */
+function raciMontarFolhas(modo) {
+  const m = ST.P.meta;
+  const papeis = raciPapeis();
+  const nossos = papeis.filter(x => x.lado !== 'cliente');
+  const deles = papeis.filter(x => x.lado === 'cliente');
+  const ordem = nossos.concat(deles);
+  const linhas = raciLinhas();
+
+  const W = 842, M = 28, RODAPE = 28, PASSO = 9;
+  const LARG = W - 2 * M;
+  /* a coluna da atividade fica entre 180 e 300pt: menos que isso corta nome de
+     entrega, mais que isso achata a grade justamente onde ela informa */
+  const cAtiv = Math.max(180, Math.min(300, LARG - ordem.length * 34));
+  const cPapel = ordem.length ? (LARG - cAtiv) / ordem.length : 0;
+  const xPapel = i => M + cAtiv + i * cPapel;
+
+  const cabPapel = ordem.map(p => envolver(String(p.nome || '').toUpperCase(), cPapel - 6, 6.5, 700));
+  /* geometria do topo em constantes, nao derivada de y: a legenda e o
+     cabecalho sao desenhados em cada folha e precisam cair no mesmo lugar */
+  const Y_GRUPO = 76, ALT_GRUPO = 13;
+  const Y_CABP = Y_GRUPO + ALT_GRUPO;
+  const ALT_CABP = Math.max.apply(null, [1].concat(cabPapel.map(x => x.length))) * 8 + 11;
+  const TOPO = Y_CABP + ALT_CABP + 12;
+
+  const medidas = linhas.map(l => {
+    const txt = envolver((l.marco ? '◆ ' : '') + (l.texto || 'Sem nome'),
+      cAtiv - 14 - (l.livre ? 0 : (l.nivel || 0) * 8), 8, l.grupo ? 700 : 400);
+    return { l: l, txt: txt, alt: Math.max(1, txt.length) * PASSO + 9 };
+  });
+  const total = medidas.reduce((a, x) => a + x.alt, 0);
+
+  const folhas = [];
+  let pg, T, R, L, y, H;
+  const nova = altura => {
+    H = altura;
+    pg = sv('svg', { xmlns: SVGNS, viewBox: '0 0 ' + W + ' ' + H, width: W, height: H });
+    T = (x, yy, t, fs, peso, cor, anc) => {
+      const e = sv('text', { x: x, y: yy, 'font-size': fs, 'font-weight': peso || 400, fill: cor || CORES_ST.tinta, 'font-family': FONTE_ST });
+      if (anc) e.setAttribute('text-anchor', anc);
+      e.textContent = t == null ? '' : String(t); pg.appendChild(e); return e;
+    };
+    R = (x, yy, w, h, f, raio) => {
+      const a = { x: x, y: yy, width: Math.max(0, w), height: Math.max(0, h), fill: f };
+      if (raio) { a.rx = raio; a.ry = raio; }
+      return pg.appendChild(sv('rect', a));
+    };
+    L = (x1, y1, x2, y2, c, w) => pg.appendChild(sv('line', { x1: x1, y1: y1, x2: x2, y2: y2, stroke: c, 'stroke-width': w || 1 }));
+    R(0, 0, W, H, '#FFFFFF');
+    R(M, 24, LARG, 26, '#12202E');
+    T(M + 10, 41, 'MATRIZ DE RESPONSABILIDADES · ' + String(m.name || '').toUpperCase(), 11, 700, '#FFFFFF');
+    T(W - M - 10, 41, String(m.client || ''), 10, 700, '#FFFFFF', 'end');
+
+    /* a legenda vai em toda folha: quem recebe o PDF abre numa página
+       qualquer, e um C sem legenda é só uma letra */
+    let lx = M;
+    for (const k of ['R', 'A', 'C', 'I']) {
+      const i = RACI_INFO[k];
+      R(lx, 54, 13, 13, i.fundo, 3);
+      T(lx + 6.5, 63.5, k, 8, 700, i.hex, 'middle');
+      T(lx + 17, 63.5, i.pt, 7.5, 400, CORES_ST.tinta2);
+      lx += 17 + medirTexto(i.pt, 7.5, 400, FONTE_ST) + 16;
+    }
+    T(W - M, 63.5, modo === 'a4' ? 'página ' + (folhas.length + 1) : fmtBR(todayISO()), 7.5, 400, CORES_ST.tinta3, 'end');
+    T(M, H - 14, 'Gerado pelo MILEST em ' + fmtBR(todayISO()), 7.5, 400, CORES_ST.tinta3);
+    y = TOPO;
+    folhas.push(pg);
+  };
+
+  const xCorte = M + cAtiv + nossos.length * cPapel;
+  const cabec = () => {
+    /* os dois lados em blocos separados: a pergunta que o cliente faz ao
+       abrir o documento é "o que é meu?" */
+    if (nossos.length) {
+      R(M + cAtiv, Y_GRUPO, nossos.length * cPapel, ALT_GRUPO, '#014479');
+      T(M + cAtiv + nossos.length * cPapel / 2, Y_GRUPO + 9, 'NOSSA EQUIPE', 7, 700, '#FFFFFF', 'middle');
+    }
+    if (deles.length) {
+      R(xCorte, Y_GRUPO, deles.length * cPapel, ALT_GRUPO, '#1C6A86');
+      T(xCorte + deles.length * cPapel / 2, Y_GRUPO + 9,
+        String(m.client || 'CLIENTE').toUpperCase(), 7, 700, '#FFFFFF', 'middle');
+    }
+    R(M, Y_CABP, LARG, ALT_CABP, '#E9EFF5');
+    T(M + 8, Y_CABP + 11, 'ATIVIDADE / ENTREGA', 7, 700, CORES_ST.tinta2);
+    cabPapel.forEach((ls, i) => {
+      let yy = Y_CABP + 11;
+      for (const ln of ls) { T(xPapel(i) + cPapel / 2, yy, ln, 6.5, 700, CORES_ST.tinta, 'middle'); yy += 8; }
+    });
+    if (deles.length) L(xCorte, Y_GRUPO, xCorte, Y_CABP + ALT_CABP, '#12202E', 1.2);
+  };
+
+  const ALT_A4 = 595;
+  nova(modo === 'a4' ? ALT_A4 : Math.max(220, TOPO + total + RODAPE));
+  cabec();
+
+  medidas.forEach((mm, idx) => {
+    if (modo === 'a4' && y + mm.alt > H - RODAPE) { nova(ALT_A4); cabec(); }
+    const l = mm.l;
+    if (l.grupo) R(M, y - 9, LARG, mm.alt, '#EDF2F6');
+    else if (idx % 2) R(M, y - 9, LARG, mm.alt, '#F6F8F9');
+    let yy = y;
+    for (const ln of mm.txt) {
+      T(M + 8 + (l.livre ? 0 : (l.nivel || 0) * 8), yy, ln, 8, l.grupo ? 700 : 400,
+        l.livre ? CORES_ST.tinta2 : CORES_ST.tinta);
+      yy += PASSO;
+    }
+    ordem.forEach((pa, i) => {
+      const letra = raciMarca(l.id, pa.id); if (!letra) return;
+      const inf = RACI_INFO[letra]; if (!inf) return;
+      const cx = xPapel(i) + cPapel / 2;
+      R(cx - 8, y - 8, 16, 12, inf.fundo, 3);
+      T(cx, y + 1, letra, 7.5, 700, inf.hex, 'middle');
+    });
+    if (deles.length) L(xCorte, y - 9, xCorte, y - 9 + mm.alt, '#12202E', 1.2);
+    y += mm.alt;
+    L(M, y - 7, W - M, y - 7, '#E3E9ED', 0.5);
+  });
+  if (!linhas.length) T(M + 10, y + 6, 'A matriz ainda não tem linhas.', 9, 400, CORES_ST.tinta3);
+  return { folhas: folhas, W: W, H: H };
+}
+
+const raciNomeArquivo = () => 'raci-' + slug((ST.P.meta.client || '') + '-' + (ST.P.meta.name || 'projeto'));
+
+async function raciBaixarPDF() {
+  const r = raciMontarFolhas('a4');
+  const pgs = [];
+  for (const f of r.folhas) pgs.push(await svgParaJPEG(f, r.W, 595, 2.4, 0.94));
+  await offerDownload(raciNomeArquivo() + '.pdf', new Blob([montarPDFMulti(pgs)], { type: 'application/pdf' }));
+}
+async function raciBaixarImagem(tipo) {
+  const r = raciMontarFolhas('unica');
+  const img = await svgParaArquivoImagem(r.folhas[0], r.W, r.H, tipo);
+  await offerDownload(raciNomeArquivo() + (tipo === 'jpg' ? '.jpg' : '.png'), img.blob);
+}
+
+function janelaExportarRACI() {
+  const papeis = raciPapeis();
+  if (!papeis.length || !raciLinhas().length) { toast('Defina os papéis e as atividades antes de exportar.'); return; }
+  modal('Exportar a matriz', (body, close) => {
+    body.appendChild(el('div', 'hint',
+      'Em paisagem, com a legenda em toda página — quem recebe o arquivo abre numa página qualquer, '
+      + 'e um C sem legenda é só uma letra.'));
+    const graves = raciProblemas(raciLinhas(), papeis).filter(x => x.grave).length;
+    if (graves) {
+      const av = el('div', 'hint', graves + ' ponto(s) da conferência ainda estão abertos. '
+        + 'A matriz sai assim mesmo, mas vale resolver antes de mandar ao cliente.');
+      av.style.color = 'var(--critical)';
+      body.appendChild(av);
+    }
+    const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;margin-top:6px';
+    const faz = (rot, dica, fn) => {
+      const b = el('button', 'btn', rot); b.title = dica;
+      b.addEventListener('click', async () => { close(); toast('Montando…'); try { await fn(); } catch (e) { toast('Não consegui gerar: ' + ((e && e.message) || 'erro')); } });
+      return b;
+    };
+    linha.appendChild(faz('📄 PDF', 'Uma ou mais folhas A4 em paisagem, para anexar na ata', raciBaixarPDF));
+    linha.appendChild(faz('🖼 JPG', 'Folha única, para colar numa conversa ou num slide', () => raciBaixarImagem('jpg')));
+    linha.appendChild(faz('🖼 PNG', 'Folha única sem perda, para quem vai ampliar', () => raciBaixarImagem('png')));
+    body.appendChild(linha);
+    const fim = el('div'); fim.style.cssText = 'display:flex;justify-content:flex-end;margin-top:12px';
+    const bC = el('button', 'btn', 'Fechar'); bC.addEventListener('click', close);
+    fim.appendChild(bC); body.appendChild(fim);
+  }, []);
+}
+
 /* ---- a aba ---- */
 function renderRACI() {
   const host = $('#raciView'); if (!host) return;
@@ -6127,7 +6301,10 @@ function renderRACI() {
   bPap.addEventListener('click', () => janelaPapeisRACI(renderRACI));
   const bLin = el('button', 'btn reqedit', 'Atividades');
   bLin.addEventListener('click', () => janelaLinhasRACI(renderRACI));
-  acoes.appendChild(bPap); acoes.appendChild(bLin);
+  const bExp = el('button', 'btn', 'Exportar');
+  bExp.title = 'PDF para a ata, imagem para a conversa';
+  bExp.addEventListener('click', () => janelaExportarRACI());
+  acoes.appendChild(bPap); acoes.appendChild(bLin); acoes.appendChild(bExp);
   cab.appendChild(acoes); p.appendChild(cab);
 
   if (!papeis.length || !linhas.length) {
