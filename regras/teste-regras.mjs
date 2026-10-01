@@ -324,6 +324,42 @@ await caso('NÃO responde duas vezes', () =>
 await caso('NÃO responde pesquisa vencida', () =>
   assertFails(updateDoc(doc(anonimo(), 'orgs/varejo/pesquisas', 'codigoVencido'), { respostas: { q1: 9 }, respondidaEm: serverTimestamp() })));
 
+console.log('\nÍNDICE DO ENVIO AGENDADO');
+// Esta coleção fica FORA da árvore da empresa para o servidor poder perguntar
+// "o que vence nesta hora?" numa busca só. Por isso ela é o ponto onde o
+// isolamento depende da regra, e não da estrutura: é aqui que se confere.
+const agenda = (org, pid, extra) => Object.assign({ orgId: org, pid: pid, ativo: true, proximo: Date.now() + DIA }, extra || {});
+await caso('Ana programa o envio do projeto da própria empresa', () =>
+  assertSucceeds(setDoc(doc(conta(ANA), 'agendasStatus', 'unimed__p1'), agenda('unimed', 'p1'))));
+await caso('Ana lê a agenda que criou', () =>
+  assertSucceeds(getDoc(doc(conta(ANA), 'agendasStatus', 'unimed__p1'))));
+await caso('Bruno NÃO lê a agenda da Unimed', () =>
+  assertFails(getDoc(doc(conta(BRUNO), 'agendasStatus', 'unimed__p1'))));
+await caso('Bruno NÃO grava agenda apontando para a Unimed', () =>
+  assertFails(setDoc(doc(conta(BRUNO), 'agendasStatus', 'unimed__p1'), agenda('unimed', 'p1'))));
+await caso('o id tem de casar com a empresa do documento', () =>
+  assertFails(setDoc(doc(conta(ANA), 'agendasStatus', 'varejo__p9'), agenda('unimed', 'p1'))));
+await caso('o id tem de casar com o projeto do documento', () =>
+  assertFails(setDoc(doc(conta(ANA), 'agendasStatus', 'unimed__p1'), agenda('unimed', 'p2'))));
+await caso('ninguém muda a empresa de uma agenda existente', () =>
+  assertFails(updateDoc(doc(conta(ANA), 'agendasStatus', 'unimed__p1'), { orgId: 'varejo' })));
+await caso('leitor NÃO programa envio', () =>
+  assertFails(setDoc(doc(conta(CAIO), 'agendasStatus', 'unimed__p2'), agenda('unimed', 'p2'))));
+await caso('leitor lê a agenda da própria empresa', () =>
+  assertSucceeds(getDoc(doc(conta(CAIO), 'agendasStatus', 'unimed__p1'))));
+await caso('empresa com prazo vencido NÃO programa envio', () =>
+  assertFails(setDoc(doc(conta(DORA), 'agendasStatus', 'vencida__v1'), agenda('vencida', 'v1'))));
+await caso('empresa no prazo programa envio', () =>
+  assertSucceeds(setDoc(doc(conta(DORA), 'agendasStatus', 'noprazo__n1'), agenda('noprazo', 'n1'))));
+await caso('sem login não lê agenda', () =>
+  assertFails(getDoc(doc(anonimo(), 'agendasStatus', 'unimed__p1'))));
+await caso('plataforma NÃO lê agenda de cliente', () =>
+  assertFails(getDoc(doc(conta(PLATAFORMA), 'agendasStatus', 'unimed__p1'))));
+await caso('leitor NÃO apaga agenda', () =>
+  assertFails(deleteDoc(doc(conta(CAIO), 'agendasStatus', 'unimed__p1'))));
+await caso('quem manda na empresa apaga a agenda', () =>
+  assertSucceeds(deleteDoc(doc(conta(ANA), 'agendasStatus', 'unimed__p1'))));
+
 console.log('\n' + ok + ' passaram, ' + falhou + ' falharam.');
 await env.cleanup();
 process.exit(falhou ? 1 : 0);
