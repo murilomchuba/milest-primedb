@@ -210,6 +210,29 @@ service cloud.firestore {
       allow delete: if souPlataforma() || mandaNaOrg(resource.data.get('orgId', '—'));
     }
 
+    // ---- índice do envio agendado do status report ------------------------
+    // Fica FORA da árvore da empresa de propósito: a função do servidor
+    // precisa perguntar "o que vence nesta hora?" numa busca só, em vez de
+    // varrer empresa por empresa de hora em hora. Por isso ele guarda apenas
+    // ponteiros — qual empresa, qual projeto, quando e se está ligado. Nome
+    // de projeto e de cliente são dados da empresa e continuam dentro dela.
+    //
+    // O id é "{orgId}__{projeto}", e a regra exige que o campo orgId case com
+    // o prefixo do id: sem isso alguém de uma empresa poderia escrever um
+    // documento apontando para outra.
+    match /agendasStatus/{chave} {
+      // create e update separados de delete de propósito: em delete não existe
+      // request.resource, e uma regra escrita como `write` erraria ao lê-lo.
+      allow read: if daOrg(resource.data.get('orgId', '—'))
+                  || suporteAtivo(resource.data.get('orgId', '—'));
+      allow create, update: if editaOrg(request.resource.data.get('orgId', '—'))
+                   && chave == request.resource.data.get('orgId', '—') + '__' + request.resource.data.get('pid', '—')
+                   && (resource == null
+                       || resource.data.get('orgId', request.resource.data.get('orgId', '—'))
+                          == request.resource.data.get('orgId', '—'));
+      allow delete: if mandaNaOrg(resource.data.get('orgId', '—'));
+    }
+
     // ---- estrutura antiga, anterior à separação por empresa ---------------
     // Continua legível apenas para a conta dona, o tempo necessário para a
     // migração. Depois de conferir a cópia, apague estas coleções e este bloco.

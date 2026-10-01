@@ -6555,6 +6555,248 @@ function renderDocumentos() {
   });
 }
 
+/* ============ envio agendado do status report ============
+   A função do servidor não calcula nada: ela lembra e entrega. Os números do
+   status report só existem aqui no navegador (computeSchedule, indicadoresDe),
+   e recalculá-los em Node seria manter duas contas para a mesma pergunta — é
+   assim que um sistema passa a dar dois números diferentes. Guardar um retrato
+   também não serve, porque o % planejado anda com o calendário mesmo sem
+   ninguém mexer no projeto.
+
+   Então: o servidor acorda na hora marcada, cria um envio pendente e avisa o
+   gestor. Quem monta o resumo e o PDF, na hora de enviar, é esta tela. */
+
+const AG_PERIODOS = [
+  { v: 'semanal', rot: 'Toda semana' },
+  { v: 'quinzenal', rot: 'A cada duas semanas' },
+  { v: 'mensal', rot: 'Todo mês' }
+];
+const AG_DIAS = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado'];
+
+function agendaStatus() {
+  const m = ST.P.meta;
+  if (!m.statusAgenda || typeof m.statusAgenda !== 'object') m.statusAgenda = {};
+  const a = m.statusAgenda;
+  if (!AG_PERIODOS.some(p => p.v === a.periodicidade)) a.periodicidade = 'semanal';
+  if (!(a.diaSemana >= 0 && a.diaSemana <= 6)) a.diaSemana = 1;
+  if (!(a.diaMes >= 1 && a.diaMes <= 31)) a.diaMes = 1;
+  if (!(a.hora >= 0 && a.hora <= 23)) a.hora = 8;
+  if (!Array.isArray(a.destinatarios)) a.destinatarios = [];
+  if (!Array.isArray(a.copia)) a.copia = [];
+  return a;
+}
+
+/* O Brasil não tem horário de verão desde 2019, então America/Sao_Paulo é
+   UTC-3 fixo e a conta cabe numa linha. Se o horário de verão voltar, é
+   ESTA função que precisa mudar — e só ela. */
+const AG_FUSO = 3;
+function agMomento(ano, mes, dia, hora) { return Date.UTC(ano, mes, dia, hora + AG_FUSO, 0, 0, 0); }
+function agPartes(ms) {
+  const d = new Date(ms - AG_FUSO * 3600000);
+  return { ano: d.getUTCFullYear(), mes: d.getUTCMonth(), dia: d.getUTCDate(), semana: d.getUTCDay() };
+}
+
+/** Quando cai o próximo envio, em milissegundos. Sempre à frente de `agora`. */
+function agProximo(a, agora) {
+  agora = agora || Date.now();
+  const p = agPartes(agora);
+  if (a.periodicidade === 'mensal') {
+    for (let k = 0; k < 3; k++) {
+      const mes = p.mes + k, ano = p.ano + Math.floor(mes / 12), m2 = ((mes % 12) + 12) % 12;
+      /* dia 31 em mês de 30 cai no último dia, não no dia 1º do mês seguinte:
+         quem marcou "todo dia 31" quis dizer "no fim do mês" */
+      const ultimo = new Date(Date.UTC(ano, m2 + 1, 0)).getUTCDate();
+      const t = agMomento(ano, m2, Math.min(a.diaMes, ultimo), a.hora);
+      if (t > agora) return t;
+    }
+    return agMomento(p.ano, p.mes + 3, 1, a.hora);
+  }
+  const passo = a.periodicidade === 'quinzenal' ? 14 : 7;
+  /* a âncora guarda de qual semana a contagem parte: sem ela, "a cada duas
+     semanas" não tem como saber se esta é a semana sim ou a semana não */
+  let t = agMomento(p.ano, p.mes, p.dia + ((a.diaSemana - p.semana) + 7) % 7, a.hora);
+  if (a.ancora) { while (t <= agora || Math.round((t - a.ancora) / 86400000) % passo !== 0) t += 7 * 86400000; }
+  else while (t <= agora) t += passo * 86400000;
+  return t;
+}
+
+function agResumoTexto(a) {
+  if (!a.ativo) return 'desligado';
+  const hora = String(a.hora).padStart(2, '0') + 'h';
+  if (a.periodicidade === 'mensal') return 'todo dia ' + a.diaMes + ', às ' + hora;
+  return (a.periodicidade === 'quinzenal' ? 'a cada duas semanas, ' : 'toda ') + AG_DIAS[a.diaSemana] + ', às ' + hora;
+}
+
+/* O índice fica FORA da árvore da empresa, para a função poder consultar
+   "o que vence nesta hora" com uma busca só, sem varrer empresa por empresa.
+   Por isso ele guarda apenas ponteiros — orgId, projeto, quando e se está
+   ligado. Nome de projeto e de cliente são dados da empresa e continuam
+   dentro dela. */
+const dAgendaStatus = pid => 'agendasStatus/' + (ST.orgId || 'local') + '__' + pid;
+
+async function gravarIndiceAgenda(pid, a) {
+  if (ST.mode !== 'db' || !ST.orgId) return;
+  const ref = ST.db.doc(dAgendaStatus(pid));
+  if (!a.ativo || !a.destinatarios.length) { await ref.set({ orgId: ST.orgId, pid: pid, ativo: false }); return; }
+  await ref.set({ orgId: ST.orgId, pid: pid, ativo: true, proximo: agProximo(a), atualizadoEm: Date.now() });
+}
+
+function janelaAgendaStatus() {
+  if (semPermissao()) return;
+  const a = Object.assign({}, agendaStatus());
+  a.destinatarios = agendaStatus().destinatarios.slice();
+  a.copia = agendaStatus().copia.slice();
+
+  modal('Envio automático do status report', (body, close) => {
+    setTimeout(() => { const j = body.closest('.modal'); if (j) j.classList.add('larga'); }, 0);
+    body.appendChild(el('div', 'hint',
+      'Na hora marcada o sistema prepara o envio e avisa você — o relatório só vai ao cliente '
+      + 'depois que você revisar. Os números levam o que estiver no sistema, não o que você sabe; '
+      + 'por isso a revisão existe.'));
+
+    const lig = el('label'); lig.style.cssText = 'display:flex;gap:8px;align-items:center;margin:4px 0 10px;font-weight:600';
+    const ck = el('input'); ck.type = 'checkbox'; ck.checked = !!a.ativo; ck.style.width = 'auto';
+    lig.appendChild(ck); lig.appendChild(document.createTextNode('Ligar o envio automático deste projeto'));
+    body.appendChild(lig);
+
+    const grade = el('div'); grade.style.cssText = 'display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px';
+    const campo = (rot, no) => { const f = el('div', 'field'); f.appendChild(el('label', '', rot)); f.appendChild(no); return f; };
+
+    const sPer = el('select', 'inp');
+    for (const p of AG_PERIODOS) { const o = el('option', '', p.rot); o.value = p.v; sPer.appendChild(o); }
+    sPer.value = a.periodicidade;
+
+    const sDia = el('select', 'inp');
+    AG_DIAS.forEach((d, i) => { const o = el('option', '', d); o.value = String(i); sDia.appendChild(o); });
+    sDia.value = String(a.diaSemana);
+
+    const sDiaM = el('select', 'inp');
+    for (let i = 1; i <= 31; i++) { const o = el('option', '', 'dia ' + i); o.value = String(i); sDiaM.appendChild(o); }
+    sDiaM.value = String(a.diaMes);
+
+    const sHora = el('select', 'inp');
+    for (let h = 5; h <= 21; h++) { const o = el('option', '', String(h).padStart(2, '0') + 'h00'); o.value = String(h); sHora.appendChild(o); }
+    sHora.value = String(a.hora);
+
+    const fDia = campo('Dia da semana', sDia);
+    const fDiaM = campo('Dia do mês', sDiaM);
+    grade.appendChild(campo('Com que frequência', sPer));
+    grade.appendChild(fDia); grade.appendChild(fDiaM);
+    grade.appendChild(campo('Horário', sHora));
+    body.appendChild(grade);
+
+    const fD = el('div', 'field'); fD.appendChild(el('label', '', 'Destinatários no cliente'));
+    const tD = el('textarea', 'inp'); tD.rows = 3;
+    tD.placeholder = 'Um por linha. Ex.:\nCarla Souza <carla@cliente.com.br>\njoao@cliente.com.br';
+    tD.value = a.destinatarios.map(d => (d.nome ? d.nome + ' <' + d.email + '>' : d.email)).join('\n');
+    fD.appendChild(tD); body.appendChild(fD);
+
+    const fC = el('div', 'field'); fC.appendChild(el('label', '', 'Em cópia (opcional)'));
+    const tC = el('textarea', 'inp'); tC.rows = 2;
+    tC.placeholder = 'Quem da nossa equipe também recebe';
+    tC.value = a.copia.map(d => (d.nome ? d.nome + ' <' + d.email + '>' : d.email)).join('\n');
+    fC.appendChild(tC); body.appendChild(fC);
+
+    const aviso = el('div', 'hint'); aviso.style.color = 'var(--critical)'; aviso.hidden = true;
+    body.appendChild(aviso);
+    const quando = el('div', 'hint'); quando.style.cssText = 'font-weight:600;color:var(--accent)';
+    body.appendChild(quando);
+
+    const atualizar = () => {
+      const mensal = sPer.value === 'mensal';
+      fDia.hidden = mensal; fDiaM.hidden = !mensal;
+      const prova = {
+        ativo: true, periodicidade: sPer.value, diaSemana: Number(sDia.value),
+        diaMes: Number(sDiaM.value), hora: Number(sHora.value), ancora: a.ancora
+      };
+      quando.textContent = ck.checked
+        ? 'Próximo envio: ' + fmtBR(new Date(agProximo(prova)).toISOString().slice(0, 10))
+          + ' às ' + String(prova.hora).padStart(2, '0') + 'h (horário de Brasília).'
+        : 'Enquanto estiver desligado, nada é enviado.';
+    };
+    [sPer, sDia, sDiaM, sHora, ck].forEach(x => x.addEventListener('change', atualizar));
+    atualizar();
+
+    const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;margin-top:6px';
+    const bC = el('button', 'btn', 'Cancelar'); bC.addEventListener('click', close);
+    const bOk = el('button', 'btn primary', 'Salvar');
+    bOk.addEventListener('click', async () => {
+      const dest = lerDestinatarios(tD.value), cop = lerDestinatarios(tC.value);
+      const ruins = dest.concat(cop).filter(d => !d.ok);
+      if (ruins.length) { aviso.textContent = 'E-mail inválido: ' + ruins.map(d => d.email).join(', '); aviso.hidden = false; return; }
+      /* agenda ligada sem destinatário é uma armadilha: ela dispararia todo mês
+         e só falharia na hora do envio, quando ninguém mais está olhando */
+      if (ck.checked && !dest.length) { aviso.textContent = 'Para ligar o envio, informe ao menos um destinatário no cliente.'; aviso.hidden = false; return; }
+      if (dest.length + cop.length > 50) { aviso.textContent = 'No máximo 50 destinatários por envio.'; aviso.hidden = false; return; }
+
+      const nova = agendaStatus();
+      const mudouRitmo = nova.periodicidade !== sPer.value || nova.diaSemana !== Number(sDia.value)
+        || nova.diaMes !== Number(sDiaM.value) || nova.hora !== Number(sHora.value) || !nova.ativo;
+      nova.ativo = ck.checked;
+      nova.periodicidade = sPer.value;
+      nova.diaSemana = Number(sDia.value);
+      nova.diaMes = Number(sDiaM.value);
+      nova.hora = Number(sHora.value);
+      nova.destinatarios = dest.map(d => ({ nome: d.nome, email: d.email }));
+      nova.copia = cop.map(d => ({ nome: d.nome, email: d.email }));
+      if (mudouRitmo && nova.ativo) nova.ancora = agProximo(Object.assign({}, nova, { ancora: 0 }));
+
+      markMeta();
+      const ok = await flushSave() !== false;
+      if (!ok) return;
+      try { await gravarIndiceAgenda(ST.pid, nova); }
+      catch (e) {
+        /* o índice é o que faz o servidor acordar: sem ele a agenda está
+           salva e mesmo assim nunca dispara, que é a pior combinação */
+        toast('A agenda foi salva, mas não consegui avisar o servidor: ' + ((e && e.message) || 'erro'));
+        close(); renderStatusReport(); return;
+      }
+      toast(nova.ativo ? 'Envio automático ligado — ' + agResumoTexto(nova) + '.' : 'Envio automático desligado.');
+      close(); renderStatusReport();
+    });
+    linha.appendChild(bC); linha.appendChild(bOk); body.appendChild(linha);
+  }, []);
+}
+
+/** A faixa na aba Status que diz como está a agenda deste projeto. */
+function painelAgendaStatus() {
+  const a = agendaStatus();
+  const p = el('div', 'panel');
+  const cab = el('h3', '', 'Envio automático ao cliente');
+  cab.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap';
+  const dir = el('div'); dir.style.cssText = 'display:flex;gap:9px;align-items:center;flex-wrap:wrap';
+  const selo = el('span', '', a.ativo ? agResumoTexto(a) : 'desligado');
+  selo.style.cssText = 'font-size:10.5px;font-weight:700;font-family:var(--f-mono);padding:2px 9px;border-radius:999px;'
+    + (a.ativo
+      ? 'color:#1F8A5B;background:#DFF0E4;border:1px solid #B7DCC4'
+      : 'color:var(--ink-3);background:var(--surface-2);border:1px solid var(--line)');
+  const b = el('button', 'btn reqedit', a.ativo ? 'Alterar agenda' : 'Programar envio');
+  b.addEventListener('click', () => janelaAgendaStatus());
+  dir.appendChild(selo); dir.appendChild(b);
+  cab.appendChild(dir); p.appendChild(cab);
+
+  const corpo = el('div'); corpo.style.cssText = 'padding:4px 16px 14px;display:flex;flex-direction:column;gap:6px';
+  if (a.ativo) {
+    const q = el('div', '', 'Próximo: ' + fmtBR(new Date(agProximo(a)).toISOString().slice(0, 10))
+      + ' às ' + String(a.hora).padStart(2, '0') + 'h');
+    q.style.cssText = 'font-size:13px;font-weight:600';
+    corpo.appendChild(q);
+    const d = el('div', '', 'Vai para: ' + a.destinatarios.map(x => x.nome || x.email).join(', ')
+      + (a.copia.length ? '  ·  cópia: ' + a.copia.map(x => x.nome || x.email).join(', ') : ''));
+    d.style.cssText = 'font-size:12.5px;color:var(--ink-2);line-height:1.45';
+    corpo.appendChild(d);
+  } else {
+    corpo.appendChild(el('div', 'hint',
+      'Marque o dia e a hora e o sistema prepara o relatório sozinho, avisa você, '
+      + 'e envia ao cliente depois que você revisar.'));
+  }
+  p.appendChild(corpo);
+  p.appendChild(el('div', 'tagline',
+    'Nada sai sem a sua revisão. O relatório leva os números que estão no sistema, '
+    + 'não o que foi dito na reunião de sexta — essa parte continua sendo sua.'));
+  return p;
+}
+
 function renderStatusReport() {
   const host = $('#stView'); host.textContent = '';
   const meta = ST.P.meta;
@@ -6575,14 +6817,19 @@ function renderStatusReport() {
   bGuardar.addEventListener('click', async () => {
     bGuardar.disabled = true; await guardarDocumento('status'); bGuardar.disabled = false;
   });
+  const bAg = el('button', 'btn reqedit', '⏰ Agendar envio');
+  bAg.title = 'Programa o relatório para ir ao cliente num dia e horário';
+  bAg.addEventListener('click', () => janelaAgendaStatus());
   acoes.appendChild(bPng); acoes.appendChild(bPdf); acoes.appendChild(bTodos);
-  acoes.appendChild(bGuardar); h1.appendChild(acoes);
+  acoes.appendChild(bAg); acoes.appendChild(bGuardar); h1.appendChild(acoes);
   p1.appendChild(h1);
   const cx = el('div', 'stfolha');
   const folha = desenharStatusReport();
   folha.removeAttribute('width'); folha.removeAttribute('height');
   cx.appendChild(folha); p1.appendChild(cx);
   host.appendChild(p1);
+
+  host.appendChild(painelAgendaStatus());
 
   const p2 = el('div', 'panel');
   p2.appendChild(el('h3', '', 'Conteúdo da folha'));
