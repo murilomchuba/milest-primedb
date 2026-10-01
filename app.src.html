@@ -5898,30 +5898,31 @@ function salvarKickoff() { markMeta(); }
 
 const koLinhas = t => String(t || '').split('\n').map(x => x.trim()).filter(Boolean);
 
-/* ---- o que cada campo herda quando está vazio ---- */
-function koObjetivo() {
-  const k = kickoffDados();
-  if (k.objetivo.trim()) return koLinhas(k.objetivo);
+/* ---- o campo tem o que foi escrito nele, e nada mais ----
+   A herança automática escondia uma surpresa: texto que ninguém digitou aqui
+   aparecia no PDF que vai ao cliente. O atalho continua existindo, mas como
+   botão — "Trazer do Canvas" copia e você edita. Sugerir é uma coisa; decidir
+   pelo usuário o que vai na apresentação dele é outra. */
+function koObjetivo() { return koLinhas(kickoffDados().objetivo); }
+function koEscopo() { return koLinhas(kickoffDados().escopo); }
+function koPremissas() { return koLinhas(kickoffDados().premissas); }
+
+function koSugestaoCanvas(chave) {
   const c = canvasDados();
-  return (c.objetivo || []).slice(0, 3);
-}
-function koEscopo() {
-  const k = kickoffDados();
-  if (k.escopo.trim()) return koLinhas(k.escopo);
-  const c = canvasDados();
-  return (c.produto || []).concat(c.requisitos || []);
-}
-function koPremissas() {
-  const k = kickoffDados();
-  if (k.premissas.trim()) return koLinhas(k.premissas);
-  return (canvasDados().premissas || []).concat(canvasDados().restricoes || []);
+  if (chave === 'objetivo') return (c.objetivo || []).slice(0, 3);
+  if (chave === 'escopo') return (c.produto || []).concat(c.requisitos || []);
+  if (chave === 'premissas') return (c.premissas || []).concat(c.restricoes || []);
+  return [];
 }
 /** Equipe herdada: primeiro a RACI, que já separa os dois lados; depois o
  *  Canvas, que não separa; e os recursos do plano como último recurso. */
 function koEquipe(lado) {
   const k = kickoffDados();
   const propria = lado === 'cliente' ? k.equipeCliente : k.equipeNossa;
-  if (propria.length) return propria.map(x => ({ nome: x.nome || '', papel: x.papel || '' }));
+  return propria.map(x => ({ nome: x.nome || '', papel: x.papel || '' }));
+}
+/** O mesmo, mas como sugestão: o botão copia, o usuário confere. */
+function koSugestaoEquipe(lado) {
   const papeis = (ST.P.meta.raciPapeis || []).filter(p => (p.lado === 'cliente') === (lado === 'cliente'));
   if (papeis.length) return papeis.map(p => {
     const r = (ST.P.resources || []).find(x => x.id === p.recursoId);
@@ -5970,28 +5971,35 @@ function renderKickoff() {
   acoes.appendChild(bPrev); acoes.appendChild(bPdf);
   cab.appendChild(acoes); topo.appendChild(cab);
   topo.appendChild(el('div', 'tagline',
-    'Objetivo, escopo, premissas e equipes vêm do Canvas, da RACI e do cronograma quando você deixa em branco — '
-    + 'escrever aqui sobrescreve, só nesta apresentação. O resto é próprio do kickoff.'));
+    'Os campos começam vazios e só sai no PDF o que você escrever aqui. Onde já existe conteúdo no Canvas '
+    + 'ou na RACI, o botão “Trazer” copia para cá e a partir daí o texto é seu — editar aqui não mexe no Canvas.'));
   host.appendChild(topo);
 
   /* ---- campos de texto com herança ---- */
-  const painelTexto = (titulo, chave, dica, herdado, linhas) => {
+  const painelTexto = (titulo, chave, dica, sugestao, linhas) => {
     const p = el('div', 'panel');
     const h = el('h3', '', titulo);
     h.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap';
-    const selo = el('span', '', k[chave].trim() ? 'escrito aqui' : (herdado && herdado.length ? 'vindo do Canvas' : 'vazio'));
+    const dir = el('div'); dir.style.cssText = 'display:flex;gap:9px;align-items:center';
+    const selo = el('span', '', k[chave].trim() ? 'preenchido' : 'vazio');
     selo.style.cssText = 'font-size:10.5px;font-weight:700;font-family:var(--f-mono);padding:2px 9px;border-radius:999px;'
       + (k[chave].trim()
-        ? 'color:#014479;background:#DCE8F2;border:1px solid #B9D2E6'
-        : (herdado && herdado.length
-          ? 'color:#1F8A5B;background:#DFF0E4;border:1px solid #B7DCC4'
-          : 'color:var(--ink-3);background:var(--surface-2);border:1px solid var(--line)'));
-    h.appendChild(selo); p.appendChild(h);
+        ? 'color:#1F8A5B;background:#DFF0E4;border:1px solid #B7DCC4'
+        : 'color:var(--ink-3);background:var(--surface-2);border:1px solid var(--line)');
+    dir.appendChild(selo);
+    if (sugestao && sugestao.length) {
+      const bT = el('button', 'btn reqedit', '↧ Trazer do Canvas');
+      bT.title = 'Copia o que está no Canvas para cá. Depois é seu — editar aqui não mexe no Canvas.';
+      bT.addEventListener('click', () => {
+        if (k[chave].trim() && !confirm('Isto substitui o que já está escrito aqui. Continuar?')) return;
+        k[chave] = sugestao.join('\n'); salvarKickoff(); renderKickoff();
+      });
+      dir.appendChild(bT);
+    }
+    h.appendChild(dir); p.appendChild(h);
     const corpo = el('div'); corpo.style.cssText = 'padding:4px 16px 14px';
     const ta = el('textarea', 'inp'); ta.rows = linhas || 3;
-    ta.placeholder = (herdado && herdado.length)
-      ? herdado.slice(0, 4).join('\n') + (herdado.length > 4 ? '\n…' : '')
-      : dica;
+    ta.placeholder = dica;
     ta.value = k[chave];
     ta.disabled = !editavel;
     ta.addEventListener('input', () => { k[chave] = ta.value; });
@@ -6003,14 +6011,14 @@ function renderKickoff() {
   };
 
   host.appendChild(painelTexto('Objetivo do projeto', 'objetivo',
-    'Uma frase. Em branco, usa o Objetivo SMART do Canvas.', koObjetivo(), 2));
+    'Uma frase: o que o projeto entrega, com meta e prazo.', koSugestaoCanvas('objetivo'), 2));
   host.appendChild(painelTexto('Escopo', 'escopo',
-    'Um item por linha: o que o projeto entrega. Em branco, usa Produto e Requisitos do Canvas.', koEscopo(), 5));
+    'Um item por linha: o que o projeto entrega.', koSugestaoCanvas('escopo'), 5));
   host.appendChild(painelTexto('Fora do escopo', 'foraEscopo',
     'Um item por linha. É o slide mais barato da apresentação e o que mais evita discussão depois — '
     + 'o que o projeto NÃO entrega, dito na semana 1 em vez da semana 20.', [], 4));
   host.appendChild(painelTexto('Premissas', 'premissas',
-    'Um item por linha: o que você assume como verdade para poder planejar. Em branco, usa Premissas e Restrições do Canvas.', koPremissas(), 4));
+    'Um item por linha: o que você assume como verdade para poder planejar.', koSugestaoCanvas('premissas'), 4));
 
   /* ---- equipes ---- */
   const painelEquipe = (titulo, lado, chave) => {
@@ -6018,19 +6026,30 @@ function renderKickoff() {
     const h = el('h3', '', titulo);
     h.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap';
     const propria = k[chave].length;
-    const selo = el('span', '', propria ? 'escrita aqui' : (koEquipe(lado).length ? 'vinda da RACI' : 'vazia'));
+    const selo = el('span', '', propria ? propria + ' pessoa(s)' : 'vazia');
     selo.style.cssText = 'font-size:10.5px;font-weight:700;font-family:var(--f-mono);padding:2px 9px;border-radius:999px;'
-      + (propria ? 'color:#014479;background:#DCE8F2;border:1px solid #B9D2E6'
-        : (koEquipe(lado).length ? 'color:#1F8A5B;background:#DFF0E4;border:1px solid #B7DCC4'
-          : 'color:var(--ink-3);background:var(--surface-2);border:1px solid var(--line)'));
-    const b = el('button', 'btn reqedit', propria ? 'Editar' : 'Escrever aqui');
-    b.addEventListener('click', () => koJanelaEquipe(titulo, lado, chave));
+      + (propria ? 'color:#1F8A5B;background:#DFF0E4;border:1px solid #B7DCC4'
+        : 'color:var(--ink-3);background:var(--surface-2);border:1px solid var(--line)');
     const dir = el('div'); dir.style.cssText = 'display:flex;gap:9px;align-items:center';
-    dir.appendChild(selo); dir.appendChild(b);
+    dir.appendChild(selo);
+    const sug = koSugestaoEquipe(lado);
+    if (sug.length) {
+      const bT = el('button', 'btn reqedit', '↧ Trazer da RACI');
+      bT.title = 'Copia os papéis deste lado da matriz RACI. Depois é seu.';
+      bT.addEventListener('click', () => {
+        if (propria && !confirm('Isto substitui a lista atual. Continuar?')) return;
+        k[chave] = sug; salvarKickoff(); renderKickoff();
+      });
+      dir.appendChild(bT);
+    }
+    const b = el('button', 'btn primary reqedit', propria ? 'Editar' : 'Preencher');
+    b.addEventListener('click', () => koJanelaEquipe(titulo, lado, chave));
+    dir.appendChild(b);
     h.appendChild(dir); p.appendChild(h);
     const corpo = el('div'); corpo.style.cssText = 'padding:4px 16px 14px;display:flex;flex-direction:column;gap:4px';
     const lista = koEquipe(lado);
-    if (!lista.length) corpo.appendChild(el('div', 'hint', 'Ninguém ainda. Defina os papéis na aba RACI ou escreva aqui.'));
+    if (!lista.length) corpo.appendChild(el('div', 'hint',
+      'Ninguém ainda. Preencha aqui, ou traga os papéis da aba RACI se já os definiu lá.'));
     for (const x of lista) {
       const d = el('div', '', (x.nome ? x.nome + ' — ' : '') + (x.papel || 'sem papel'));
       d.style.cssText = 'font-size:13px;line-height:1.5';
@@ -6197,8 +6216,6 @@ function koJanelaGrade(titulo, chave, titulos, campos) {
 
 function koJanelaEquipe(titulo, lado, chave) {
   if (semPermissao()) return;
-  const k = kickoffDados();
-  if (!k[chave].length) k[chave] = koEquipe(lado).map(x => Object.assign({}, x));
   koJanelaGrade(titulo, chave, ['Nome', 'Papel'], ['nome', 'papel']);
 }
 
@@ -6273,28 +6290,61 @@ function koCaixa(f, x, y, w, h, titulo, cor) {
   f.T(x + 14, y + 18, String(titulo).toUpperCase(), 10.5, 700, '#FFFFFF');
 }
 
+/* A capa usa a MESMA arte que o status report já usa — desenharCapaSVG, que
+   traz a marca da empresa de fundo. Uma apresentação de abertura com capa
+   diferente do relatório que chega toda semana não parece variedade, parece
+   que vieram de lugares diferentes.
+
+   O texto fica embaixo porque a marca ocupa o meio da arte; e sobre uma faixa
+   escura, porque texto branco direto numa fotografia some em metade das
+   projeções de sala de reunião. */
 function koCapa() {
   const m = ST.P.meta;
-  const f = koFolha(null);
-  f.R(0, 0, KO_W, KO_H, '#12202E');
-  f.R(0, 0, 8, KO_H, '#17ADC5');
-  f.T(KO_M, 196, String(m.client || '').toUpperCase(), 15, 700, '#17ADC5');
-  const nome = envolver(String(m.name || 'Projeto'), KO_W - 2 * KO_M - 60, 44, 700);
-  let y = 252;
-  for (const ln of nome.slice(0, 2)) { f.T(KO_M, y, ln, 44, 700, '#FFFFFF'); y += 52; }
-  f.R(KO_M, y - 18, 54, 3, '#17ADC5');
-  f.T(KO_M, y + 22, 'Reunião de abertura', 16, 400, '#AFC2D2');
-  f.T(KO_M, y + 44, fmtBR(todayISO()), 12, 400, '#7F96A8');
+  const pg = desenharCapaSVG('', todayISO(), KO_W, KO_H);
+  const T = (x, y, t, fs, peso, cor, anc) => {
+    const e = sv('text', { x: x, y: y, 'font-size': fs, 'font-weight': peso || 400, fill: cor, 'font-family': FONTE_ST });
+    if (anc) e.setAttribute('text-anchor', anc);
+    e.textContent = t == null ? '' : String(t); pg.appendChild(e); return e;
+  };
+  const R = (x, y, w, h, f2, op) => {
+    const a2 = { x: x, y: y, width: Math.max(0, w), height: Math.max(0, h), fill: f2 };
+    if (op != null) a2.opacity = op;
+    return pg.appendChild(sv('rect', a2));
+  };
+
+  const nome = envolver(String(m.name || 'Projeto'), KO_W - 2 * KO_M - 230, 30, 700);
+  const linhas = nome.slice(0, 2);
+  /* Medida de baixo para cima: o rodapé da faixa é a borda da folha, e é dela
+     que as linhas sobem. Medindo de cima, a última linha caía exatamente em
+     cima da borda e sumia. */
+  const yRodape = KO_H - 24;
+  const yTitulo = yRodape - 28;                       // base da ÚLTIMA linha do nome
+  const yCliente = yTitulo - (linhas.length - 1) * 36 - 26;
+  const yF = yCliente - 26;
+  R(0, yF, KO_W, KO_H - yF, '#14181B', .88);
+  R(0, yF, KO_W, 3, '#C1272D');
+
+  T(KO_M, yCliente, String(m.client || '').toUpperCase(), 13, 700, '#C1272D');
+  let y = yTitulo - (linhas.length - 1) * 36;
+  for (const ln of linhas) { T(KO_M, y, ln, 30, 700, '#FFFFFF'); y += 36; }
+  T(KO_M, yRodape, 'Reunião de abertura  ·  ' + fmtBR(todayISO()), 13, 400, '#AEB6BC');
+
+  /* a logo do cliente entra na faixa, do lado oposto ao nome dele escrito:
+     aparece uma vez como palavra e uma vez como marca, sem competir */
   const cli = ST.P && ST.P.logo;
   if (cli && cli.src) {
-    const alt = 44, esc = Math.min(alt / (cli.alt || 1), 200 / (cli.larg || 1));
+    const alt = Math.min(KO_H - yF - 30, 54);
+    const esc = Math.min(alt / (cli.alt || 1), 190 / (cli.larg || 1));
     const w = (cli.larg || 1) * esc, h = (cli.alt || 1) * esc;
-    const im = sv('image', { x: KO_W - KO_M - w, y: KO_M, width: w.toFixed(1), height: h.toFixed(1), preserveAspectRatio: 'xMidYMid meet' });
+    const im = sv('image', {
+      x: (KO_W - KO_M - w).toFixed(1), y: (yF + (KO_H - yF - h) / 2).toFixed(1),
+      width: w.toFixed(1), height: h.toFixed(1), preserveAspectRatio: 'xMidYMid meet'
+    });
     im.setAttribute('href', cli.src);
     im.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', cli.src);
-    f.pg.appendChild(im);
+    pg.appendChild(im);
   }
-  return f.pg;
+  return pg;
 }
 
 function koSlideObjetivo() {
@@ -12659,7 +12709,10 @@ function desenharCapaSVG(titulo, dataISO, LW, LH) {
     });
     e.textContent = txt; pg.appendChild(e);
   };
-  T(PH * 0.905, titulo || 'Status Report', PH * 0.058, '#77797C');
+  /* titulo '' quer dizer SEM título — quem desenha o próprio texto por cima
+     (a capa do kickoff) não pode receber "Status Report" de brinde atrás dele.
+     undefined continua caindo no padrão, para não mexer em quem já chamava. */
+  if (titulo !== '') T(PH * 0.905, titulo || 'Status Report', PH * 0.058, '#77797C');
   return pg;
 }
 /** A aba Portfólio em folha: as mesmas colunas da tela, na mesma ordem.
