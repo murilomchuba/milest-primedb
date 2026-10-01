@@ -168,6 +168,22 @@ button,input,select,textarea{font:inherit;color:inherit}
 /* A barra já rola na horizontal; sem isto os itens encolhem em vez de rolar,
    e em tela estreita o grupo Dia/Semana/Mês virava um fio de 2px. */
 .toolbar>*{flex:none}
+/* ---- faixa de destaque da Visão geral ---- */
+.vgdest{display:flex;flex-direction:column;gap:12px;padding:14px 16px 2px}
+.vglinha{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(142px,1fr))}
+.vgcard{background:var(--surface);border:1px solid var(--line);border-radius:10px;
+  padding:13px 15px 12px;display:flex;flex-direction:column;min-height:108px;position:relative}
+.vgcard .vgnum{font-family:var(--f-display);font-size:38px;font-weight:700;line-height:1;
+  color:var(--accent);margin-top:auto}
+.vgcard .vgrot{font-size:12.5px;font-weight:700;color:var(--ink);margin-top:7px}
+.vgcard .vgsub{font-size:11px;color:var(--ink-3);margin-top:2px;line-height:1.35}
+.vgcard.forte{background:var(--accent);border-color:var(--accent);grid-column:span 2}
+.vgcard.forte .vgnum{color:#fff;font-size:44px}
+.vgcard.forte .vgrot{color:#fff}
+.vgcard.forte .vgsub{color:rgba(255,255,255,.72)}
+.vgselo{width:32px;height:32px;border-radius:9px;display:flex;align-items:center;justify-content:center;
+  font-size:17px;font-weight:700;color:#fff;line-height:1}
+@media (max-width:620px){ .vgcard.forte{grid-column:span 2} .vgcard .vgnum{font-size:32px} }
 .zoom{display:flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;background:var(--surface)}
 .zoom button{border:0;background:transparent;padding:5px 9px;cursor:pointer;font-size:11.5px;font-weight:500;color:var(--ink-2)}
 .zoom button[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent)}
@@ -12387,6 +12403,89 @@ function tabelaCapacidade(d) {
   }, []);
 }
 
+/* ---- a faixa de destaque ----
+   O mesmo conteúdo da grade de baixo, no arranjo que os gestores do Murilo já
+   leem há anos: o tamanho da carteira em destaque, o semáforo em seguida e os
+   números de horas numa linha só. Não é informação nova — é a mesma, na ordem
+   em que eles já procuram. Vale mais do que parece: quem lê rápido lê pelo
+   formato, não pelo rótulo. */
+function vgCard(destino, opcoes) {
+  const d = el('div', 'vgcard' + (opcoes.forte ? ' forte' : ''));
+  if (opcoes.selo) {
+    const s2 = el('div', 'vgselo', opcoes.selo);
+    s2.style.background = opcoes.cor || 'var(--accent)';
+    d.appendChild(s2);
+  }
+  const n = el('div', 'vgnum', opcoes.valor);
+  if (opcoes.corNum) n.style.color = opcoes.corNum;
+  d.appendChild(n);
+  d.appendChild(el('div', 'vgrot', opcoes.rotulo));
+  d.appendChild(el('div', 'vgsub', opcoes.sub || ' '));
+  if (opcoes.dica) d.title = opcoes.dica;
+  destino.appendChild(d);
+  return d;
+}
+
+function painelDestaqueVisao(lista, fechados, r) {
+  /* Pausado não é avaliação, é fato: um projeto parado não é saudável nem
+     crítico, e contá-lo no semáforo faria a carteira parecer melhor ou pior
+     do que está. Por isso ele sai do semáforo e ganha cartão próprio. */
+  const bons = (lista || []).filter(x => x && !x.erro && x.ind);
+  const pausados = bons.filter(x => ehPausado(x.meta));
+  const correndo = bons.filter(x => !ehPausado(x.meta));
+  const cont = { saudavel: 0, atencao: 0, critico: 0, sem: 0 };
+  for (const x of correndo) cont[semaforoDe(x.ind).id]++;
+  const ativos = bons.length;
+  const pc = n => ativos ? fmtNum(100 * n / ativos, 0) + '% dos projetos' : ' ';
+
+  const cx = el('div', 'vgdest');
+  const l1 = el('div', 'vglinha'); cx.appendChild(l1);
+  vgCard(l1, { forte: true, valor: fmtNum(ativos), rotulo: 'Projetos ativos',
+    sub: fechados.length ? fmtNum(fechados.length) + ' concluído(s) fora da conta' : 'portfólio total' });
+  vgCard(l1, { selo: '\u2713', cor: '#2BA55B', valor: fmtNum(cont.saudavel), rotulo: 'Status saudável',
+    sub: pc(cont.saudavel), corNum: cont.saudavel ? '#1F8A5B' : null,
+    dica: semBase() + ' a partir de 1,00' });
+  vgCard(l1, { selo: '!', cor: '#E8A33D', valor: fmtNum(cont.atencao), rotulo: 'Em atenção',
+    sub: 'requer monitoramento', corNum: cont.atencao ? '#B0790F' : null,
+    dica: semBase() + ' de 0,80 a 0,99' });
+  vgCard(l1, { selo: '\u2715', cor: '#D4483E', valor: fmtNum(cont.critico), rotulo: 'Status crítico',
+    sub: 'ação imediata', corNum: cont.critico ? '#B3322B' : null,
+    dica: semBase() + ' abaixo de 0,80' });
+  vgCard(l1, { selo: '\u23F8', cor: '#5B6B7A', valor: fmtNum(pausados.length), rotulo: 'Pausados',
+    sub: pausados.length ? 'fora do semáforo' : 'nenhum parado', corNum: '#5B6B7A' });
+  vgCard(l1, { selo: '\u2691', cor: '#3C5466', valor: fmtNum(fechados.length), rotulo: 'Encerrados',
+    sub: incluirEncerrados() ? 'somados acima' : 'fora dos números', corNum: '#3C5466' });
+
+  const l2 = el('div', 'vglinha'); cx.appendChild(l2);
+  vgCard(l2, { valor: fmtNum(r.prev), rotulo: 'Total previsto (h)',
+    sub: r.comHoras + ' de ' + r.n + ' projeto(s) com previsto', dica: 'BAC — o total contratado em horas.' });
+  vgCard(l2, { valor: fmtNum(r.feitas), rotulo: 'Total consumido (h)',
+    sub: 'lançadas na aba Horas', dica: 'AC — o total efetivamente trabalhado.' });
+  vgCard(l2, { valor: fmtNum(r.saldo), rotulo: 'Saldo total (h)',
+    sub: r.saldo < 0 ? 'o portfólio estourou o previsto' : 'ainda disponível',
+    corNum: r.prev ? (r.saldo < 0 ? '#B3322B' : '#1F8A5B') : null,
+    dica: 'Saldo é líquido: quem economizou anula quem estourou. O estouro sem compensação está na grade abaixo.' });
+  vgCard(l2, { valor: num2(r.IDCport), rotulo: 'Média IDC',
+    sub: r.nIDC ? 'ponderado por horas' : 'sem horas lançadas',
+    corNum: r.IDCport == null ? null : (r.IDCport >= 0.995 ? '#1F8A5B' : r.IDCport >= 0.9 ? '#B0790F' : '#B3322B') });
+  vgCard(l2, { valor: num2(r.IDPport), rotulo: 'Média IDP',
+    sub: 'ponderado por duração',
+    corNum: r.IDPport == null ? null : (r.IDPport >= 1 ? '#1F8A5B' : r.IDPport >= 0.8 ? '#B0790F' : '#B3322B') });
+  /* O saldo é líquido e por isso mente sobre o rombo: quem economizou anula
+     quem estourou. Este cartão soma só os estouros, projeto a projeto. Os dois
+     precisam ficar lado a lado — separados, um desmente o outro. */
+  vgCard(l2, { valor: fmtNum(r.excedido), rotulo: 'Horas excedidas',
+    sub: r.excedido > 0
+      ? r.nExced + ' projeto(s) passaram do previsto · ' + pct1(r.pctExced) + ' do previsto'
+      : (r.prev ? 'nenhum projeto passou do previsto' : 'sem horas previstas'),
+    corNum: r.excedido > 0 ? '#B3322B' : (r.prev ? '#1F8A5B' : null),
+    dica: 'Sem compensação entre projetos: é o que de fato foi trabalhado além do contratado.' });
+  vgCard(l2, { valor: pct1(r.taxa), rotulo: 'Taxa de consumo',
+    sub: 'contra ' + pct1(r.avanco) + ' de avanço físico',
+    corNum: r.taxa == null ? null : (r.taxa > r.avanco + 10 ? '#B3322B' : r.taxa > r.avanco + 3 ? '#B0790F' : '#1F8A5B') });
+  return cx;
+}
+
 function renderPainel() {
   const host = $('#kpiView'); host.textContent = '';
   const topo = el('div', 'panel');
@@ -12429,39 +12528,7 @@ function renderPainel() {
       return;
     }
 
-    /* ---- os números ---- */
-    const g = el('div', 'kpigrid');
-    const tile = (k, v, n, cls) => {
-      const d = el('div');
-      d.appendChild(el('div', 'k', k));
-      d.appendChild(el('div', 'v' + (cls ? ' ' + cls : ''), v));
-      d.appendChild(el('div', 'n', n || ' '));
-      g.appendChild(d);
-    };
-    tile('Projetos', fmtNum(r.n), r.comErro ? r.comErro + ' não puderam ser lidos'
-      : incluirEncerrados() ? 'carteira ativa + concluídos'
-        : fechados.length ? 'na carteira ativa · ' + fmtNum(fechados.length) + ' concluído(s) de fora'
-          : 'no portfólio');
-    const bs = semBase();
-    tile('Saudáveis', fmtNum(r.cont.saudavel), bs + ' a partir de 1,00', r.cont.saudavel ? 'ok' : '');
-    tile('Em atenção', fmtNum(r.cont.atencao), bs + ' de 0,80 a 0,99', r.cont.atencao ? 'warn' : '');
-    tile('Críticos', fmtNum(r.cont.critico), bs + ' abaixo de 0,80', r.cont.critico ? 'bad' : '');
-    tile('Horas previstas', fmtNum(r.prev), r.comHoras + ' de ' + r.n + ' projeto(s) com previsto');
-    tile('Horas consumidas', fmtNum(r.feitas), 'lançadas na aba Horas');
-    tile('Saldo de horas', fmtNum(r.saldo), r.saldo < 0 ? 'o portfólio estourou o previsto' : 'ainda disponível',
-      r.prev ? (r.saldo < 0 ? 'bad' : 'ok') : '');
-    tile('Horas excedidas', fmtNum(r.excedido),
-      r.excedido > 0
-        ? r.nExced + ' projeto(s) passaram do previsto · ' + pct1(r.pctExced) + ' do previsto total'
-        : (r.prev ? 'nenhum projeto passou do previsto' : 'sem horas previstas cadastradas'),
-      r.excedido > 0 ? 'bad' : (r.prev ? 'ok' : ''));
-    tile('Taxa de consumo', pct1(r.taxa), 'contra ' + pct1(r.avanco) + ' de avanço físico',
-      r.taxa == null ? '' : (r.taxa > r.avanco + 10 ? 'bad' : r.taxa > r.avanco + 3 ? 'warn' : 'ok'));
-    tile('IDP médio', num2(r.IDPport), 'ponderado por duração · simples ' + num2(r.IDPmedio),
-      r.IDPport == null ? '' : (r.IDPport >= 1 ? 'ok' : r.IDPport >= 0.8 ? 'warn' : 'bad'));
-    tile('IDC médio', num2(r.IDCport), r.nIDC ? 'ponderado por horas · simples ' + num2(r.IDCmedio) : 'sem horas lançadas',
-      r.IDCport == null ? '' : (r.IDCport >= 0.995 ? 'ok' : r.IDCport >= 0.9 ? 'warn' : 'bad'));
-    corpo.appendChild(g);
+    corpo.appendChild(painelDestaqueVisao(lista, fechados, r));
     corpo.appendChild(el('div', 'tagline',
       'IDP é o quanto o projeto entregou dividido pelo que deveria ter entregue na data de status. ' +
       'IDC é o que entregou dividido pelo que consumiu — horas previstas × avanço ÷ horas lançadas. ' +
