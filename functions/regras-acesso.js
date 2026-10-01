@@ -125,4 +125,40 @@ function decidirPesquisa(p) {
   return { ok: true, orgId };
 }
 
-module.exports = { decidir, decidirExclusao, decidirBackup, decidirPesquisa, senhaValida, chave, DONO };
+/**
+ * Pode mandar o status report deste projeto ao cliente?
+ * Mesma régua da pesquisa — administrador ou gerente ativo, empresa ativa e
+ * no prazo — mais os limites do que vai pelo fio.
+ *
+ * O modo teste não é conferido aqui porque ele não é uma permissão e sim uma
+ * garantia: em teste o servidor IGNORA a lista e manda só para quem pediu.
+ * Decidir isso no servidor é o que impede o acidente clássico de um teste
+ * chegar ao cliente.
+ */
+function decidirStatus(p) {
+  const orgId = p.idxQuem && p.idxQuem.orgId;
+  if (!orgId) return { ok: false, motivo: 'sua conta não está em nenhuma empresa.' };
+  const m = p.membroQuem, org = p.org;
+  if (!m || m.ativo === false || !['admin', 'gerente'].includes(m.papel))
+    return { ok: false, motivo: 'só administradores e gerentes enviam o status report.' };
+  if (!org || org.ativo === false) return { ok: false, motivo: 'empresa suspensa.' };
+  if (org.expiraEm && p.agora >= org.expiraEm) return { ok: false, motivo: 'o prazo de acesso da empresa venceu.' };
+  if (!p.projeto) return { ok: false, motivo: 'projeto não encontrado.' };
+  const dest = Array.isArray(p.destinatarios) ? p.destinatarios : [];
+  if (!p.teste) {
+    if (!dest.length) return { ok: false, motivo: 'informe ao menos um destinatário.' };
+    if (dest.length > 50) return { ok: false, motivo: 'no máximo 50 destinatários por envio.' };
+    if (dest.some(d => !EMAIL_OK.test(chave(d && d.email)))) return { ok: false, motivo: 'há e-mail inválido na lista.' };
+  }
+  const copia = Array.isArray(p.copia) ? p.copia : [];
+  if (copia.length > 20) return { ok: false, motivo: 'no máximo 20 endereços em cópia.' };
+  if (copia.some(d => !EMAIL_OK.test(chave(d && d.email)))) return { ok: false, motivo: 'há e-mail inválido na cópia.' };
+  if (!String(p.corpo || '').trim()) return { ok: false, motivo: 'o corpo do e-mail veio vazio.' };
+  if (String(p.corpo).length > 200000) return { ok: false, motivo: 'o corpo do e-mail passou de 200 KB.' };
+  /* base64 engorda um terço; 11 MB de texto é um PDF de ~8 MB, e acima disso
+     o próprio callable recusaria a chamada com um erro que não explica nada */
+  if (p.pdf && String(p.pdf).length > 11000000) return { ok: false, motivo: 'o PDF ficou grande demais para ir por e-mail.' };
+  return { ok: true, orgId };
+}
+
+module.exports = { decidir, decidirExclusao, decidirBackup, decidirPesquisa, decidirStatus, senhaValida, chave, DONO };

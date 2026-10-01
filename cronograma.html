@@ -6555,6 +6555,195 @@ function renderDocumentos() {
   });
 }
 
+
+/* ---- o status report como e-mail ----
+   Tabela com estilo em cada célula, como o relatório do diário: Outlook e
+   Gmail descartam folha de estilo. É feia por dentro e certa por fora.
+
+   O corpo repete o que a folha mostra, de propósito. O anexo é para arquivar;
+   o corpo é para ler no celular sem baixar nada.
+
+   As três listas resolvem pelo MESMO caminho da folha — texto digitado, e na
+   falta dele a sugestão tirada do cronograma. Se o e-mail tivesse a sua
+   própria regra, o cliente receberia um relatório diferente do que você
+   acabou de conferir na tela. */
+function stEscapar(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+const stListar = t => String(t || '').split(/\n/).map(x => x.trim()).filter(Boolean);
+
+function conteudoStatusEmail() {
+  const m = ST.P.meta;
+  const rpl = ultimoReplano();
+  return {
+    riscos: (rpl ? [fraseReplano(rpl)] : []).concat(stListar(m.riscos)),
+    feitos: stListar(m.conquistas).length ? stListar(m.conquistas) : sugestaoConquistas(),
+    andando: stListar(m.andamento).length ? stListar(m.andamento) : sugestaoAndamento()
+  };
+}
+
+function corpoStatusEmail() {
+  const m = ST.P.meta, sch = ST.sch;
+  const est = statusDoProjeto();
+  const ind = est.ind;
+  const hs = horasDe(ST.P);
+  const txt = conteudoStatusEmail();
+  const folhas = ST.P.tasks.filter(t => !sch.out.get(t.id).sum);
+  const prontas = folhas.filter(t => sch.out.get(t.id).pct >= 99.5).length;
+
+  const quadro = (rot, val, cor) => `<td style="padding:0 6px 0 0" valign="top" width="25%">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td style="background:${cor};border-radius:8px;padding:12px 8px;text-align:center">
+<div style="font-family:Arial,Helvetica,sans-serif;font-size:10.5px;color:#FFFFFF;opacity:.85;letter-spacing:.4px">${stEscapar(rot)}</div>
+<div style="font-family:Arial,Helvetica,sans-serif;font-size:21px;font-weight:bold;color:#FFFFFF;padding-top:3px">${stEscapar(val)}</div>
+</td></tr></table></td>`;
+
+  const bloco = (titulo, itens, cor, vazio) => `<tr><td style="padding:16px 0 0">
+<div style="font-family:Arial,Helvetica,sans-serif;font-size:10.5px;font-weight:bold;color:${cor};letter-spacing:.6px;padding-bottom:6px">${stEscapar(titulo)}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #E3E9ED;border-radius:8px">
+${(itens.length ? itens : [vazio]).map((x, i) => `<tr><td style="padding:8px 12px;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.5;color:${itens.length ? '#243646' : '#8A9AA8'};background:${i % 2 ? '#F6F8F9' : '#FFFFFF'}">${stEscapar(x)}</td></tr>`).join('')}
+</table></td></tr>`;
+
+  const linha = (rot, val) => `<tr>
+<td style="padding:7px 12px;font-family:Arial,Helvetica,sans-serif;font-size:12.5px;color:#47596A;border-bottom:1px solid #EDF1F4">${stEscapar(rot)}</td>
+<td style="padding:7px 12px;font-family:Arial,Helvetica,sans-serif;font-size:12.5px;color:#0E1E2B;font-weight:bold;text-align:right;border-bottom:1px solid #EDF1F4">${stEscapar(val)}</td></tr>`;
+
+  const detalhes = [
+    linha('Período do plano', fmtBR(sch.start) + ' a ' + fmtBR(sch.finish)),
+    linha('Data de status', fmtBR(dataStatus())),
+    linha('Atividades concluídas', prontas + ' de ' + folhas.length),
+    ind.IDP != null ? linha('IDP — desempenho de prazo',
+      fmtNum(ind.IDP, 2) + (ind.IDP >= 0.995 ? '  (em dia ou à frente)' : '  (atrás do plano)')) : '',
+    ind.IDC != null ? linha('IDC — desempenho de ' + (ind.IDCbase === 'horas' ? 'horas' : 'custo'),
+      fmtNum(ind.IDC, 2) + (ind.IDC >= 0.995 ? '  (dentro do previsto)' : '  (acima do previsto)')) : '',
+    hs.prev > 0 ? linha('Horas', fmtNum(hs.feitas) + ' de ' + fmtNum(hs.prev) + ' previstas'
+      + (hs.feitas > hs.prev ? '  (' + fmtNum(hs.feitas - hs.prev) + ' acima)' : '')) : ''
+  ].filter(Boolean).join('');
+
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#FFFFFF;border:1px solid #D8E3EC;border-radius:10px">
+<tr><td style="padding:20px 22px 0">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+<td valign="top"><div style="font-family:Arial,Helvetica,sans-serif;font-size:20px;font-weight:bold;color:#0E1E2B">${stEscapar(m.client || '')}</div>
+<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#014479;padding-top:2px">${stEscapar(m.name || '')}</div></td>
+<td valign="top" align="right"><span style="display:inline-block;background:${est.cor};color:#FFFFFF;font-family:Arial,Helvetica,sans-serif;font-size:12px;font-weight:bold;padding:6px 14px;border-radius:6px">${stEscapar(est.rot)}</span></td>
+</tr></table></td></tr>
+
+<tr><td style="padding:16px 22px 0">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+${quadro('PLANEJADO', fmtNum(ind.plan.pct, 0) + '%', '#014479')}
+${quadro('REALIZADO', fmtNum(ind.real, 0) + '%', '#1C9BB8')}
+${quadro('ADERÊNCIA', est.ader == null ? '—' : fmtNum(est.ader, 0) + '%', est.cor)}
+${quadro('TÉRMINO', fmtBR(sch.finish), '#3C5466')}
+</tr></table></td></tr>
+
+${m.resumo ? `<tr><td style="padding:18px 22px 0"><div style="font-family:Arial,Helvetica,sans-serif;font-size:13.5px;line-height:1.55;color:#243646">${stEscapar(m.resumo)}</div></td></tr>` : ''}
+
+<tr><td style="padding:18px 22px 0">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #E3E9ED;border-radius:8px">${detalhes}</table></td></tr>
+
+<tr><td style="padding:0 22px">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+${bloco('RISCOS / PONTOS DE ATENÇÃO', txt.riscos, '#B3322B', 'Nenhum risco registrado.')}
+${bloco('ATIVIDADES REALIZADAS', txt.feitos, '#1F8A5B', 'Nenhuma entrega concluída na última semana.')}
+${bloco('EM ANDAMENTO E A INICIAR', txt.andando, '#014479', 'Nenhuma atividade em andamento.')}
+</table></td></tr>
+
+<tr><td style="padding:18px 22px 22px">
+<div style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#7A8D9C;line-height:1.5;border-top:1px solid #EDF1F4;padding-top:12px">
+A folha completa, com a curva S e o quadro de entregas, está no PDF em anexo.<br>
+Gerado pelo MILEST em ${fmtBR(todayISO())}.</div></td></tr>
+</table>`;
+}
+
+/* A revisão existe para pegar o que o sistema não sabe. Campo em branco não é
+   problema — a folha cai na sugestão do cronograma. O que é problema é texto
+   digitado há muito tempo saindo com a data de hoje, e data de status velha,
+   que faz todos os números olharem para a semana errada. */
+function statusCamposVelhos() {
+  const m = ST.P.meta, fora = [];
+  const dias = Math.round((Date.parse(todayISO()) - Date.parse(dataStatus())) / 86400000);
+  if (dias > 7) fora.push('A data de status é ' + fmtBR(dataStatus()) + ', ' + dias + ' dias atrás — '
+    + 'planejado, aderência e curva S são medidos por ela.');
+  if (!stListar(m.riscos).length) fora.push('Riscos / pontos de atenção está vazio; o cliente vai ler “nenhum risco registrado”.');
+  if (stListar(m.conquistas).length) fora.push('Atividades realizadas está digitado à mão — confira se ainda vale para esta semana.');
+  if (stListar(m.andamento).length) fora.push('Em andamento e a iniciar está digitado à mão — confira se ainda vale para esta semana.');
+  return fora;
+}
+
+function pdfStatusBase64() {
+  return (async () => {
+    const jpg = await svgParaJPEG(desenharStatusReport(), 960, 540, 2.5, 0.93);
+    const bytes = montarPDFMulti([jpg]);
+    let bin = '';
+    const PEDACO = 8192;                      // String.fromCharCode estoura com o array inteiro
+    for (let i = 0; i < bytes.length; i += PEDACO)
+      bin += String.fromCharCode.apply(null, bytes.subarray ? bytes.subarray(i, i + PEDACO) : bytes.slice(i, i + PEDACO));
+    return btoa(bin);
+  })();
+}
+
+async function enviarStatusTeste() {
+  if (semPermissao()) return;
+  if (ST.mode !== 'db' || !ST.orgId) { toast('Entre com a sua conta para enviar e-mail.'); return; }
+  const alertas = statusCamposVelhos();
+
+  modal('Enviar um teste para você', (body, close) => {
+    setTimeout(() => { const j = body.closest('.modal'); if (j) j.classList.add('larga'); }, 0);
+    body.appendChild(el('div', 'hint',
+      'Manda para o seu próprio endereço o e-mail exato que o cliente receberia: mesmo corpo, '
+      + 'mesmo PDF. Quem recebe é decidido no servidor, então um teste não chega ao cliente nem por engano.'));
+    const quem = el('div', '', 'Vai para: ' + (ST.userEmail || 'a sua conta'));
+    quem.style.cssText = 'font-weight:600;font-size:13px;margin:2px 0';
+    body.appendChild(quem);
+
+    if (alertas.length) {
+      const cx = el('div');
+      cx.style.cssText = 'border:1px solid #F0C4C0;background:#FBE6E4;border-radius:8px;padding:10px 12px;margin:6px 0';
+      const t = el('div', '', 'Confira antes de mandar ao cliente:');
+      t.style.cssText = 'font-weight:700;font-size:12.5px;color:#B3322B;margin-bottom:4px';
+      cx.appendChild(t);
+      for (const a of alertas) {
+        const d = el('div', '', '• ' + a);
+        d.style.cssText = 'font-size:12.5px;color:#B3322B;line-height:1.45';
+        cx.appendChild(d);
+      }
+      body.appendChild(cx);
+    }
+
+    body.appendChild(el('div', 'hint', 'Prévia do corpo — o PDF vai em anexo:'));
+    const prev = el('div');
+    prev.style.cssText = 'border:1px solid var(--line);border-radius:8px;background:#F3F7FA;padding:14px;max-height:42vh;overflow:auto';
+    prev.innerHTML = corpoStatusEmail();
+    body.appendChild(prev);
+
+    const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;margin-top:10px';
+    const bC = el('button', 'btn', 'Fechar'); bC.addEventListener('click', close);
+    const bOk = el('button', 'btn primary', 'Enviar o teste');
+    bOk.addEventListener('click', async () => {
+      bOk.disabled = true; bOk.textContent = 'Montando o PDF…';
+      try {
+        const pdf = await pdfStatusBase64();
+        bOk.textContent = 'Enviando…';
+        const r = await chamarFuncao('enviarStatus', {
+          projetoId: ST.pid, teste: true, destinatarios: [], copia: [],
+          corpo: corpoStatusEmail(), pdf: pdf,
+          nomeArquivo: slug((ST.P.meta.client || '') + '-' + (ST.P.meta.name || 'projeto')) + '-status.pdf'
+        });
+        if (r && r.indisponivel) {
+          toast('O envio ainda não está ligado: falta publicar as funções do servidor.');
+          bOk.disabled = false; bOk.textContent = 'Enviar o teste'; return;
+        }
+        close();
+        toast('Teste enviado para ' + (ST.userEmail || 'você') + '. Pode levar um minuto para chegar.');
+      } catch (e) {
+        toast('Não consegui enviar: ' + ((e && e.message) || 'erro'));
+        bOk.disabled = false; bOk.textContent = 'Enviar o teste';
+      }
+    });
+    linha.appendChild(bC); linha.appendChild(bOk); body.appendChild(linha);
+  }, []);
+}
+
 /* ============ envio agendado do status report ============
    A função do servidor não calcula nada: ela lembra e entrega. Os números do
    status report só existem aqui no navegador (computeSchedule, indicadoresDe),
@@ -6817,11 +7006,14 @@ function renderStatusReport() {
   bGuardar.addEventListener('click', async () => {
     bGuardar.disabled = true; await guardarDocumento('status'); bGuardar.disabled = false;
   });
+  const bTeste = el('button', 'btn reqedit', '✉ Enviar teste para mim');
+  bTeste.title = 'Manda para você o e-mail exato que o cliente receberia';
+  bTeste.addEventListener('click', () => enviarStatusTeste());
   const bAg = el('button', 'btn reqedit', '⏰ Agendar envio');
   bAg.title = 'Programa o relatório para ir ao cliente num dia e horário';
   bAg.addEventListener('click', () => janelaAgendaStatus());
   acoes.appendChild(bPng); acoes.appendChild(bPdf); acoes.appendChild(bTodos);
-  acoes.appendChild(bAg); acoes.appendChild(bGuardar); h1.appendChild(acoes);
+  acoes.appendChild(bTeste); acoes.appendChild(bAg); acoes.appendChild(bGuardar); h1.appendChild(acoes);
   p1.appendChild(h1);
   const cx = el('div', 'stfolha');
   const folha = desenharStatusReport();

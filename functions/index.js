@@ -19,7 +19,7 @@ const { defineSecret } = require('firebase-functions/params');
 const crypto = require('crypto');
 const { setGlobalOptions } = require('firebase-functions/v2');
 const admin = require('firebase-admin');
-const { decidir, decidirExclusao, decidirBackup, decidirPesquisa, senhaValida, chave } = require('./regras-acesso');
+const { decidir, decidirExclusao, decidirBackup, decidirPesquisa, decidirStatus, senhaValida, chave } = require('./regras-acesso');
 
 admin.initializeApp();
 setGlobalOptions({ region: 'us-central1', maxInstances: 5 });
@@ -211,6 +211,109 @@ exports.enviarPesquisa = onCall({ cors: ORIGENS, secrets: [RESEND_API_KEY], time
   }
   console.log('enviarPesquisa', { quem, orgId, pid, n: saida.length, enviados: saida.filter(x => x.enviado).length });
   return { itens: saida };
+});
+
+
+/* ---- status report por e-mail ----
+   O servidor não monta o relatório: ele entrega. Os números do status report
+   só existem no navegador (computeSchedule, indicadoresDe), e recalculá-los
+   aqui seria manter duas contas para a mesma pergunta. Então a tela manda o
+   corpo pronto e o PDF já desenhado — o mesmo que o botão "Baixar PDF" gera —
+   e esta função confere a permissão, monta a mensagem e envia.
+
+   Publicar: firebase deploy --only functions:enviarStatus                   */
+const REMETENTE_STATUS = 'relatorios@milest.com.br';
+
+/* O corpo vem da tela, que é conteúdo do próprio usuário indo para os próprios
+   clientes. Ainda assim some o que nunca deveria viajar num e-mail: script,
+   iframe, manipulador de evento e javascript: em link. Cliente de e-mail
+   sério já ignora tudo isso; tirar aqui é para o caso de um dia o corpo vir
+   de outro lugar que não esta tela. */
+function limparHTML(s) {
+  return String(s || '')
+    .replace(/<\s*(script|iframe|object|embed)[\s\S]*?<\s*\/\s*\1\s*>/gi, '')
+    .replace(/<\s*(script|iframe|object|embed)\b[^>]*>/gi, '')
+    .replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    .replace(/javascript:/gi, '');
+}
+
+const TARJA_TESTE = `<div style="background:#FBE6E4;border:1px solid #F0C4C0;color:#B3322B;font-family:Arial,Helvetica,sans-serif;font-size:13px;font-weight:bold;padding:10px 14px;border-radius:8px;margin:0 0 16px">
+ENVIO DE TESTE — esta mensagem foi só para você. Nenhum cliente recebeu.</div>`;
+
+async function mandarStatus(chaveApi, o) {
+  if (!chaveApi || chaveApi.length < 10 || !chaveApi.startsWith('re_'))
+    return { enviado: false, erro: 'envio de e-mail ainda não configurado' };
+  const corpo = `<!doctype html><html><body style="margin:0;background:#F3F7FA;padding:24px 12px">
+<div style="max-width:720px;margin:0 auto">${o.teste ? TARJA_TESTE : ''}${o.corpo}</div></body></html>`;
+  const msg = {
+    from: `${String(o.empresa || 'MILEST').replace(/[<>"]/g, '')} <${REMETENTE_STATUS}>`,
+    to: o.para, reply_to: o.remetente, subject: o.assunto, html: corpo
+  };
+  if (o.cc && o.cc.length) msg.cc = o.cc;
+  if (o.pdf) msg.attachments = [{ filename: o.nomeArquivo || 'status-report.pdf', content: o.pdf }];
+  try {
+    const r = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + chaveApi, 'Content-Type': 'application/json' },
+      body: JSON.stringify(msg)
+    });
+    if (r.ok) { const j = await r.json().catch(() => ({})); return { enviado: true, id: (j && j.id) || '' }; }
+    const j = await r.json().catch(() => ({}));
+    return { enviado: false, erro: (j && j.message) || ('erro ' + r.status + ' no envio') };
+  } catch (e) { return { enviado: false, erro: 'falha de rede no envio' }; }
+}
+
+exports.enviarStatus = onCall({ cors: ORIGENS, secrets: [RESEND_API_KEY], timeoutSeconds: 120, memory: '512MiB' }, async (req) => {
+  const tok = req.auth && req.auth.token;
+  if (!tok || !tok.email || tok.email_verified !== true)
+    throw new HttpsError('unauthenticated', 'entre com uma conta confirmada.');
+  const d = req.data || {};
+  const db = admin.firestore();
+  const quem = chave(tok.email);
+  const idxQuem = await ler(db.doc('users/' + quem));
+  const orgId = idxQuem && idxQuem.orgId;
+  const pid = String(d.projetoId || '');
+  if (!/^[A-Za-z0-9_-]{1,80}$/.test(pid)) throw new HttpsError('invalid-argument', 'projeto inválido.');
+  const [membroQuem, org, projeto] = orgId ? await Promise.all([
+    ler(db.doc(`orgs/${orgId}/members/${quem}`)), ler(db.doc('orgs/' + orgId)),
+    ler(db.doc(`orgs/${orgId}/projects/${pid}`))
+  ]) : [null, null, null];
+
+  const teste = d.teste === true;
+  const v = decidirStatus({
+    idxQuem, membroQuem, org, projeto, teste,
+    destinatarios: d.destinatarios, copia: d.copia,
+    corpo: d.corpo, pdf: d.pdf, agora: Date.now()
+  });
+  if (!v.ok) throw new HttpsError('permission-denied', v.motivo);
+
+  /* Em teste, quem recebe é quem pediu — a lista do cliente é ignorada aqui,
+     no servidor, não na tela. Uma tela pode ter um botão errado; o servidor
+     não tem como mandar um teste ao cliente nem se a tela mandar. */
+  const para = teste ? [quem] : d.destinatarios.map(x => chave(x.email));
+  const cc = teste ? [] : (d.copia || []).map(x => chave(x.email)).filter(x => x);
+  const assunto = (teste ? '[TESTE] ' : '')
+    + (String(d.assunto || '').slice(0, 200)
+       || ('Status report — ' + (projeto.name || 'Projeto') + (projeto.client ? ' · ' + projeto.client : '')));
+
+  const r = await mandarStatus((RESEND_API_KEY.value() || '').trim(), {
+    para, cc, teste, assunto, remetente: quem,
+    empresa: org.nome || 'MILEST',
+    corpo: limparHTML(d.corpo),
+    pdf: d.pdf || '', nomeArquivo: String(d.nomeArquivo || '').slice(0, 120)
+  });
+
+  /* O registro guarda o que aconteceu, inclusive o que deu errado. Um envio
+     que falhou e não deixa rastro é um envio que ninguém refaz. */
+  if (!teste) {
+    await db.collection(`orgs/${orgId}/projects/${pid}/envios`).add({
+      criadoEm: Date.now(), por: quem, destinatarios: para, copia: cc, assunto,
+      estado: r.enviado ? 'enviado' : 'falhou', erro: r.erro || '', idExterno: r.id || ''
+    });
+  }
+  console.log('enviarStatus', { quem, orgId, pid, teste, n: para.length, enviado: r.enviado, erro: r.erro || '' });
+  if (!r.enviado) throw new HttpsError('internal', r.erro || 'não consegui enviar.');
+  return { ok: true, para: para, teste: teste };
 });
 
 /* ---- backup diário automático ----

@@ -102,3 +102,67 @@ test('pesquisa: destinatários e perguntas validados', () => {
   assert.equal(decidirPesquisa({ ...basePesq(), perguntas: [{ tipo: 'outra', texto: 'x' }] }).ok, false);
   assert.equal(decidirPesquisa({ ...basePesq(), projeto: null }).ok, false);
 });
+
+/* ---- enviarStatus ----
+   O ponto sensível não é quem pode enviar: é o teste não poder chegar ao
+   cliente. Isso é garantido na função (em teste o destinatário é quem pediu),
+   e aqui se confere que a regra não exige lista no modo teste — se exigisse,
+   a tela teria de mandar a lista do cliente para pedir um teste. */
+const { decidirStatus } = require('../regras-acesso');
+const baseSt = () => ({
+  idxQuem: { orgId: 'o1' },
+  membroQuem: { papel: 'gerente', ativo: true },
+  org: { ativo: true, expiraEm: 0 },
+  projeto: { name: 'Projeto' },
+  destinatarios: [{ email: 'cliente@x.com.br' }],
+  copia: [], corpo: '<table>oi</table>', pdf: '', teste: false, agora: AGORA
+});
+
+test('gerente envia status do projeto da própria empresa', () => {
+  assert.equal(decidirStatus(baseSt()).ok, true);
+});
+test('leitor não envia', () => {
+  assert.equal(decidirStatus(Object.assign(baseSt(), { membroQuem: { papel: 'leitor', ativo: true } })).ok, false);
+});
+test('membro desligado não envia', () => {
+  assert.equal(decidirStatus(Object.assign(baseSt(), { membroQuem: { papel: 'admin', ativo: false } })).ok, false);
+});
+test('empresa suspensa não envia', () => {
+  assert.equal(decidirStatus(Object.assign(baseSt(), { org: { ativo: false } })).ok, false);
+});
+test('empresa com prazo vencido não envia', () => {
+  assert.equal(decidirStatus(Object.assign(baseSt(), { org: { ativo: true, expiraEm: AGORA - 1 } })).ok, false);
+});
+test('projeto inexistente não envia', () => {
+  assert.equal(decidirStatus(Object.assign(baseSt(), { projeto: null })).ok, false);
+});
+test('envio real exige destinatário', () => {
+  assert.equal(decidirStatus(Object.assign(baseSt(), { destinatarios: [] })).ok, false);
+});
+test('teste NÃO exige destinatário: quem recebe é quem pediu', () => {
+  assert.equal(decidirStatus(Object.assign(baseSt(), { destinatarios: [], teste: true })).ok, true);
+});
+test('e-mail inválido na lista barra o envio real', () => {
+  assert.equal(decidirStatus(Object.assign(baseSt(), { destinatarios: [{ email: 'ruim@' }] })).ok, false);
+});
+test('e-mail inválido na cópia barra até no teste', () => {
+  assert.equal(decidirStatus(Object.assign(baseSt(), { teste: true, copia: [{ email: 'ruim@' }] })).ok, false);
+});
+test('mais de 50 destinatários é recusado', () => {
+  const muitos = Array.from({ length: 51 }, (_, i) => ({ email: 'p' + i + '@x.com.br' }));
+  assert.equal(decidirStatus(Object.assign(baseSt(), { destinatarios: muitos })).ok, false);
+});
+test('corpo vazio é recusado', () => {
+  assert.equal(decidirStatus(Object.assign(baseSt(), { corpo: '   ' })).ok, false);
+});
+test('corpo gigante é recusado', () => {
+  assert.equal(decidirStatus(Object.assign(baseSt(), { corpo: 'x'.repeat(200001) })).ok, false);
+});
+test('PDF acima do limite é recusado com motivo legível', () => {
+  const r = decidirStatus(Object.assign(baseSt(), { pdf: 'x'.repeat(11000001) }));
+  assert.equal(r.ok, false);
+  assert.match(r.motivo, /grande demais/);
+});
+test('conta fora de empresa não envia', () => {
+  assert.equal(decidirStatus(Object.assign(baseSt(), { idxQuem: {} })).ok, false);
+});
