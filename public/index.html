@@ -12754,6 +12754,7 @@ function medirTexto(txt, fs, peso, fam) {
    rola a imagem, e não precisa juntar três pedaços de papel na cabeça. */
 function montarFolhasCronograma(opcoes) {
   const so1 = !!(opcoes && opcoes.unica);
+  const semG = !!(opcoes && opcoes.semGantt);
   const kTexto = so1 ? clamp(Number((opcoes && opcoes.texto) || 1), 1, 1.6) : 1;
   const PH = so1 ? 0 : 794;
   const meta = ST.P.meta, sch = ST.sch;
@@ -12779,7 +12780,7 @@ function montarFolhasCronograma(opcoes) {
     if (o.start < ini) ini = o.start; if (o.finish > fim) fim = o.finish;
     if (t.bl) { if (t.bl.start < ini) ini = t.bl.start; if (t.bl.finish > fim) fim = t.bl.finish; }
   }
-  const ctx = { rowH: rowH, ini: addDays(ini, -2), fim: addDays(fim, 3), paginas: paginas, todas: vis, larg: null, alturaFolha: alturaFolha, escalaTexto: kTexto };
+  const ctx = { rowH: rowH, ini: addDays(ini, -2), fim: addDays(fim, 3), paginas: paginas, todas: vis, larg: null, alturaFolha: alturaFolha, escalaTexto: kTexto, semGantt: semG };
   const saida = [];
   for (let p = 0; p < paginas; p++) {
     ctx.pagina = p + 1;
@@ -12863,7 +12864,9 @@ function desenharFolhaCronograma(fatia, ctx) {
   // Predecessoras, recursos e situação quase nunca ocupam a largura reservada;
   // essa sobra vai para o nome, que é o que ninguém quer ver cortado. O Gantt
   // cede o resto até um mínimo em que ainda diz alguma coisa.
-  const GANTT_MIN = 330;
+  /* Sem o gráfico, a folga toda vai para o nome da atividade — que é o que
+     ninguém quer ver quebrado em duas linhas num print. */
+  const GANTT_MIN = ctx.semGantt ? 0 : 330;
   if (ctx.larg) for (let j = 0; j < larg.length; j++) larg[j] = ctx.larg[j];
   else (function folgaParaONome() {
     const encolher = (j, textos, fsCol, famCol) => {
@@ -12887,7 +12890,13 @@ function desenharFolhaCronograma(fatia, ctx) {
     }
     const outras = larg.reduce((a, w, j) => a + (j === 1 ? 0 : w), 0);
     const teto = PW - 2 * M - 10 - GANTT_MIN - outras;
-    larg[1] = Math.round(clamp(precisa, larg[1], Math.max(larg[1], teto)));
+    /* Sem o gráfico, a coluna do nome toma TODA a sobra em vez de parar no
+       que o nome mais longo precisa. Parando antes, a tabela acabava no meio
+       da folha com a régua do cabeçalho seguindo até a borda — e papel em
+       branco à direita faz o arquivo parecer cortado. */
+    larg[1] = ctx.semGantt
+      ? Math.round(Math.max(larg[1], teto))
+      : Math.round(clamp(precisa, larg[1], Math.max(larg[1], teto)));
     ctx.larg = larg.slice();
   })();
 
@@ -12962,6 +12971,7 @@ function desenharFolhaCronograma(fatia, ctx) {
   });
 
   // ---- Gantt
+  if (!ctx.semGantt) {
   const gx = M + TW + 10, gw = PW - M - gx;
   const ini = ctx.ini, fim = ctx.fim;
   const dias = Math.max(1, diffDays(ini, fim) + 1), dw = gw / dias;
@@ -13010,16 +13020,21 @@ function desenharFolhaCronograma(fatia, ctx) {
   pg.appendChild(sv('rect', { x: gx, y: yTop, width: gw, height: yBot - yTop, fill: 'none', stroke: 'var(--line-strong)', 'stroke-width': .8 }));
   pg.appendChild(sv('rect', { x: M, y: yTop, width: TW, height: yBot - yTop, fill: 'none', stroke: 'var(--line-strong)', 'stroke-width': .8 }));
   for (let j2 = 1; j2 < cx.length; j2++) L(cx[j2], yTop, cx[j2], yBot, 'var(--line)', .5, .9);
+  }
+
   // legenda
   const ly = Math.min(PH - 10, yBot + 13);
-  R(M, ly - 4.5, 14, 4, 'var(--accent)', 1.4);
-  T(M + 19, ly, 'atividade', 6.4, 400, 'var(--ink-3)');
-  R(M + 62, ly - 4.5, 14, 4, 'var(--ink)', 0, .92);
-  T(M + 81, ly, 'fase', 6.4, 400, 'var(--ink-3)');
-  R(M + 108, ly - 3.5, 14, 2, 'var(--baseline)');
-  T(M + 127, ly, 'linha de base', 6.4, 400, 'var(--ink-3)');
-  L(M + 178, ly - 6, M + 178, ly + 1, 'var(--critical)', 1);
-  T(M + 183, ly, 'hoje', 6.4, 400, 'var(--ink-3)');
+  /* a legenda explica o gráfico; sem gráfico ela só ocupa espaço */
+  if (!ctx.semGantt) {
+    R(M, ly - 4.5, 14, 4, 'var(--accent)', 1.4);
+    T(M + 19, ly, 'atividade', 6.4, 400, 'var(--ink-3)');
+    R(M + 62, ly - 4.5, 14, 4, 'var(--ink)', 0, .92);
+    T(M + 81, ly, 'fase', 6.4, 400, 'var(--ink-3)');
+    R(M + 108, ly - 3.5, 14, 2, 'var(--baseline)');
+    T(M + 127, ly, 'linha de base', 6.4, 400, 'var(--ink-3)');
+    L(M + 178, ly - 6, M + 178, ly + 1, 'var(--critical)', 1);
+    T(M + 183, ly, 'hoje', 6.4, 400, 'var(--ink-3)');
+  }
   T(PW - M, ly, 'MILEST ' + VERSAO, 6.2, 400, 'var(--ink-3)', 'end', 'var(--f-mono)');
   if (rplPDF && rplPDF.motivo) {
     T(M, Math.min(ly + 9, PH - 5), corta('Replanejamento de ' + fmtBR(rplPDF.em) + ': ' + rplPDF.motivo, PW - 2 * M - 90, 6.4),
@@ -13123,24 +13138,34 @@ function blocoImagemCronograma(body, close) {
   const fTam = el('div', 'field'); fTam.style.cssText = 'margin:0;min-width:150px';
   fTam.appendChild(el('label', '', 'Tamanho do texto'));
   const sTam = el('select', 'inp');
-  /* Texto maior não é de graça: a tabela cresce junto e o Gantt cede largura,
-     então nomes longos passam a quebrar em duas linhas. Por isso é escolha de
-     quem vai mandar a imagem, e não um número que eu chutei. */
+  /* Texto maior não é de graça quando o gráfico está ligado: a tabela cresce
+     junto e o Gantt cede largura, então nomes longos passam a quebrar em duas
+     linhas. Por isso é escolha de quem vai mandar a imagem. */
   for (const [r, v] of [['Normal', '1'], ['Grande', '1.3'], ['Maior', '1.6']]) {
     const o = el('option', '', r); o.value = v; sTam.appendChild(o);
   }
   sTam.value = '1.3';
   fTam.appendChild(sTam); linha.appendChild(fTam);
+
+  /* Desligado por padrão: num cronograma longo as barras viram fios de um
+     pixel encostados na direita, e a largura que elas tomam é justamente a
+     que faria o nome da atividade caber numa linha só. Quem quiser o gráfico
+     marca — e aí a escolha é dele, não um padrão que atrapalha a maioria. */
+  const lbG = el('label'); lbG.style.cssText = 'display:flex;gap:7px;align-items:center;font-size:12.5px;align-self:center';
+  const ckG = el('input'); ckG.type = 'checkbox'; ckG.style.width = 'auto';
+  lbG.appendChild(ckG); lbG.appendChild(document.createTextNode('Incluir o gráfico de barras'));
+  linha.appendChild(lbG);
+
   const bJ = el('button', 'btn', '🖼 Baixar JPG');
-  bJ.addEventListener('click', async () => { const k = Number(sTam.value); close(); toast('Gerando a imagem…'); await gerarImagemCronograma('jpg', k); });
+  bJ.addEventListener('click', async () => { const k = Number(sTam.value), g = ckG.checked; close(); toast('Gerando a imagem…'); await gerarImagemCronograma('jpg', k, g); });
   const bP = el('button', 'btn', '🖼 Baixar PNG');
-  bP.addEventListener('click', async () => { const k = Number(sTam.value); close(); toast('Gerando a imagem…'); await gerarImagemCronograma('png', k); });
+  bP.addEventListener('click', async () => { const k = Number(sTam.value), g = ckG.checked; close(); toast('Gerando a imagem…'); await gerarImagemCronograma('png', k, g); });
   linha.appendChild(bJ); linha.appendChild(bP); body.appendChild(linha);
 }
 
-async function gerarImagemCronograma(tipo, texto) {
+async function gerarImagemCronograma(tipo, texto, comGantt) {
   try {
-    const folhas = montarFolhasCronograma({ unica: true, texto: texto || 1 });
+    const folhas = montarFolhasCronograma({ unica: true, texto: texto || 1, semGantt: !comGantt });
     const pg = folhas[0];
     resolverVarsDOM(pg);
     const larg = Number(pg.getAttribute('width')) || 1123;
