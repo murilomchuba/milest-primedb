@@ -46,6 +46,9 @@ await env.withSecurityRulesDisabled(async ctx => {
   await setDoc(doc(db, 'orgs/varejo/projects', 'p9'), { name: 'Portal do Cliente' });
 
   await setDoc(doc(db, 'orgs', 'nova'), { nome: 'Empresa Nova', ativo: true, semDono: true });
+  // uma segunda empresa sem dono, só para o teste de exclusão: a 'nova' tem a
+  // janela fechada no meio do caminho e não serve mais para isso
+  await setDoc(doc(db, 'orgs', 'nasceumorta'), { nome: 'Cadastro Abandonado', ativo: true, semDono: true });
   await setDoc(doc(db, 'orgs', 'suspensa'), { nome: 'Empresa Suspensa', ativo: false, semDono: false });
   await setDoc(doc(db, 'orgs/suspensa/members', BRUNO), { email: BRUNO, papel: 'admin', ativo: true });
 
@@ -98,8 +101,11 @@ await caso('plataforma lê o cadastro das empresas (é o painel)', () =>
   assertSucceeds(getDocs(collection(conta(PLATAFORMA), 'orgs'))));
 await caso('plataforma cria empresa', () =>
   assertSucceeds(setDoc(doc(conta(PLATAFORMA), 'orgs', 'outra'), { nome: 'Outra', ativo: true, semDono: true })));
+// Suspende a empresa descartável criada na linha de cima, não a Varejo: o
+// Bruno é da Varejo e aparece em mais quinze casos adiante. Um teste que
+// estraga o cenário dos próximos mente duas vezes — passa aqui e reprova lá.
 await caso('plataforma suspende empresa', () =>
-  assertSucceeds(updateDoc(doc(conta(PLATAFORMA), 'orgs', 'varejo'), { ativo: false })));
+  assertSucceeds(updateDoc(doc(conta(PLATAFORMA), 'orgs', 'outra'), { ativo: false })));
 
 console.log('\nPROVISIONAMENTO: SEMEIA UMA VEZ E FECHA');
 await caso('plataforma cadastra o 1º admin de empresa sem dono', () =>
@@ -172,8 +178,11 @@ await caso('dentro do prazo: grava normalmente', () =>
   assertSucceeds(setDoc(doc(conta(DORA), 'orgs/noprazo/projects', 'n2'), { name: 'dentro do prazo' })));
 await caso('sem campo de prazo: grava normalmente', () =>
   assertSucceeds(setDoc(doc(conta(ANA), 'orgs/unimed/projects', 'p3'), { name: 'sem prazo' })));
+// Mexe no prazo da 'noprazo', não da 'vencida': a 'vencida' é o único cenário
+// de prazo estourado da suíte, e prorrogá-la aqui apaga o cenário de todos os
+// casos seguintes que dependem dele.
 await caso('a plataforma define o prazo de uma empresa', () =>
-  assertSucceeds(updateDoc(doc(conta(PLATAFORMA), 'orgs', 'vencida'), { expiraEm: Date.now() + 15 * DIA })));
+  assertSucceeds(updateDoc(doc(conta(PLATAFORMA), 'orgs', 'noprazo'), { expiraEm: Date.now() + 15 * DIA })));
 
 console.log('\nSENHA PROVISÓRIA');
 await caso('a pessoa desliga a própria marca de senha provisória', () =>
@@ -248,7 +257,7 @@ await caso('... nem cadastra um cúmplice como admin', () =>
 await caso('... e o cúmplice NÃO lê o projeto', () =>
   assertFails(getDoc(doc(conta(FORA), 'orgs/unimed/projects', 'p1'))));
 await caso('plataforma apaga empresa que nunca teve dono', () =>
-  assertSucceeds(deleteDoc(doc(conta(PLATAFORMA), 'orgs', 'nova'))));
+  assertSucceeds(deleteDoc(doc(conta(PLATAFORMA), 'orgs', 'nasceumorta'))));
 
 console.log('\nMODO SUPORTE');
 const AGORA = Date.now();
