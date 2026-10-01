@@ -782,6 +782,7 @@ body.embutido .view{height:100%}
     <button class="tab" role="tab" data-view="canvas" aria-selected="false">Canvas</button>
     <button class="tab" role="tab" data-view="schedule" aria-selected="false">Cronograma</button>
     <button class="tab" role="tab" data-view="resources" aria-selected="false">Recursos</button>
+    <button class="tab" role="tab" data-view="raci" aria-selected="false">RACI</button>
     <button class="tab" role="tab" data-view="horas" aria-selected="false" id="tabHoras">Horas</button>
     <button class="tab" role="tab" data-view="status" aria-selected="false">Status</button>
     <button class="tab" role="tab" data-view="diario" aria-selected="false">Diário</button>
@@ -857,6 +858,7 @@ body.embutido .view{height:100%}
 
 <div class="view" id="view-canvas"><div class="scrollview" id="cvView"></div></div>
 <div class="view" id="view-resources"><div class="scrollview" id="resView"></div></div>
+<div class="view" id="view-raci"><div class="scrollview" id="raciView"></div></div>
 <div class="view" id="view-horas"><div class="scrollview" id="hrView"></div></div>
 <div class="view" id="view-status"><div class="scrollview" id="stView"></div></div>
 <div class="view" id="view-diario"><div class="scrollview" id="diView"></div></div>
@@ -5800,6 +5802,481 @@ async function baixarDocumento(d, formato) {
   }
 }
 
+/* ============ Matriz RACI ============
+   Quem faz, quem responde, quem opina e quem fica sabendo — de cada lado.
+
+   As colunas NÃO são os recursos do plano. Recurso é quem tem hora e custo;
+   papel é quem responde pelo projeto. Patrocinador, comitê e key user do
+   cliente não lançam hora nenhuma e são justamente os que precisam estar aqui.
+   Quando o papel é alguém do plano, recursoId liga os dois e o nome vem de lá.
+
+   As linhas guardam só a escolha e a ordem: o texto continua morando na
+   atividade do cronograma. Assim renomear a atividade renomeia a linha, e a
+   matriz nunca contradiz o plano que ela deveria explicar. */
+const RACI_INFO = {
+  R: { nome: 'Responsible', pt: 'Executa o trabalho', hex: '#014479', fundo: '#D7E5F1' },
+  A: { nome: 'Accountable', pt: 'Responde pelo resultado', hex: '#FFFFFF', fundo: '#12202E' },
+  C: { nome: 'Consulted', pt: 'É consultado antes', hex: '#1C6A86', fundo: '#DEEDF2' },
+  I: { nome: 'Informed', pt: 'Fica sabendo depois', hex: '#5C6F7E', fundo: '#EEF2F5' }
+};
+const RACI_CICLO = ['R', 'A', 'C', 'I', ''];
+
+function raciPapeis() {
+  const m = ST.P.meta;
+  if (!Array.isArray(m.raciPapeis)) m.raciPapeis = [];
+  return m.raciPapeis;
+}
+function raciCelulas() {
+  const m = ST.P.meta;
+  if (!m.raciCelulas || typeof m.raciCelulas !== 'object') m.raciCelulas = {};
+  return m.raciCelulas;
+}
+/* Mapa de mapas, não matriz cheia: 22 linhas por 10 papéis seriam 220 células
+   e a maioria fica vazia. Só o que foi marcado ocupa espaço no banco. */
+function raciMarca(linhaId, papelId) {
+  const c = raciCelulas()[linhaId];
+  return (c && c[papelId]) || '';
+}
+function raciMarcar(linhaId, papelId, letra) {
+  const cel = raciCelulas();
+  if (!cel[linhaId]) cel[linhaId] = {};
+  if (letra) cel[linhaId][papelId] = letra;
+  else {
+    delete cel[linhaId][papelId];
+    if (!Object.keys(cel[linhaId]).length) delete cel[linhaId];
+  }
+}
+
+/** A seleção crua, do jeito que está no banco. */
+function raciSelecao() {
+  const m = ST.P.meta;
+  if (!Array.isArray(m.raciLinhas)) m.raciLinhas = [];
+  return m.raciLinhas;
+}
+/** Fase/entrega e marco: é o nível que a matriz do cliente mostra, não as
+    45 atividades do plano. Serve de ponto de partida, não de regra. */
+function raciSugestao() {
+  const sch = ST.sch; if (!sch) return [];
+  return (ST.P.tasks || []).filter(t => {
+    const o = sch.out.get(t.id);
+    return o && (o.sum || o.D === 0);
+  }).map(t => ({ tipo: 'tarefa', taskId: t.id }));
+}
+/** Resolve a seleção contra o cronograma de agora. Atividade apagada some da
+    matriz sozinha: linha órfã é pior do que linha faltando. */
+function raciLinhas() {
+  const sel = raciSelecao();
+  const porId = new Map((ST.P.tasks || []).map(t => [t.id, t]));
+  const out = [];
+  for (const it of sel) {
+    if (it.tipo === 'livre') {
+      out.push({ id: it.id, texto: it.texto || '', livre: true, nivel: 0, grupo: false, marco: false });
+      continue;
+    }
+    const t = porId.get(it.taskId); if (!t) continue;
+    const o = ST.sch && ST.sch.out.get(t.id);
+    out.push({
+      id: it.taskId, texto: t.name || '', livre: false,
+      nivel: t.level || 0, grupo: !!(o && o.sum), marco: !!(o && o.D === 0 && !o.sum)
+    });
+  }
+  return out;
+}
+function salvarRACI() { markMeta(); }
+
+/* ---- as regras ----
+   É o que separa a matriz de um quadro bonito. Dois A numa linha é pior do
+   que nenhum, porque parece resolvido. */
+function raciProblemas(linhas, papeis) {
+  const fora = [];
+  for (const l of linhas) {
+    const letras = papeis.map(p => raciMarca(l.id, p.id)).filter(Boolean);
+    if (l.grupo && !letras.length) continue;      // fase sem marcação é só um título
+    const n = x => letras.filter(y => y === x).length;
+    const nome = '“' + (l.texto || 'sem nome') + '”';
+    if (!letras.length) { fora.push({ grave: true, txt: nome + ' não tem nenhuma marcação.' }); continue; }
+    if (n('A') === 0) fora.push({ grave: true, txt: nome + ' não tem A: ninguém responde por ela.' });
+    if (n('A') > 1) fora.push({ grave: true, txt: nome + ' tem ' + n('A') + ' A: dois donos é nenhum dono.' });
+    if (n('R') === 0) fora.push({ grave: true, txt: nome + ' não tem R: ninguém executa.' });
+    if (papeis.length >= 5 && n('C') >= papeis.length - 2)
+      fora.push({ grave: false, txt: nome + ': quase todo mundo é C — consultar todos costuma ser o jeito elegante de não decidir.' });
+  }
+  for (const p of papeis) {
+    if (!linhas.some(l => raciMarca(l.id, p.id)))
+      fora.push({ grave: false, txt: 'O papel “' + (p.nome || 'sem nome') + '” não aparece em nenhuma linha.' });
+  }
+  return fora;
+}
+
+/* ---- papéis ---- */
+function janelaPapeisRACI(aoFechar) {
+  if (semPermissao()) return;
+  const lista = raciPapeis().map(p => Object.assign({}, p));
+  modal('Papéis do projeto', (body, close) => {
+    setTimeout(() => { const j = body.closest('.modal'); if (j) j.classList.add('larga'); }, 0);
+    body.appendChild(el('div', 'hint',
+      'Quem responde pelo projeto, dos dois lados. Não é a lista de recursos: patrocinador, '
+      + 'comitê e key user do cliente não lançam hora nenhuma e são justamente os que precisam estar aqui. '
+      + 'Quando o papel é alguém do plano, ligue ao recurso e o nome vem de lá.'));
+    const cx = el('div'); cx.style.cssText = 'max-height:46vh;overflow:auto;border:1px solid var(--line);border-radius:7px';
+    body.appendChild(cx);
+    const rodape = el('div'); rodape.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;margin:10px 0';
+    body.appendChild(rodape);
+
+    const mover = (de, para) => { if (para < 0 || para >= lista.length) return; const x = lista.splice(de, 1)[0]; lista.splice(para, 0, x); desenhar(); };
+    const seta = (rot, dica, ligado, acao) => {
+      const b = el('button', 'btn icon', rot); b.title = dica;
+      b.style.cssText = 'padding:2px 5px;font-size:11px;line-height:1;min-width:0';
+      if (!ligado) { b.disabled = true; b.style.opacity = '.28'; b.style.cursor = 'default'; } else b.addEventListener('click', acao);
+      return b;
+    };
+    const desenhar = () => {
+      cx.textContent = '';
+      const tb = el('table', 'data'); tb.style.minWidth = '100%';
+      const th = el('thead'); const hr = el('tr');
+      ['#', 'Papel', 'Lado', 'Pessoa do plano (opcional)', ''].forEach(r => hr.appendChild(el('th', '', r)));
+      th.appendChild(hr); tb.appendChild(th);
+      const tbo = el('tbody');
+      lista.forEach((pa, i) => {
+        const tr = el('tr');
+        tr.appendChild(el('td', 'num ordem', String(i + 1)));
+        const tdN = el('td');
+        const iN = el('input', 'inp'); iN.value = pa.nome || ''; iN.placeholder = 'Ex.: Gerente de projeto, Patrocinador';
+        iN.style.cssText = 'padding:3px 6px;font-size:12.5px';
+        iN.addEventListener('input', () => { pa.nome = iN.value; });
+        tdN.appendChild(iN); tr.appendChild(tdN);
+
+        const tdL = el('td');
+        const sL = el('select', 'inp'); sL.style.cssText = 'padding:3px 6px;font-size:12.5px';
+        [['empresa', 'Nossa empresa'], ['cliente', 'Cliente']].forEach(par => {
+          const o = el('option', '', par[1]); o.value = par[0]; sL.appendChild(o);
+        });
+        sL.value = pa.lado === 'cliente' ? 'cliente' : 'empresa';
+        sL.addEventListener('change', () => { pa.lado = sL.value; });
+        tdL.appendChild(sL); tr.appendChild(tdL);
+
+        const tdR = el('td');
+        const sR = el('select', 'inp'); sR.style.cssText = 'padding:3px 6px;font-size:12.5px';
+        const vazio = el('option', '', '— nenhum —'); vazio.value = ''; sR.appendChild(vazio);
+        for (const r of (ST.P.resources || [])) { const o = el('option', '', r.name || 'Sem nome'); o.value = r.id; sR.appendChild(o); }
+        sR.value = pa.recursoId || '';
+        sR.addEventListener('change', () => {
+          pa.recursoId = sR.value || '';
+          const r = (ST.P.resources || []).find(x => x.id === pa.recursoId);
+          if (r && !String(pa.nome || '').trim()) { pa.nome = r.role || r.name; iN.value = pa.nome; }
+        });
+        tdR.appendChild(sR); tr.appendChild(tdR);
+
+        const tdX = el('td'); tdX.style.whiteSpace = 'nowrap';
+        const grupo = el('div'); grupo.style.cssText = 'display:flex;gap:3px;align-items:center';
+        grupo.appendChild(seta('↑', 'Subir', i > 0, () => mover(i, i - 1)));
+        grupo.appendChild(seta('↓', 'Descer', i < lista.length - 1, () => mover(i, i + 1)));
+        const x = el('button', 'btn icon', '✕'); x.title = 'Remover este papel';
+        x.style.cssText = 'padding:2px 5px;font-size:11px;line-height:1;min-width:0';
+        x.addEventListener('click', () => { lista.splice(i, 1); desenhar(); });
+        grupo.appendChild(x); tdX.appendChild(grupo); tr.appendChild(tdX);
+        tbo.appendChild(tr);
+      });
+      tb.appendChild(tbo); cx.appendChild(tb);
+      if (!lista.length) cx.appendChild(el('div', 'empty', 'Nenhum papel ainda.'));
+
+      rodape.textContent = '';
+      const bN = el('button', 'btn', '＋ Papel');
+      bN.addEventListener('click', () => { lista.push({ id: uid('pa'), nome: '', lado: 'empresa', recursoId: '' }); desenhar(); });
+      const bP = el('button', 'btn', '⇣ Trazer do plano');
+      bP.title = 'Cria um papel para cada recurso do projeto, do nosso lado';
+      bP.addEventListener('click', () => {
+        let n = 0;
+        for (const r of (ST.P.resources || [])) {
+          if (lista.some(pa => pa.recursoId === r.id)) continue;
+          lista.push({ id: uid('pa'), nome: r.role || r.name || '', lado: 'empresa', recursoId: r.id }); n++;
+        }
+        desenhar();
+        toast(n ? n + ' papel(is) trazido(s) do plano.' : 'Todos os recursos do plano já estão na lista.');
+      });
+      const bC = el('button', 'btn', '＋ Padrão do cliente');
+      bC.title = 'Patrocinador, Key user e Área de TI do lado do cliente';
+      bC.addEventListener('click', () => {
+        for (const nome of ['Patrocinador', 'Key user', 'Área de TI'])
+          if (!lista.some(pa => pa.lado === 'cliente' && pa.nome === nome))
+            lista.push({ id: uid('pa'), nome: nome, lado: 'cliente', recursoId: '' });
+        desenhar();
+      });
+      const conta = el('div', 'hint'); conta.style.cssText = 'margin-left:auto;align-self:center';
+      const nE = lista.filter(pa => pa.lado !== 'cliente').length;
+      conta.textContent = nE + ' nosso(s) · ' + (lista.length - nE) + ' do cliente';
+      rodape.appendChild(bN); rodape.appendChild(bP); rodape.appendChild(bC); rodape.appendChild(conta);
+    };
+    desenhar();
+
+    const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;margin-top:4px';
+    const bCan = el('button', 'btn', 'Cancelar'); bCan.addEventListener('click', close);
+    const bOk = el('button', 'btn primary', 'Salvar');
+    bOk.addEventListener('click', () => {
+      const limpa = lista.filter(pa => String(pa.nome || '').trim());
+      if (!limpa.length) { toast('Dê um nome a pelo menos um papel.'); return; }
+      /* papel removido leva embora as marcações dele: célula órfã volta a
+         aparecer se alguém criar um papel novo e o id coincidir */
+      const vivos = {};
+      for (const pa of limpa) vivos[pa.id] = true;
+      const cel = raciCelulas();
+      for (const k of Object.keys(cel)) {
+        for (const pid of Object.keys(cel[k])) if (!vivos[pid]) delete cel[k][pid];
+        if (!Object.keys(cel[k]).length) delete cel[k];
+      }
+      ST.P.meta.raciPapeis = limpa;
+      salvarRACI(); close(); if (aoFechar) aoFechar();
+    });
+    linha.appendChild(bCan); linha.appendChild(bOk); body.appendChild(linha);
+  }, []);
+}
+
+/* ---- quais atividades entram ---- */
+function janelaLinhasRACI(aoFechar) {
+  if (semPermissao()) return;
+  const sel = raciSelecao().map(x => Object.assign({}, x));
+  const marcadas = {};
+  for (const x of sel) if (x.tipo !== 'livre') marcadas[x.taskId] = true;
+  const livres = sel.filter(x => x.tipo === 'livre');
+  modal('Atividades da matriz', (body, close) => {
+    setTimeout(() => { const j = body.closest('.modal'); if (j) j.classList.add('larga'); }, 0);
+    body.appendChild(el('div', 'hint',
+      'Marque o que entra na matriz. O texto continua morando na atividade: renomear no cronograma '
+      + 'renomeia aqui, e atividade excluída sai sozinha.'));
+
+    const barra = el('div'); barra.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 8px';
+    const bFases = el('button', 'btn', 'Só fases e marcos');
+    bFases.title = 'O nível que o cliente lê: uma linha por entrega, não as 45 atividades';
+    bFases.addEventListener('click', () => {
+      for (const k of Object.keys(marcadas)) delete marcadas[k];
+      for (const it of raciSugestao()) marcadas[it.taskId] = true;
+      desenhar();
+    });
+    const bTudo = el('button', 'btn', 'Todas');
+    bTudo.addEventListener('click', () => { for (const t of (ST.P.tasks || [])) marcadas[t.id] = true; desenhar(); });
+    const bNada = el('button', 'btn', 'Nenhuma');
+    bNada.addEventListener('click', () => { for (const k of Object.keys(marcadas)) delete marcadas[k]; desenhar(); });
+    barra.appendChild(bFases); barra.appendChild(bTudo); barra.appendChild(bNada);
+    body.appendChild(barra);
+
+    const cx = el('div'); cx.style.cssText = 'max-height:40vh;overflow:auto;border:1px solid var(--line);border-radius:7px;padding:6px 10px';
+    body.appendChild(cx);
+    const cxL = el('div'); cxL.style.cssText = 'margin-top:10px';
+    body.appendChild(cxL);
+
+    const desenhar = () => {
+      cx.textContent = '';
+      for (const t of (ST.P.tasks || [])) {
+        const o = ST.sch && ST.sch.out.get(t.id);
+        const l = el('label');
+        l.style.cssText = 'display:flex;gap:8px;align-items:center;padding:3px 0;font-size:12.5px;'
+          + 'padding-left:' + ((t.level || 0) * 16) + 'px' + (o && o.sum ? ';font-weight:700' : '');
+        const ck = el('input'); ck.type = 'checkbox'; ck.checked = !!marcadas[t.id]; ck.style.width = 'auto';
+        ck.addEventListener('change', () => { if (ck.checked) marcadas[t.id] = true; else delete marcadas[t.id]; });
+        l.appendChild(ck);
+        l.appendChild(document.createTextNode((o && o.D === 0 && !o.sum ? '◆ ' : '') + (t.name || 'Sem nome')));
+        cx.appendChild(l);
+      }
+      if (!(ST.P.tasks || []).length) cx.appendChild(el('div', 'empty', 'O cronograma ainda está vazio.'));
+
+      cxL.textContent = '';
+      const cab = el('div'); cab.style.cssText = 'display:flex;align-items:center;gap:10px;margin-bottom:4px';
+      const tit = el('div', '', 'Linhas que não estão no cronograma');
+      tit.style.cssText = 'font-weight:700;font-size:12.5px';
+      cab.appendChild(tit);
+      const bAdd = el('button', 'btn', '＋ Linha livre');
+      bAdd.title = 'Governança que acontece sobre o projeto, não dentro dele';
+      bAdd.style.marginLeft = 'auto';
+      bAdd.addEventListener('click', () => { livres.push({ tipo: 'livre', id: uid('rl'), texto: '' }); desenhar(); });
+      cab.appendChild(bAdd); cxL.appendChild(cab);
+      cxL.appendChild(el('div', 'hint', 'Aprovação de mudança de escopo, reunião mensal de comitê, aceite final.'));
+      livres.forEach((x, i) => {
+        const l = el('div'); l.style.cssText = 'display:flex;gap:6px;align-items:center;margin-top:5px';
+        const inp = el('input', 'inp'); inp.value = x.texto || ''; inp.placeholder = 'Ex.: Aprovação de mudança de escopo';
+        inp.style.cssText = 'padding:4px 7px;font-size:12.5px';
+        inp.addEventListener('input', () => { x.texto = inp.value; });
+        const bx = el('button', 'btn icon', '✕'); bx.title = 'Remover';
+        bx.addEventListener('click', () => { livres.splice(i, 1); desenhar(); });
+        l.appendChild(inp); l.appendChild(bx); cxL.appendChild(l);
+      });
+    };
+    desenhar();
+
+    const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;margin-top:12px';
+    const bCan = el('button', 'btn', 'Cancelar'); bCan.addEventListener('click', close);
+    const bOk = el('button', 'btn primary', 'Salvar');
+    bOk.addEventListener('click', () => {
+      /* a ordem segue o cronograma, que é a ordem que a pessoa já conhece;
+         as linhas livres, que não têm lugar no plano, vão para o fim */
+      const novas = (ST.P.tasks || []).filter(t => marcadas[t.id]).map(t => ({ tipo: 'tarefa', taskId: t.id }));
+      for (const x of livres) if (String(x.texto || '').trim()) novas.push({ tipo: 'livre', id: x.id, texto: x.texto.trim() });
+      ST.P.meta.raciLinhas = novas;
+      const vivas = {};
+      for (const x of novas) vivas[x.tipo === 'livre' ? x.id : x.taskId] = true;
+      const cel = raciCelulas();
+      for (const k of Object.keys(cel)) if (!vivas[k]) delete cel[k];
+      salvarRACI(); close(); if (aoFechar) aoFechar();
+    });
+    linha.appendChild(bCan); linha.appendChild(bOk); body.appendChild(linha);
+  }, []);
+}
+
+/* ---- a aba ---- */
+function renderRACI() {
+  const host = $('#raciView'); if (!host) return;
+  host.textContent = '';
+  const papeis = raciPapeis();
+  const linhas = raciLinhas();
+
+  const p = el('div', 'panel');
+  const cab = el('h3', '', 'Matriz de responsabilidades');
+  cab.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap';
+  const acoes = el('div'); acoes.style.cssText = 'display:flex;gap:7px;flex-wrap:wrap';
+  const bPap = el('button', 'btn reqedit', 'Papéis');
+  bPap.addEventListener('click', () => janelaPapeisRACI(renderRACI));
+  const bLin = el('button', 'btn reqedit', 'Atividades');
+  bLin.addEventListener('click', () => janelaLinhasRACI(renderRACI));
+  acoes.appendChild(bPap); acoes.appendChild(bLin);
+  cab.appendChild(acoes); p.appendChild(cab);
+
+  if (!papeis.length || !linhas.length) {
+    const vaz = el('div', 'empty');
+    vaz.appendChild(el('div', '', !papeis.length
+      ? 'Comece pelos papéis: quem responde pelo projeto, do nosso lado e do lado do cliente.'
+      : 'Agora escolha quais atividades entram na matriz.'));
+    const b = el('button', 'btn primary reqedit', !papeis.length ? 'Definir os papéis' : 'Escolher as atividades');
+    b.style.marginTop = '10px';
+    b.addEventListener('click', () => (!papeis.length ? janelaPapeisRACI : janelaLinhasRACI)(renderRACI));
+    vaz.appendChild(b);
+    if (papeis.length && !linhas.length && raciSugestao().length) {
+      const b2 = el('button', 'btn reqedit', 'Começar pelas fases e marcos');
+      b2.style.cssText = 'margin-top:10px;margin-left:8px';
+      b2.addEventListener('click', () => { ST.P.meta.raciLinhas = raciSugestao(); salvarRACI(); renderRACI(); });
+      vaz.appendChild(b2);
+    }
+    p.appendChild(vaz); host.appendChild(p); aplicarPermissoes(); return;
+  }
+
+  /* legenda: sem ela a matriz é uma grade de letras soltas */
+  const leg = el('div');
+  leg.style.cssText = 'display:flex;gap:14px;flex-wrap:wrap;padding:10px 16px 2px';
+  for (const k of ['R', 'A', 'C', 'I']) {
+    const i = RACI_INFO[k];
+    const it = el('div'); it.style.cssText = 'display:flex;gap:7px;align-items:center';
+    const q = el('span', '', k);
+    q.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;'
+      + 'border-radius:5px;font-family:var(--f-mono);font-weight:700;font-size:12px;background:' + i.fundo + ';color:' + i.hex;
+    const tx = el('span', '', i.pt); tx.style.cssText = 'font-size:12px;color:var(--ink-2)';
+    it.appendChild(q); it.appendChild(tx); leg.appendChild(it);
+  }
+  p.appendChild(leg);
+
+  const nossos = papeis.filter(x => x.lado !== 'cliente');
+  const deles = papeis.filter(x => x.lado === 'cliente');
+  const ordem = nossos.concat(deles);
+
+  const sc = el('div', 'tscroll'); sc.style.cssText = 'overflow:auto;padding:10px 16px 16px';
+  const tb = el('table', 'data raci'); tb.style.minWidth = '100%';
+  const th = el('thead');
+  const h1 = el('tr');
+  const c0 = el('th', '', 'Atividade / entrega'); c0.rowSpan = 2;
+  c0.style.cssText = 'text-align:left;min-width:260px;position:sticky;left:0;background:var(--surface);z-index:2';
+  h1.appendChild(c0);
+  if (nossos.length) {
+    const t1 = el('th', '', 'Nossa empresa'); t1.colSpan = nossos.length; t1.style.textAlign = 'center';
+    h1.appendChild(t1);
+  }
+  if (deles.length) {
+    const t2 = el('th', '', ST.P.meta.client || 'Cliente'); t2.colSpan = deles.length;
+    t2.style.cssText = 'text-align:center;border-left:2px solid var(--ink-3)';
+    h1.appendChild(t2);
+  }
+  th.appendChild(h1);
+  const h2 = el('tr');
+  ordem.forEach((pa, i) => {
+    const r = (ST.P.resources || []).find(x => x.id === pa.recursoId);
+    const c = el('th', '', pa.nome || 'Sem nome');
+    c.style.cssText = 'text-align:center;min-width:76px;font-size:11px;vertical-align:bottom'
+      + (i === nossos.length && deles.length ? ';border-left:2px solid var(--ink-3)' : '');
+    if (r && r.name && r.name !== pa.nome) {
+      c.title = pa.nome + ' — ' + r.name;
+      const q = el('div', '', r.name);
+      q.style.cssText = 'font-weight:400;font-size:10px;color:var(--ink-3);margin-top:2px';
+      c.appendChild(q);
+    }
+    h2.appendChild(c);
+  });
+  th.appendChild(h2); tb.appendChild(th);
+
+  const tbo = el('tbody');
+  const editavel = podeEditar();
+  for (const l of linhas) {
+    const tr = el('tr');
+    const td0 = el('td');
+    td0.style.cssText = 'position:sticky;left:0;background:var(--surface);z-index:1;'
+      + 'padding-left:' + (10 + (l.livre ? 0 : (l.nivel || 0) * 14)) + 'px'
+      + (l.grupo ? ';font-weight:700' : '');
+    td0.textContent = (l.marco ? '◆ ' : '') + (l.texto || 'Sem nome');
+    if (l.livre) {
+      const s = el('span', '', '  fora do plano');
+      s.style.cssText = 'font-size:10px;color:var(--ink-3);font-family:var(--f-mono)';
+      td0.appendChild(s);
+    }
+    tr.appendChild(td0);
+    ordem.forEach((pa, i) => {
+      const td = el('td');
+      td.style.cssText = 'text-align:center;padding:2px'
+        + (i === nossos.length && deles.length ? ';border-left:2px solid var(--ink-3)' : '');
+      const letra = raciMarca(l.id, pa.id);
+      const inf = RACI_INFO[letra];
+      const b = el('button', '', letra || '·');
+      b.style.cssText = 'width:30px;height:24px;border-radius:5px;font-family:var(--f-mono);font-weight:700;'
+        + 'font-size:12px;border:1px solid ' + (inf ? 'transparent' : 'var(--line)') + ';'
+        + 'background:' + (inf ? inf.fundo : 'transparent') + ';color:' + (inf ? inf.hex : 'var(--ink-3)') + ';'
+        + 'cursor:' + (editavel ? 'pointer' : 'default');
+      b.title = (inf ? letra + ' — ' + inf.pt : 'Sem marcação') + (editavel ? ' · clique para trocar' : '');
+      if (editavel) b.addEventListener('click', () => {
+        const atual = raciMarca(l.id, pa.id);
+        raciMarcar(l.id, pa.id, RACI_CICLO[(RACI_CICLO.indexOf(atual) + 1) % RACI_CICLO.length]);
+        salvarRACI(); renderRACI();
+      });
+      td.appendChild(b); tr.appendChild(td);
+    });
+    tbo.appendChild(tr);
+  }
+  tb.appendChild(tbo); sc.appendChild(tb); p.appendChild(sc);
+  host.appendChild(p);
+
+  /* ---- o que está errado ---- */
+  const probs = raciProblemas(linhas, ordem);
+  const graves = probs.filter(x => x.grave).length;
+  const pv = el('div', 'panel');
+  const cv = el('h3', '', 'Conferência');
+  cv.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px';
+  const selo = el('span', '', graves ? graves + ' ponto(s) a resolver' : 'matriz consistente');
+  selo.style.cssText = 'font-size:10.5px;font-weight:700;font-family:var(--f-mono);padding:2px 9px;border-radius:999px;'
+    + (graves
+      ? 'color:#B3322B;background:#FBE6E4;border:1px solid #F0C4C0'
+      : 'color:#1F8A5B;background:#DFF0E4;border:1px solid #B7DCC4');
+  cv.appendChild(selo); pv.appendChild(cv);
+  const corpo = el('div'); corpo.style.cssText = 'padding:4px 16px 14px;display:flex;flex-direction:column;gap:6px';
+  if (!probs.length) {
+    corpo.appendChild(el('div', 'hint', 'Cada linha tem um único A e pelo menos um R, e todo papel aparece em alguma linha.'));
+  } else {
+    for (const x of probs) {
+      const d = el('div', '', (x.grave ? '● ' : '○ ') + x.txt);
+      d.style.cssText = 'font-size:12.5px;line-height:1.45;color:' + (x.grave ? 'var(--critical)' : 'var(--ink-2)');
+      corpo.appendChild(d);
+    }
+  }
+  pv.appendChild(corpo);
+  pv.appendChild(el('div', 'tagline',
+    'Um A por linha é a regra que faz a matriz valer: dois donos é nenhum dono, porque parece resolvido. '
+    + 'Fase sem nenhuma marcação é tratada como título, não como erro.'));
+  host.appendChild(pv);
+  aplicarPermissoes();
+}
+
 function renderDocumentos() {
   const host = $('#docsView'); host.textContent = '';
   const p = el('div', 'panel');
@@ -9423,6 +9900,7 @@ function refresh() {
   else if (VIEW === 'canvas') renderCanvas();
   else if (VIEW === 'schedule') { renderGrid(); renderGantt(); syncHeights(); }
   else if (VIEW === 'resources') renderResources();
+  else if (VIEW === 'raci') renderRACI();
   else if (VIEW === 'horas') renderHoras();
   else if (VIEW === 'status') renderStatusReport();
   else if (VIEW === 'diario') renderDiario();
