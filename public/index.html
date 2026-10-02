@@ -7707,6 +7707,47 @@ function janelaAgendaStatus() {
   }, []);
 }
 
+const diNomeTabelas = () => 'tabelas-' + slug((ST.P.meta.client || '') + '-' + (ST.P.meta.name || 'projeto'));
+
+async function diBaixarTabelasPDF() {
+  const r = diMontarFolhas(todayISO(), 'dia', 'a4', true);
+  const pgs = [];
+  for (const f of r.folhas) pgs.push(await svgParaJPEG(f, r.W, 595, 2.4, 0.94));
+  await offerDownload(diNomeTabelas() + '.pdf', new Blob([montarPDFMulti(pgs)], { type: 'application/pdf' }));
+}
+async function diBaixarTabelasImagem(tipo) {
+  const r = diMontarFolhas(todayISO(), 'dia', 'unica', true);
+  const img = await svgParaArquivoImagem(r.folhas[0], r.W, r.H, tipo);
+  await offerDownload(diNomeTabelas() + (tipo === 'jpg' ? '.jpg' : '.png'), img.blob);
+}
+
+function janelaExportarTabelas() {
+  const saem = diTabelas().filter(t => t.noRelatorio !== false && !diTabelaVazia(t));
+  if (!saem.length) { toast('Nenhuma tabela marcada para sair no relatório.'); return; }
+  modal('Exportar só as tabelas', (body, close) => {
+    body.appendChild(el('div', 'hint',
+      'Sai a mesma folha do relatório do dia, sem a parte de atividades — para os projetos em que '
+      + 'a tabela é o acompanhamento inteiro. Entram as ' + saem.length + ' tabela(s) marcadas como '
+      + '“sai no relatório”; as internas ficam de fora.'));
+    const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;margin-top:6px';
+    const faz = (rot, dica, fn) => {
+      const b = el('button', 'btn', rot); b.title = dica;
+      b.addEventListener('click', async () => {
+        close(); toast('Montando…');
+        try { await fn(); } catch (e) { toast('Não consegui gerar: ' + ((e && e.message) || 'erro')); }
+      });
+      return b;
+    };
+    linha.appendChild(faz('📄 PDF', 'Folhas A4 deitadas, para anexar', diBaixarTabelasPDF));
+    linha.appendChild(faz('🖼 JPG', 'Folha única, para colar no e-mail ou no WhatsApp', () => diBaixarTabelasImagem('jpg')));
+    linha.appendChild(faz('🖼 PNG', 'Folha única sem perda, para quem vai ampliar', () => diBaixarTabelasImagem('png')));
+    body.appendChild(linha);
+    const fim = el('div'); fim.style.cssText = 'display:flex;justify-content:flex-end;margin-top:12px';
+    const bF = el('button', 'btn', 'Fechar'); bF.addEventListener('click', close);
+    fim.appendChild(bF); body.appendChild(fim);
+  }, []);
+}
+
 /** A faixa na aba Status que diz como está a agenda deste projeto. */
 function painelAgendaStatus() {
   const a = agendaStatus();
@@ -10470,6 +10511,9 @@ function painelTabelasDiario() {
   const cab = el('h3', '', 'Tabelas do projeto');
   cab.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap';
   const acoes = el('div'); acoes.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap';
+  const bExp = el('button', 'btn', 'Exportar');
+  bExp.title = 'PDF ou imagem só com as tabelas, sem as atividades do diário';
+  bExp.addEventListener('click', () => janelaExportarTabelas());
   const bImp = el('button', 'btn reqedit', '⤒ Importar planilha');
   bImp.title = 'Cria uma tabela a partir de um .csv ou de uma colagem do Excel';
   bImp.addEventListener('click', () => janelaColarTabela((colunas, linhas, total, sugestao) => {
@@ -10482,7 +10526,7 @@ function painelTabelasDiario() {
   }));
   const bNova = el('button', 'btn primary reqedit', '＋ Nova tabela');
   bNova.addEventListener('click', () => janelaTabelaDiario(null));
-  acoes.appendChild(bImp); acoes.appendChild(bNova);
+  acoes.appendChild(bExp); acoes.appendChild(bImp); acoes.appendChild(bNova);
   cab.appendChild(acoes); p.appendChild(cab);
 
   const tabs = diTabelas();
@@ -11057,8 +11101,12 @@ function janelaRelatorioDiario() {
  *  da célula mais alta — "ONDA 1 (21 máquinas)" tem de aparecer inteiro, e um
  *  módulo virando "ONDA 1 (21 máqui" num relatório que vai para o cliente é o
  *  tipo de detalhe que faz o resto parecer descuidado. */
-function diMontarFolhas(dia, escopo, modo) {
-  const m = ST.P.meta, linhas = diLinhasRelatorio(dia, escopo);
+/* `soTabelas` devolve a MESMA folha sem a parte de atividades. Existe porque
+   há projeto em que o diário nunca foi usado e a tabela é tudo: mandar um
+   relatório que começa com "Nenhuma atividade registrada" e só depois mostra
+   o que interessa é entregar a desculpa antes do conteúdo. */
+function diMontarFolhas(dia, escopo, modo, soTabelas) {
+  const m = ST.P.meta, linhas = soTabelas ? [] : diLinhasRelatorio(dia, escopo);
   const W = 842, M = 28, TOPO = 78, RODAPE = 28, PASSO = 9;
   /* Larguras pensadas para o conteúdo real: módulo e time recebem nomes
      compostos ("Fundação/PrimeDB"), e observações é onde mora o texto longo. */
@@ -11142,13 +11190,17 @@ function diMontarFolhas(dia, escopo, modo) {
     L = (x1, y1, x2, y2, c, w) => pg.appendChild(sv('line', { x1: x1, y1: y1, x2: x2, y2: y2, stroke: c, 'stroke-width': w || 1 }));
     R(0, 0, W, H, '#FFFFFF');
     R(M, 24, W - 2 * M, 26, '#12202E');
-    T(M + 10, 41, 'DAILY SPRINT · ' + String(m.name || '').toUpperCase() + ' — ' + String(m.client || '').toUpperCase(), 11, 700, '#FFFFFF');
+    T(M + 10, 41, (soTabelas ? 'TABELAS · ' : 'DAILY SPRINT · ')
+      + String(m.name || '').toUpperCase() + ' — ' + String(m.client || '').toUpperCase(), 11, 700, '#FFFFFF');
     T(W - M - 10, 41, 'Atualizado ' + fmtBR(dia), 10, 700, '#FFFFFF', 'end');
     R(M, 50, W - 2 * M, 16, '#E9EFF5');
     const per = m.diarioInicio ? 'Histórico consolidado: ' + fmtBR(m.diarioInicio) + ' → ' + fmtBR(dia) + '  ·  ' : '';
     const cont = DI_STATUS.map(s => ({ s: s, n: linhas.filter(a => a.status === s.v).length })).filter(x => x.n);
-    T(M + 10, 61, per + fmtNum(linhas.length) + ' atividade(s)' +
-      (cont.length ? '  ·  ' + cont.map(x => x.s.v + ': ' + x.n).join('   ') : ''), 8, 400, CORES_ST.tinta2);
+    T(M + 10, 61, soTabelas
+      ? fmtNum(tabs.length) + ' tabela(s)  ·  '
+        + fmtNum(tabs.reduce((a2, t) => a2 + t.corpo.length, 0)) + ' linha(s)'
+      : per + fmtNum(linhas.length) + ' atividade(s)' +
+        (cont.length ? '  ·  ' + cont.map(x => x.s.v + ': ' + x.n).join('   ') : ''), 8, 400, CORES_ST.tinta2);
     T(M, H - 16, 'Gerado pelo MILEST em ' + fmtBR(todayISO()), 7.5, 400, CORES_ST.tinta3);
     if (modo === 'a4') T(W - M - 10, H - 16, 'página ' + (folhas.length + 1), 7.5, 400, CORES_ST.tinta3, 'end');
     y = TOPO;
@@ -11165,8 +11217,8 @@ function diMontarFolhas(dia, escopo, modo) {
   const total = medidas.reduce((s, x) => s + x.alt, 0);
   // a folha única termina logo depois da última linha: sobra de papel em
   // branco no fim de um print parece relatório interrompido
-  nova(modo === 'a4' ? ALT_A4 : Math.max(150, TOPO + 16 + total + altTabs + RODAPE));
-  cabec();
+  nova(modo === 'a4' ? ALT_A4 : Math.max(150, TOPO + (soTabelas ? -10 : 16 + total) + altTabs + RODAPE));
+  if (!soTabelas) cabec();
 
   medidas.forEach((mm, idx) => {
     if (modo === 'a4' && y + mm.alt > H - RODAPE) { nova(ALT_A4); cabec(); }
@@ -11190,7 +11242,8 @@ function diMontarFolhas(dia, escopo, modo) {
     L(M, y - 7, W - M, y - 7, '#E3E9ED', 0.5);
   });
   /* sem atividades, o aviso ocupa a faixa onde a primeira tabela comecaria */
-  if (!linhas.length) { T(M + 10, y + 6, 'Nenhuma atividade registrada em ' + fmtBR(dia) + '.', 9, 400, CORES_ST.tinta3); y += 18; }
+  if (!linhas.length && !soTabelas) { T(M + 10, y + 6, 'Nenhuma atividade registrada em ' + fmtBR(dia) + '.', 9, 400, CORES_ST.tinta3); y += 18; }
+  if (soTabelas && !tabs.length) T(M + 10, y + 6, 'Nenhuma tabela marcada para sair no relatório.', 9, 400, CORES_ST.tinta3);
 
   const cabTabela = tb => {
     R(M, y - 9, LARG_UTIL, tb.altCab, '#014479');
