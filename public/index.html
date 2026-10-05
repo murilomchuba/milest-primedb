@@ -3611,9 +3611,20 @@ function renderResources() {
 
   const tb = el('table', 'data');
   const thead = el('thead'), hr = el('tr');
-  const heads = comCusto
-    ? [['Recurso', ''], ['Função', ''], ['Custo/h', 'num'], ['Cap.', 'num'], ['Trabalho', 'num'], ['Custo', 'num'], ['Projetos', 'num'], ['Pico', 'num'], ['', '']]
-    : [['Recurso', ''], ['Função', ''], ['Cap.', 'num'], ['Trabalho', 'num'], ['Projetos', 'num'], ['Pico', 'num'], ['', '']];
+  /* Quem do cadastro tem conta para lançar as próprias horas. A coluna só
+     aparece quando há como responder — sem login por conta, a pergunta não
+     existe, e uma coluna vazia só ocupa a tela. */
+  const comAcesso = ST.comLogin && ST.mode === 'db' && !!ST.usuarios;
+  const contaDoRecurso = new Map();
+  if (comAcesso) {
+    for (const u of ST.usuarios) {
+      if (u.recursoId) contaDoRecurso.set(u.recursoId, u);
+    }
+  }
+  const heads = (comCusto
+    ? [['Recurso', ''], ['Função', ''], ['Custo/h', 'num'], ['Cap.', 'num'], ['Trabalho', 'num'], ['Custo', 'num'], ['Projetos', 'num'], ['Pico', 'num']]
+    : [['Recurso', ''], ['Função', ''], ['Cap.', 'num'], ['Trabalho', 'num'], ['Projetos', 'num'], ['Pico', 'num']])
+    .concat(comAcesso ? [['Lança horas', '']] : []).concat([['', '']]);
   for (const h of heads) hr.appendChild(el('th', h[1], h[0]));
   thead.appendChild(hr); tb.appendChild(thead);
   const tbody = el('tbody');
@@ -3642,6 +3653,24 @@ function renderResources() {
     const pk = el('td', 'num');
     pk.appendChild(el('span', pico > cap + .01 ? 'overbadge' : 'okbadge', Math.round(pico) + '%'));
     tr.appendChild(pk);
+    if (comAcesso) {
+      const tdA = el('td');
+      const u = contaDoRecurso.get(r.id);
+      if (u) {
+        const marca = el('span', 'pill ' + (u.ativo === false ? 'off' : 'on'),
+          u.ativo === false ? 'acesso suspenso' : 'sim');
+        marca.title = u.email || u.id;
+        tdA.appendChild(marca);
+      } else if (ehAdmin()) {
+        const bA = el('button', 'btn', 'Dar acesso');
+        bA.title = 'Cria a conta desta pessoa para ela lançar as próprias horas, já ligada a este recurso';
+        bA.addEventListener('click', () => modalUsuario(null, { analista: true, nome: r.name, recursoId: r.id }));
+        tdA.appendChild(bA);
+      } else {
+        tdA.appendChild(el('span', 'hint', '—'));
+      }
+      tr.appendChild(tdA);
+    }
     const del = el('td'); const b = el('button', 'btn icon danger reqedit', '✕');
     b.title = 'Remover do cadastro';
     b.addEventListener('click', () => {
@@ -3661,7 +3690,13 @@ function renderResources() {
   const ab = el('button', 'btn reqedit', '＋ Novo recurso');
   ab.addEventListener('click', () => { const r = { id: uid('r'), name: 'Recurso ' + (ST.P.resources.length + 1), role: '', rate: 0, capacity: 100 }; ST.P.resources.push(r); markRes(r.id); refresh(); });
   add.appendChild(ab); p1.appendChild(add);
-  p1.appendChild(el('div', 'tagline', 'A equipe é a mesma em todos os cronogramas: alterar aqui vale para o sistema inteiro. A coluna Projetos mostra em quantos deles cada pessoa está alocada.'));
+  p1.appendChild(el('div', 'tagline', 'A equipe é a mesma em todos os cronogramas: alterar aqui vale para o sistema inteiro. A coluna Projetos mostra em quantos deles cada pessoa está alocada.'
+    + (comAcesso ? ' Quem tem acesso entra no MILEST e vê só a tela de lançar as próprias horas — depois é preciso nomeá-la na aba Horas de cada projeto em que trabalhar.' : '')));
+
+  /* a lista de contas vem uma vez e fica; sem ela a coluna acima nem aparece */
+  if (ST.comLogin && ST.mode === 'db' && !ST.usuarios && !ST.suporte) {
+    carregarUsuarios().then(l => { ST.usuarios = l; if (VIEW === 'resources') renderResources(); }).catch(() => { });
+  }
 
   const p2 = el('div', 'panel');
   const h2r = el('h3', '', 'Alocação diária vs. capacidade');
@@ -8343,9 +8378,47 @@ function renderUsuarios() {
     .catch(e => { corpo.textContent = ''; corpo.appendChild(el('div', 'empty', 'Não consegui ler a lista: ' + ((e && e.message) || 'erro'))); });
 }
 
-function modalUsuario(atual) {
+/* ---- a conta e a pessoa do cronograma ----
+   São dois cadastros, e continuam sendo: recurso é quem pode ser alocado numa
+   atividade (um terceirizado, alguém que nunca vai abrir o sistema), usuário é
+   quem tem conta. A maioria dos recursos não tem conta, e vários usuários — um
+   gerente, um leitor do cliente — não executam atividade nenhuma.
+
+   Para o ANALISTA, porém, as duas coisas são a mesma pessoa por definição: a
+   única razão de existir a conta dele é lançar hora contra atividade, e hora
+   sem recurso não entra no custo de nada. Então, só para esse papel, o cadastro
+   de usuário passa a pedir o vínculo — e o vínculo mora no cadastro da empresa
+   (`members/{email}.recursoId`), não no projeto, porque a pessoa é a mesma em
+   todos eles. A nomeação em cada projeto herda daí.
+
+   Criar o recurso em silêncio seria pior do que não criar: já existe um "João"
+   no cadastro em 90% dos casos, e um segundo João parte as horas em dois sem
+   ninguém perceber. Por isso a janela oferece os que já existem e deixa criar
+   um novo como escolha explícita. */
+function recursoDoMembro(email) {
+  const chave = chaveEmail(email);
+  const u = (ST.usuarios || []).find(x => chaveEmail(x.email || x.id) === chave);
+  return (u && u.recursoId) || '';
+}
+/** O recurso que já existe com este nome, se existir. */
+function recursoPorNome(nome) {
+  const n = semAcento(nome || '');
+  if (!n) return null;
+  return (ST.P.resources || []).find(r => semAcento(r.name) === n) || null;
+}
+/** Cria o recurso e devolve o id. Usado quando a pessoa ainda não está na equipe. */
+async function criarRecursoPara(nome) {
+  const r = { id: uid('r'), name: String(nome || '').trim() || 'Novo recurso', role: '', rate: 0, capacity: 100 };
+  (ST.P.resources || (ST.P.resources = [])).push(r);
+  dirty.res.add(r.id);
+  await flushSave();
+  return r.id;
+}
+
+function modalUsuario(atual, sugestao) {
   const editando = !!atual;
-  modal(editando ? 'Editar usuário' : 'Novo usuário', (body, close) => {
+  const sug = sugestao || {};
+  modal(editando ? 'Editar usuário' : (sug.analista ? 'Dar acesso a ' + (sug.nome || 'esta pessoa') : 'Novo usuário'), (body, close) => {
     body.appendChild(el('div', 'hint', editando
       ? 'O e-mail não muda: ele é a chave da conta.'
       : 'Vale qualquer e-mail corporativo. Ao cadastrar, o MILEST cria a conta e mostra uma senha temporária para você passar à pessoa. '
@@ -8355,7 +8428,7 @@ function modalUsuario(atual) {
     iEm.value = editando ? atual.email : ''; iEm.disabled = editando;
     f1.appendChild(iEm); body.appendChild(f1);
     const f2 = el('div', 'field'); f2.appendChild(el('label', '', 'Nome'));
-    const iNo = el('input', 'inp'); iNo.value = (atual && atual.nome) || ''; iNo.placeholder = 'Como aparece na lista';
+    const iNo = el('input', 'inp'); iNo.value = (atual && atual.nome) || sug.nome || ''; iNo.placeholder = 'Como aparece na lista';
     f2.appendChild(iNo); body.appendChild(f2);
     let iSenhaU = null;
     if (!editando) {
@@ -8370,8 +8443,47 @@ function modalUsuario(atual) {
     const f3 = el('div', 'field'); f3.appendChild(el('label', '', 'Papel'));
     const sel = el('select', 'inp');
     for (const k of ['gerente', 'leitor', 'admin', 'analista']) { const o = el('option', '', PAPEIS[k].rot + ' — ' + PAPEIS[k].desc); o.value = k; sel.appendChild(o); }
-    sel.value = (atual && PAPEIS[atual.papel]) ? atual.papel : 'leitor';
+    sel.value = (atual && PAPEIS[atual.papel]) ? atual.papel : (sug.analista ? 'analista' : 'leitor');
     f3.appendChild(sel); body.appendChild(f3);
+
+    /* o vínculo com o cronograma — só faz sentido para quem lança hora */
+    const f4 = el('div', 'field');
+    f4.appendChild(el('label', '', 'Pessoa no cronograma'));
+    const selR = el('select', 'inp');
+    const NOVO = '__novo__';
+    const montarR = () => {
+      const antes = selR.value;
+      selR.textContent = '';
+      const oN = el('option', '', '＋ criar com este nome'); oN.value = NOVO; selR.appendChild(oN);
+      for (const r of (ST.P.resources || [])) {
+        const o = el('option', '', r.name + (r.role ? ' · ' + r.role : '')); o.value = r.id; selR.appendChild(o);
+      }
+      const jaTem = (atual && atual.recursoId) || sug.recursoId;
+      const porNome = recursoPorNome(iNo.value);
+      selR.value = antes && antes !== NOVO ? antes
+        : (jaTem || (porNome ? porNome.id : NOVO));
+    };
+    f4.appendChild(selR);
+    const dicaR = el('div', 'hint');
+    f4.appendChild(dicaR);
+    body.appendChild(f4);
+
+    const mostrarR = () => {
+      const ehAnalista = sel.value === 'analista';
+      f4.style.display = ehAnalista ? '' : 'none';
+      if (!ehAnalista) return;
+      montarR();
+      const porNome = recursoPorNome(iNo.value);
+      dicaR.textContent = selR.value === NOVO
+        ? 'Será criado um recurso novo com este nome, pronto para você alocar nas atividades.'
+        : (porNome && porNome.id === selR.value
+          ? 'Já existe alguém com este nome no cadastro — é esta pessoa, e não uma nova.'
+          : 'As horas lançadas por ela entram no custo das atividades deste recurso.');
+    };
+    sel.addEventListener('change', mostrarR);
+    iNo.addEventListener('input', () => { if (sel.value === 'analista') { selR.value = ''; mostrarR(); } });
+    selR.addEventListener('change', mostrarR);
+    mostrarR();
 
     const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
     const bC = el('button', 'btn', 'Cancelar'); bC.addEventListener('click', close);
@@ -8381,8 +8493,17 @@ function modalUsuario(atual) {
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { toast('E-mail inválido.'); return; }
       const senhaU = iSenhaU ? iSenhaU.value.trim() : '';
       if (senhaU && senhaU.length < 6) { toast('A senha inicial precisa ter pelo menos 6 caracteres.'); return; }
+      const nome = iNo.value.trim() || email.split('@')[0];
+      /* resolver o recurso ANTES de fechar: se a criação do recurso falhar, a
+         pessoa ainda está olhando a janela e pode decidir o que fazer. */
+      let recursoId = '';
+      if (sel.value === 'analista') {
+        recursoId = selR.value === '__novo__' ? await criarRecursoPara(nome) : selR.value;
+        if (!recursoId) { toast('Não consegui criar o recurso; escolha um da lista.'); return; }
+      }
       close();
-      const dados = { nome: iNo.value.trim() || email.split('@')[0], papel: sel.value };
+      const dados = { nome: nome, papel: sel.value };
+      if (sel.value === 'analista') dados.recursoId = recursoId;
       if (!editando) { dados.ativo = true; dados.criadoEm = Date.now(); }
       if (await salvarUsuario(email, dados)) {
         ST.usuarios = null; renderUsuarios();
@@ -13599,8 +13720,12 @@ function janelaNomearEquipe() {
     const sR = el('select', 'inp');
     const ov = el('option', '', '— não ligar agora —'); ov.value = ''; sR.appendChild(ov);
     for (const r of (ST.P.resources || [])) { const o = el('option', '', r.name); o.value = r.id; sR.appendChild(o); }
-    campo('Recurso no cronograma', sR,
+    campo('Pessoa no cronograma', sR,
       'Ligar a pessoa a um recurso faz a tela dela mostrar só as atividades em que ela está alocada — e faz as horas dela entrarem no custo da atividade certa.');
+    /* já vem escolhido pelo vínculo que a conta tem: a pessoa é a mesma em
+       todos os projetos, e repetir a escolha a cada nomeação é a chance de
+       ligá-la ao recurso errado num deles */
+    sel.addEventListener('change', () => { sR.value = recursoDoMembro(sel.value) || ''; });
     body.appendChild(g);
     const aviso = el('div', 'hint'); aviso.style.marginTop = '10px'; body.appendChild(aviso);
 
@@ -13621,15 +13746,16 @@ function janelaNomearEquipe() {
         sel.appendChild(o);
       }
     };
-    if (ST.usuarios) preencher(ST.usuarios);
-    else carregarUsuarios().then(l => { ST.usuarios = l; preencher(l); })
+    const depois = l => { preencher(l); sR.value = recursoDoMembro(sel.value) || ''; };
+    if (ST.usuarios) depois(ST.usuarios);
+    else carregarUsuarios().then(l => { ST.usuarios = l; depois(l); })
       .catch(() => { sel.textContent = ''; sel.appendChild(el('option', '', '— não consegui ler os usuários —')); });
 
     body.__salvar = async () => {
       const email = sel.value;
       if (!email || email.indexOf('@') < 0) { toast('Escolha a pessoa.'); return; }
       const u = (ST.usuarios || []).find(x => chaveEmail(x.email || x.id) === email);
-      if (!(await nomearNaEquipe(email, sR.value, u && u.nome))) return;
+      if (!(await nomearNaEquipe(email, sR.value || recursoDoMembro(email), u && u.nome))) return;
       close(); renderHoras();
       toast(nomeDeExibicao(email) + ' já pode lançar horas neste projeto.');
     };
