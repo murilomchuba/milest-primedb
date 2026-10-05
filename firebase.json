@@ -41,7 +41,8 @@
         "**/.*",
         "**/node_modules/**",
         "contato.php",
-        "milest-landing.html"
+        "milest-landing.html",
+        "ROTEIRO-VIDEO.md"
       ],
       "cleanUrls": true,
       "trailingSlash": false,

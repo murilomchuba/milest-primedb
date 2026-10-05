@@ -271,7 +271,7 @@ h3{font-size:19px;font-weight:700}
 .seg .rotulo{color:var(--ciano-vivo)}
 .seg .rotulo::before{background:var(--ciano-vivo)}
 .seg .sub{color:#A9C6D6}
-.seg-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:28px;margin-top:40px}
+.seg-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:28px;margin-top:40px}
 .seg-item{padding:26px;border:1px solid rgba(255,255,255,.14);border-radius:10px;background:rgba(255,255,255,.04)}
 .seg-item h3{color:#fff;font-size:17px;margin-bottom:9px}
 .seg-item p{margin:0;font-size:15.5px;color:#A9C6D6;line-height:1.55}
@@ -446,8 +446,9 @@ section[id]{scroll-margin-top:80px}
         <p class="oferta"><b>15 dias grátis</b> sem cartão de crédito</p>
         <h1>Software de <em>gestão de projetos</em> com governança e controle</h1>
         <p class="lead">
-          Cronograma que calcula o caminho crítico, curva S que mostra o avanço real e o status
-          report pronto para a reunião — no mesmo lugar, sem exportar nada para o PowerPoint.
+          Do kickoff ao status report, no mesmo lugar: cronograma que calcula o caminho crítico,
+          curva S com o avanço real e as folhas que você apresenta saindo prontas — sem passar
+          pelo PowerPoint.
         </p>
         <div class="acoes">
           <a class="btn btn-p" href="#avaliacao">Começar avaliação de 15 dias</a>
@@ -456,12 +457,13 @@ section[id]{scroll-margin-top:80px}
         <div class="selos">
           <span>CPM · TI, II, TT e IT</span>
           <span>Curva S física</span>
+          <span>Kickoff e RACI</span>
           <span>Relatórios em PDF</span>
         </div>
       </div>
       <figure class="tela" style="margin:0">
         <img src="img/cronograma.png" width="1560" height="700"
-             alt="Tela do MILEST: cronograma em Gantt com fases, dependências, folgas e percentual concluído.">
+             alt="Tela do MILEST: cronograma em Gantt com fases, dependências, linha de base, horas lançadas e percentual concluído.">
       </figure>
     </div>
   </section>
@@ -507,8 +509,8 @@ section[id]{scroll-margin-top:80px}
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <rect x="3" y="4" width="18" height="14" rx="2"/><path d="M7 9h6M7 13h10M8 21h8"/>
           </svg>
-          <h3>Relatório pronto para a reunião</h3>
-          <p>Status report em folha 16:9 e o cronograma inteiro em uma página de PDF. Com a sua marca, sem passar pelo PowerPoint.</p>
+          <h3>Apresentação pronta para a reunião</h3>
+          <p>Kickoff, status report e matriz RACI em folha 16:9, e o cronograma inteiro em uma página. Com a sua marca, sem passar pelo PowerPoint.</p>
         </article>
       </div>
     </div>
@@ -556,9 +558,24 @@ section[id]{scroll-margin-top:80px}
           <p>Cadastro único de pessoas, compartilhado entre os cronogramas, com a carga diária e o alerta de superalocação.</p>
         </article>
         <article class="rec">
+          <span class="n">Controle</span>
+          <h3>Porte e situação da carteira</h3>
+          <p>Cada projeto classificado por tamanho, pelas horas previstas, e a situação ajustável à mão — porque nem todo projeto com indicador bom merece passar batido na sua apresentação.</p>
+        </article>
+        <article class="rec">
+          <span class="n">Governança</span>
+          <h3>Matriz RACI</h3>
+          <p>Quem executa, quem responde, quem é consultado e quem é informado — pela sua equipe e pela do cliente, fase a fase. Sai em PDF para a ata e em imagem para a conversa.</p>
+        </article>
+        <article class="rec">
+          <span class="n">Governança</span>
+          <h3>Apresentação de kickoff</h3>
+          <p>Equipes, objetivo, escopo, premissas, o que fica fora, plano de comunicação, próximos passos e atividades macro — mesmo antes de existir cronograma. Vira um PDF 16:9 com a sua marca.</p>
+        </article>
+        <article class="rec">
           <span class="n">Relatórios</span>
           <h3>Status report em um clique</h3>
-          <p>Folha 16:9 com indicadores, curva S, entregas, riscos e as atividades concluídas na semana. Em PNG ou PDF.</p>
+          <p>Folha 16:9 com indicadores, curva S, entregas, riscos e as atividades concluídas na semana. Em PNG, em PDF, ou por e-mail para os destinatários do projeto — com o PDF em anexo, saindo do seu domínio e com o envio registrado.</p>
         </article>
         <article class="rec">
           <span class="n">Relatórios</span>
@@ -567,8 +584,23 @@ section[id]{scroll-margin-top:80px}
         </article>
         <article class="rec">
           <span class="n">Operação</span>
+          <h3>Diário de acompanhamento</h3>
+          <p>O que aconteceu, no dia em que aconteceu, com tabelas que você monta ou traz de uma planilha. Vai para o cliente por e-mail, em PDF ou em imagem — sem a planilha paralela de sempre.</p>
+        </article>
+        <article class="rec">
+          <span class="n">Operação</span>
+          <h3>Cronograma como imagem</h3>
+          <p>O cronograma inteiro numa imagem para colar no e-mail ou mandar pelo WhatsApp, com filtro por avanço quando ele é grande demais para caber legível.</p>
+        </article>
+        <article class="rec">
+          <span class="n">Operação</span>
           <h3>Importação de planilha</h3>
           <p>Traga 50 atividades de uma vez pelo modelo em Excel, com fases, durações, predecessoras e recursos.</p>
+        </article>
+        <article class="rec">
+          <span class="n">Operação</span>
+          <h3>Pesquisa de satisfação</h3>
+          <p>Um link por projeto, que o cliente responde sem criar conta nem instalar nada. O resultado volta para dentro da carteira, junto dos indicadores.</p>
         </article>
       </div>
     </div>
@@ -637,6 +669,10 @@ section[id]{scroll-margin-top:80px}
         <article class="seg-item">
           <h3>Quem entra, você decide</h3>
           <p>O administrador da empresa cadastra a pessoa, entrega uma senha temporária e ela define a dela no primeiro acesso. Suspender corta o acesso na hora, sem apagar o histórico.</p>
+        </article>
+        <article class="seg-item">
+          <h3>Cópia de segurança diária</h3>
+          <p>Todo dia, automaticamente, uma cópia completa dos seus projetos é gerada e guardada fora do sistema. Restaurar é escolher o arquivo — e dá para baixar a sua cópia quando quiser, sem pedir a ninguém.</p>
         </article>
       </div>
     </div>
