@@ -2165,11 +2165,8 @@ function openEditor(cell, t) {
   let inp;
   if (f === 'pct') {
     inp = el('select', 'cell-edit');
-    const opcoes = [0, 25, 50, 75, 90, 100];
     const atual = Math.round(Number(val) || 0);
-    if (!opcoes.includes(atual)) opcoes.push(atual);
-    opcoes.sort((a, b) => a - b);
-    for (const v of opcoes) { const op = el('option', '', v + '%'); op.value = v; inp.appendChild(op); }
+    for (const v of opcoesPct(atual)) { const op = el('option', '', v + '%'); op.value = v; inp.appendChild(op); }
     inp.value = String(atual);
     inp.addEventListener('change', () => closeEditor(true));
   } else {
@@ -2209,6 +2206,30 @@ function closeEditor(commit) {
   if (commit) applyEdit(t, f, inp.value);
   refresh();
 }
+/* Os degraus do andamento. Não é uma restrição técnica — é o jeito como as
+   pessoas de fato respondem "quanto já está pronto": em quartos, com o 90%
+   para aquele trecho longo em que falta só fechar. Pedir um número livre
+   convida a precisão falsa (37%?) e faz cada um responder numa régua
+   diferente. A grade usa estes degraus desde sempre; a tela do analista passa
+   a usar os MESMOS, senão o mesmo projeto teria duas réguas. */
+const PASSOS_PCT = [0, 25, 50, 75, 90, 100];
+/* O valor que a atividade já tem entra na lista mesmo fora dos degraus: um
+   cronograma importado traz 37%, e sumir com esse número ao abrir a caixa
+   seria mudar o dado de quem só foi olhar. */
+function opcoesPct(atual) {
+  const v = Math.round(Number(atual) || 0);
+  const l = PASSOS_PCT.slice();
+  if (!l.includes(v)) l.push(v);
+  return l.sort((a, b) => a - b);
+}
+/** A caixa de escolha do andamento, igual na grade e no apontamento. */
+function caixaPct(atual) {
+  const sel = el('select', 'inp');
+  for (const v of opcoesPct(atual)) { const o = el('option', '', v + '%'); o.value = v; sel.appendChild(o); }
+  sel.value = String(Math.round(Number(atual) || 0));
+  return sel;
+}
+
 /* O % de uma atividade não é só um número numa célula: é o que move o IDP, a
    aderência e a curva S. Passou a ser escrito de dois lugares — a grade e o
    aceite de um apontamento —, então a regra de o que acontece junto com ele
@@ -16020,8 +16041,7 @@ function renderApontamento() {
      há atividade escolhida: sem ela não há o que adiantar. */
   const dPct = el('div', 'campo');
   dPct.appendChild(el('label', '', 'Quanto da atividade já está pronto'));
-  const iPct = el('input', 'inp'); iPct.type = 'number'; iPct.min = '0'; iPct.max = '100'; iPct.step = '5';
-  iPct.inputMode = 'numeric';
+  let iPct = el('select', 'inp');
   dPct.appendChild(iPct);
   const dicaPct = el('div', 'hint'); dicaPct.style.marginTop = '4px'; dPct.appendChild(dicaPct);
   cL.appendChild(dPct);
@@ -16032,28 +16052,38 @@ function renderApontamento() {
      vez por dia, um campo que só existe depois de outro não é descoberto — é
      dado como inexistente. Desligado, ele continua dizendo o que é e o que
      falta para usá-lo. */
-  const ajustarPct = (trocouAtividade) => {
+  const contarPct = () => {
     const t = tarefaEscolhida();
-    iPct.disabled = !t;
-    dPct.style.opacity = t ? '' : '.6';
-    if (!t) {
-      iPct.value = ''; iPct.placeholder = '—';
-      dicaPct.textContent = minhas.length
-        ? 'Escolha a atividade acima para informar quanto dela já está pronto.'
-        : 'Disponível quando você estiver alocado em alguma atividade deste projeto.';
-      return;
-    }
-    const hoje = Math.round(t.pct || 0);
-    if (trocouAtividade) iPct.value = hoje;
-    const novo = Math.round(Number(iPct.value));
+    if (!t) return;
+    const hoje = Math.round(t.pct || 0), novo = Math.round(Number(iPct.value));
     dicaPct.textContent = !isFinite(novo) || novo === hoje
       ? 'Hoje está em ' + hoje + '%. Mude se avançou — quem gerencia o projeto confirma ao aceitar.'
       : (novo < hoje
         ? 'Atenção: está abaixo dos ' + hoje + '% que a atividade tem hoje.'
         : 'Sobe de ' + hoje + '% para ' + novo + '% quando for aceito.');
   };
+  /* Trocar de atividade troca a caixa inteira, e não só o valor: os degraus
+     podem ser outros, porque o % que a atividade já tem entra na lista. */
+  const ajustarPct = (trocouAtividade) => {
+    const t = tarefaEscolhida();
+    dPct.style.opacity = t ? '' : '.6';
+    if (trocouAtividade) {
+      const nova = t ? caixaPct(Math.round(t.pct || 0)) : el('select', 'inp');
+      if (!t) { const o = el('option', '', '—'); o.value = ''; nova.appendChild(o); }
+      nova.disabled = !t;
+      nova.addEventListener('change', contarPct);
+      dPct.replaceChild(nova, iPct);
+      iPct = nova;
+    }
+    if (!t) {
+      dicaPct.textContent = minhas.length
+        ? 'Escolha a atividade acima para informar quanto dela já está pronto.'
+        : 'Disponível quando você estiver alocado em alguma atividade deste projeto.';
+      return;
+    }
+    contarPct();
+  };
   sAtiv.addEventListener('change', () => ajustarPct(true));
-  iPct.addEventListener('input', () => ajustarPct(false));
   ajustarPct(true);
 
   const iObs = el('input', 'inp'); iObs.placeholder = 'o que você fez (opcional)';
@@ -16166,15 +16196,24 @@ function apJanelaCorrigir(x) {
     const iH = el('input', 'inp'); iH.type = 'number'; iH.min = '0.5'; iH.max = '24'; iH.step = '0.5';
     iH.value = x.h; iH.inputMode = 'decimal';
     campo('Horas', iH);
-    const iPct = el('input', 'inp'); iPct.type = 'number'; iPct.min = '0'; iPct.max = '100'; iPct.step = '5';
-    iPct.value = isFinite(Number(x.pctProposto)) ? Math.round(Number(x.pctProposto)) : '';
+    const daTarefa = () => {
+      const t = AP.tarefas.find(y => y.id === sAtiv.value);
+      return t ? Math.round(t.pct || 0) : 0;
+    };
+    const escolhido = isFinite(Number(x.pctProposto)) ? Math.round(Number(x.pctProposto)) : daTarefa();
+    let iPct = caixaPct(escolhido);
     const dPct = campo('Quanto da atividade já está pronto', iPct);
-    const verPct = () => {
+    const verPct = (trocou) => {
+      if (trocou) {
+        const nova = caixaPct(daTarefa());
+        nova.disabled = !sAtiv.value;
+        dPct.parentNode.replaceChild(nova, iPct);
+        iPct = nova;
+      }
       iPct.disabled = !sAtiv.value;
       dPct.parentNode.style.opacity = sAtiv.value ? '' : '.6';
-      if (!sAtiv.value) iPct.value = '';
     };
-    sAtiv.addEventListener('change', verPct); verPct();
+    sAtiv.addEventListener('change', () => verPct(true)); verPct(false);
     const iObs = el('input', 'inp'); iObs.value = x.obs || '';
     campo('Observação', iObs);
     body.appendChild(g);
