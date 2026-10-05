@@ -13620,6 +13620,7 @@ function decidirHoras(lista, estado, motivo) {
   const ordem = lista.slice().sort((a, b) =>
     String(a && a.data).localeCompare(String(b && b.data)) || ((a && a.criadoEm) || 0) - ((b && b.criadoEm) || 0));
   let n = 0, tarefas = 0;
+  const barrados = [];
   for (const x of ordem) {
     if (!x || x.estado !== 'pendente') continue;
     x.estado = estado;
@@ -13631,22 +13632,45 @@ function decidirHoras(lista, estado, motivo) {
        no cronograma — nem para desfazer, porque o que foi recusado nunca
        chegou a entrar. */
     if (estado === 'aceito' && x.tid && isFinite(Number(x.pctProposto))) {
-      const t = ST.P.tasks.find(y => y.id === x.tid);
-      if (t && podeEditarCronograma() && aplicarPct(t, Number(x.pctProposto))) tarefas++;
-      x.pctAplicado = !!t;
+      const porque = pctNaoAplica(x.tid);
+      if (porque) { x.pctAplicado = false; x.pctRecado = porque; if (!barrados.includes(porque)) barrados.push(porque); }
+      else {
+        const t = ST.P.tasks.find(y => y.id === x.tid);
+        if (aplicarPct(t, Number(x.pctProposto))) tarefas++;
+        x.pctAplicado = true; x.pctRecado = '';
+      }
     }
     dirty.horas.add(x.id);
     n++;
   }
-  if (!n) return { n: 0, tarefas: 0 };
+  if (!n) return { n: 0, tarefas: 0, barrados: [] };
   atualizarResumoHoras(); markMeta();
   ST.portfolio = null; ST.portfolioEm = 0; esquecerCarteira();
-  return { n: n, tarefas: tarefas };
+  return { n: n, tarefas: tarefas, barrados: barrados };
 }
+
+/* Por que este % não entra no cronograma — ou '' quando entra.
+   São três situações reais, e nenhuma delas pode acontecer em silêncio: o GP
+   clicaria em aceitar, veria o número não andar e não saberia a quem culpar. */
+function pctNaoAplica(tid) {
+  const t = ST.P.tasks.find(y => y.id === tid);
+  if (!t) return 'a atividade foi removida do cronograma';
+  if (ehPausado(ST.P && ST.P.meta)) return 'o projeto está pausado';
+  if (!podeEditarCronograma()) return 'o cronograma está travado para você';
+  /* Resumo não tem % próprio: o dele é a média das filhas, calculada toda vez.
+     Gravar um número ali seria gravar algo que a tela recalcula por cima no
+     instante seguinte — pior do que não gravar, porque parece ter funcionado. */
+  const o = ST.sch && ST.sch.out && ST.sch.out.get(tid);
+  if (o && o.sum) return 'é uma atividade de resumo, e o % dela vem das filhas';
+  return '';
+}
+
 /** "3 lançamentos aceitos, 2 atividades atualizadas." */
 function recadoDecisao(r, estado) {
   const base = r.n + ' lançamento(s) ' + (estado === 'aceito' ? 'aceito(s)' : 'recusado(s)') + '.';
-  return r.tarefas ? base + ' ' + r.tarefas + ' atividade(s) teve(ram) o % atualizado.' : base;
+  const comPct = r.tarefas ? base + ' ' + r.tarefas + ' atividade(s) teve(ram) o % atualizado.' : base;
+  if (!r.barrados || !r.barrados.length) return comPct;
+  return comPct + ' O % de algum lançamento não entrou: ' + r.barrados.join('; ') + '.';
 }
 const fmtH = v => fmtNum(v, (Math.abs(v) % 1) ? 1 : 0) + ' h';
 /** Data curta, do jeito que se lê em português. */
@@ -13870,6 +13894,14 @@ function painelPendentes(pendentes) {
 function celulaPctProposto(x) {
   const td = el('td');
   if (!x.tid || !isFinite(Number(x.pctProposto))) { td.appendChild(el('span', 'hint', '—')); return td; }
+  const porque = pctNaoAplica(x.tid);
+  if (porque) {
+    const d = el('div');
+    d.appendChild(el('span', '', Math.round(Number(x.pctProposto)) + '%'));
+    const av = el('div', 'hint', 'não entra: ' + porque);
+    av.style.marginTop = '2px'; d.appendChild(av);
+    td.appendChild(d); return td;
+  }
   const t = ST.P.tasks.find(y => y.id === x.tid);
   const hoje = t ? (t.pct || 0) : null;
   const novo = clamp(Math.round(Number(x.pctProposto)), 0, 100);
@@ -15886,13 +15918,26 @@ async function apAbrirProjeto(pid) {
 function apMinhasTarefas() {
   const p = apProjeto();
   const meu = p && p.recursoId;
-  const folhas = AP.tarefas.filter(t => !(t.sum === true));
-  const temFilho = new Set(AP.tarefas.map(t => t.parent).filter(x => x));
-  const semFilho = folhas.filter(t => !temFilho.has(t.id));
   if (!meu) return [];
-  return semFilho
-    .filter(t => (t.res || []).some(a => a && a.rid === meu))
-    .sort((a, b) => (a.ord || 0) - (b.ord || 0));
+  /* A atividade do MILEST não guarda "sou um resumo" nem "meu pai é fulano":
+     a hierarquia é a ordem mais o nível, e resumo é quem tem a seguinte um
+     nível abaixo. Eu havia escrito isto olhando campos que não existem
+     (`t.sum`, `t.parent`), e o efeito foi silencioso e feio: TODAS as
+     atividades passavam no filtro, resumos inclusive. O analista apontava
+     contra um resumo, o GP aceitava, e o cronograma não se mexia — porque o %
+     de um resumo é a média das filhas, recalculada a cada render.
+
+     Aqui o cálculo do cronograma inteiro não está disponível (o analista não
+     lê o calendário do projeto), então a regra é feita só com o que ele tem:
+     a lista de atividades. */
+  const ordem = AP.tarefas.slice().sort((a, b) => (a.ord || 0) - (b.ord || 0));
+  const folhas = ordem.filter((t, i) => {
+    const seg = ordem[i + 1];
+    return !(seg && (seg.level || 0) > (t.level || 0));
+  });
+  /* Alocar alguém num resumo é comum, e não quer dizer que ele trabalhe NELE:
+     quer dizer que trabalha no que está dentro. */
+  return folhas.filter(t => (t.res || []).some(a => a && a.rid === meu));
 }
 
 async function apLancar(reg) {
