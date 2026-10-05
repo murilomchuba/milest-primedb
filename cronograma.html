@@ -5476,9 +5476,13 @@ function desenharCapaPortfolio(todos, bloco, pag, totPag) {
   }
 
   // ---- tabela
+  /* Sem a coluna Projeto, a pedido da diretoria: a folha é lida por cliente.
+     A largura que ela ocupava foi para o nome do cliente — que antes era
+     cortado em 148pt — e para as horas. */
   const cols = [
-    ['Cliente', 148, 'start'], ['Projeto', 232, 'start'], ['Início', 62, 'start'], ['Término', 62, 'start'],
-    ['Plan.', 52, 'end'], ['Real.', 52, 'end'], ['IDP', 46, 'end'], ['IDC', 46, 'end'], ['Ativ.', 50, 'end'], ['Situação', 108, 'start']
+    ['Cliente', 272, 'start'], ['Início', 64, 'start'], ['Término', 64, 'start'],
+    ['Plan.', 54, 'end'], ['Real.', 54, 'end'], ['IDP', 48, 'end'], ['IDC', 48, 'end'],
+    ['H. prev.', 66, 'end'], ['H. real.', 66, 'end'], ['Ativ.', 52, 'end'], ['Situação', 112, 'start']
   ];
   let acc = M;
   const xcol = cols.map(c => { const x = acc; acc += c[1]; return x; });
@@ -5491,25 +5495,33 @@ function desenharCapaPortfolio(todos, bloco, pag, totPag) {
   const num = (v, casas) => v == null ? '—' : fmtNum(v, casas);
   for (const it of bloco) {
     const est = statusPor(it.meta, it.ind), ind = it.ind;
+    const hp = ind.horas || { prev: 0, feitas: 0 };
     R(M, y - 13, W - 2 * M, 20, CORES_ST.caixa, 2);
     const vals = [
       cortar(it.meta.client || '—', cols[0][1] - 10, 10),
-      cortar(it.meta.name || 'Projeto', cols[1][1] - 10, 10),
       fmtBR(ind.inicio), fmtBR(ind.fim),
       num(ind.plan.pct, 0) + '%', num(ind.real, 0) + '%',
-      num(ind.IDP, 2), num(ind.IDC, 2), String(ind.folhas)
+      num(ind.IDP, 2), num(ind.IDC, 2),
+      hp.prev ? fmtNum(hp.prev) : '—',
+      hp.feitas ? fmtNum(hp.feitas) : '—',
+      String(ind.folhas)
     ];
     vals.forEach((v, i) => {
       const fim = cols[i][2] === 'end';
-      T(fim ? xcol[i] + cols[i][1] - 8 : xcol[i], y, v, 10, i === 1 ? 600 : 400,
-        i === 1 ? CORES_ST.tinta : CORES_ST.tinta2, fim ? 'end' : null);
+      /* o consumido fica vermelho quando passou do previsto: é a leitura que
+         a diretoria faz primeiro, e procurá-la comparando duas colunas de
+         número preto é trabalho que a cor faz de graça */
+      const estourou = i === 8 && hp.prev > 0 && hp.feitas > hp.prev;
+      T(fim ? xcol[i] + cols[i][1] - 8 : xcol[i], y, v, 10, (i === 0 || estourou) ? 600 : 400,
+        estourou ? CORES_ST.critico : (i === 0 ? CORES_ST.tinta : CORES_ST.tinta2), fim ? 'end' : null);
     });
-    R(xcol[9], y - 11, 8, 8, est.cor, 2);
-    T(xcol[9] + 14, y, est.rot, 9.5, 600, est.cor);
+    R(xcol[10], y - 11, 8, 8, est.cor, 2);
+    T(xcol[10] + 14, y, est.rot, 9.5, 600, est.cor);
     y += 21;
   }
   L(M, H - 26, W - M, H - 26, CORES_ST.linha, 1);
-  T(M, H - 12, 'IDP = realizado ÷ planejado  ·  IDC = valor agregado ÷ custo real  ·  Ativ. = atividades no cronograma  ·  Gerado em ' + fmtBR(todayISO()),
+  T(M, H - 12, 'IDP = realizado ÷ planejado  ·  IDC = valor agregado ÷ custo real  ·  H. prev. e H. real. em horas, '
+    + 'em vermelho quando o consumido passou do previsto  ·  Ativ. = atividades no cronograma  ·  Gerado em ' + fmtBR(todayISO()),
     9, 400, CORES_ST.tinta3);
   assinaturaNoSVG(pg, W - M - 74, H - 22, 15, CORES_ST.tinta2);
   return pg;
