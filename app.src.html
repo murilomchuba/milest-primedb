@@ -4967,10 +4967,14 @@ function renderOverview() {
           + '\nOs números estão congelados na data da pausa.';
         tds.appendChild(chipP);
       } else {
-        const sem = semaforoDe(i2);
+        const sem = semaforoDe(i2, m);
         const chipS = el('span', 'semchip ' + sem.cls);
-        chipS.appendChild(el('i')); chipS.appendChild(document.createTextNode(sem.rot));
-        chipS.title = sem.id === 'sem' ? SEM_BASES[semBase()].falta
+        chipS.appendChild(el('i'));
+        /* o lápis distingue a leitura humana da calculada sem gritar: quem
+           procura o laranja acha igual, e quem quer saber a origem vê */
+        chipS.appendChild(document.createTextNode(sem.rot + (sem.forcado ? ' \u270E' : '')));
+        chipS.title = sem.forcado ? textoAjusteStatus(sem)
+          : sem.id === 'sem' ? SEM_BASES[semBase()].falta
           : 'Semáforo pelo ' + semBase() + ' (' + SEM_BASES[semBase()].desc + '): saudável de 1,00 para cima; ' +
             'atenção de 0,80 a 0,99; crítico abaixo de 0,80';
         tds.appendChild(chipS);
@@ -5039,11 +5043,16 @@ function statusPor(meta, ind) {
   const ader = ind.plan.pct > 0 ? Math.min(100, 100 * ind.real / ind.plan.pct) : null;
   let id = 'neutro';
   if (ader != null) id = ader >= 95 ? 'saudavel' : ader >= 80 ? 'atencao' : 'critico';
+  const auto = id;
   const forcado = meta && meta.statusManual;
   if (forcado && CORES_ST[forcado]) id = forcado;
   // a pausa vem por último e ganha de tudo: é fato, não avaliação
   if (ehPausado(meta)) id = 'pausado';
-  return { ader: ader, id: id, rot: ROT_ST[id], cor: CORES_ST[id] };
+  return {
+    ader: ader, id: id, rot: ROT_ST[id], cor: CORES_ST[id],
+    forcado: !!(forcado && CORES_ST[forcado] && !ehPausado(meta)),
+    autoRot: ROT_ST[auto], motivo: String(((meta || {}).statusMotivo || '')).trim()
+  };
 }
 function statusDoProjeto() {
   const ind = indicadores();
@@ -5188,6 +5197,17 @@ function desenharStatusReport() {
       + (meta.pausaRetomaEm ? ' Retomada prevista: ' + fmtBR(meta.pausaRetomaEm) + '.' : '');
     for (const ln of envolver(aviso, W - 2 * M, 10.5).slice(0, 2)) {
       T(M, yr, ln, 10.5, 700, CORES_ST.pausado); yr += 14;
+    }
+  }
+  /* O ajuste manual é dito em palavras, pelo mesmo motivo da pausa: o selo
+     sozinho não distingue leitura humana de cálculo, e o cliente precisa
+     saber qual das duas está lendo. */
+  if (est.forcado) {
+    const frase = 'Situação definida pela gerência: ' + est.rot
+      + ' (pela aderência seria ' + est.autoRot + ')'
+      + (est.motivo ? ' — ' + est.motivo : '');
+    for (const ln of envolver(frase, W - 2 * M, 10.5).slice(0, 2)) {
+      T(M, yr, ln, 10.5, 700, est.cor); yr += 14;
     }
   }
   const yLinha = Math.max(96, yr + 6);
@@ -5514,8 +5534,28 @@ function desenharCapaPortfolio(todos, bloco, pag, totPag) {
         fim ? 'end' : null);
     });
     R(xcol[11], y - 11, 8, 8, est.cor, 2);
-    T(xcol[11] + 14, y, est.rot, 9.5, 600, est.cor);
+    T(xcol[11] + 14, y, est.rot + (est.forcado ? ' *' : ''), 9.5, 600, est.cor);
     y += 21;
+  }
+
+  /* Os ajustes manuais viram nota de rodapé com o motivo. É o que transforma
+     um laranja inexplicado na frase que a diretoria precisa ouvir — e é
+     também o que impede que o ajuste passe por medição. */
+  const ajustados = bloco.filter(it => statusPor(it.meta, it.ind).forcado);
+  if (ajustados.length) {
+    y += 4;
+    T(M, y, '* SITUAÇÃO DEFINIDA PELA GERÊNCIA', 8.5, 700, CORES_ST.tinta3);
+    y += 14;
+    for (const it of ajustados.slice(0, 4)) {
+      const e2 = statusPor(it.meta, it.ind);
+      const txt = (it.meta.client || 'Projeto') + ' — ' + e2.rot
+        + ' (pela conta seria ' + e2.autoRot + ')' + (e2.motivo ? ': ' + e2.motivo : '');
+      T(M, y, cortar(txt, W - 2 * M - 10, 9), 9, 400, CORES_ST.tinta2);
+      y += 13;
+    }
+    if (ajustados.length > 4) {
+      T(M, y, '+ ' + (ajustados.length - 4) + ' outro(s) ajuste(s) — veja a folha de cada projeto.', 9, 400, CORES_ST.tinta3);
+    }
   }
   L(M, H - 26, W - M, H - 26, CORES_ST.linha, 1);
   T(M, H - 12, 'IDP = realizado ÷ planejado  ·  IDC = valor agregado ÷ custo real  ·  '
@@ -7855,12 +7895,52 @@ function renderStatusReport() {
     const o = el('option', '', r); o.value = v; sel.appendChild(o);
   }
   sel.value = meta.statusManual || '';
-  sel.addEventListener('change', () => { meta.statusManual = sel.value || null; markMeta(); refresh(); });
   fs.appendChild(sel);
+
+  /* O motivo é obrigatório quando se sai do automático, e é ele que faz a
+     diferença: "Atenção" laranja é fraco; "Atenção — cliente ainda não
+     comprou o FastConnect" é a frase que faz a diretoria agir. Sem isso, em
+     três meses ninguém lembra por que aquele projeto está laranja. */
+  const fm = el('div', 'field'); fm.style.marginTop = '8px';
+  fm.appendChild(el('label', '', 'Motivo do ajuste'));
+  const iMot = el('input', 'inp');
+  iMot.placeholder = 'Uma linha. Ex.: aguardando o cliente comprar o FastConnect, go-live em risco.';
+  iMot.maxLength = 220;
+  iMot.value = meta.statusMotivo || '';
+  const avisoMot = el('div', 'hint'); avisoMot.style.color = 'var(--critical)'; avisoMot.hidden = true;
+  fm.appendChild(iMot); fm.appendChild(avisoMot);
+
+  const mostrarMotivo = () => {
+    fm.hidden = !sel.value;
+    if (!sel.value) avisoMot.hidden = true;
+  };
+  const guardarMotivo = () => {
+    meta.statusMotivo = iMot.value.trim();
+    avisoMot.hidden = !(sel.value && !meta.statusMotivo);
+    avisoMot.textContent = 'Sem motivo, o ajuste sai do relatório sem explicação. Escreva uma linha.';
+    markMeta(); refresh();
+  };
+  sel.addEventListener('change', () => {
+    meta.statusManual = sel.value || null;
+    if (!sel.value) meta.statusMotivo = '';
+    mostrarMotivo();
+    if (sel.value && !String(meta.statusMotivo || '').trim()) {
+      avisoMot.textContent = 'Escreva por que você está ajustando — essa linha vai no relatório, junto do selo.';
+      avisoMot.hidden = false;
+      setTimeout(() => { try { iMot.focus(); } catch (e) { } }, 30);
+    }
+    markMeta(); refresh();
+  });
+  iMot.addEventListener('change', guardarMotivo);
+  iMot.addEventListener('blur', guardarMotivo);
+  mostrarMotivo();
   const est = statusDoProjeto();
   fs.appendChild(el('div', 'hint', 'Aderência é quanto do planejado foi cumprido, limitada a 100%. ' +
     'Automático: ≥ 95% Saudável · ≥ 80% Atenção · abaixo disso Crítico. Agora: ' +
-    (est.ader == null ? 'projeto não iniciado' : fmtNum(est.ader, 0) + '% → ' + est.rot)));
+    (est.ader == null ? 'projeto não iniciado' : fmtNum(est.ader, 0) + '% → ' + est.autoRot) +
+    '. Ajustando, o projeto passa a contar assim em todo o sistema — lista, Visão geral e PDFs — ' +
+    'marcado como definido por você.'));
+  fs.appendChild(fm);
   fg.appendChild(fs);
 
   campo('Resumo do projeto', 'resumo', 'Uma ou duas linhas descrevendo o escopo — aparece no topo da folha.', 2);
@@ -11691,7 +11771,34 @@ function semaforoPor(v) {
 }
 /** O valor do indicador escolhido, e o semáforo do projeto por ele. */
 function valorSemaforo(ind) { return !ind ? null : (semBase() === 'IDP' ? ind.IDP : ind.IDC); }
-function semaforoDe(ind) { return semaforoPor(valorSemaforo(ind)); }
+/* O ajuste manual vale aqui TAMBÉM, não só na folha do status report.
+   As duas bases automáticas do sistema são diferentes de propósito — a folha
+   lê aderência, a carteira lê IDP/IDC —, mas a leitura humana tem de valer
+   igual nas duas. Enquanto não valia, o mesmo projeto aparecia Atenção na
+   capa do PDF e Saudável na Visão geral, na mesma apresentação.
+
+   O retorno carrega `forcado`, o que a conta diria (`autoRot`) e o motivo:
+   é o que permite mostrar o ajuste COMO ajuste em vez de disfarçá-lo de
+   medição. Sobrescrever em silêncio é o que torna a prática ruim. */
+function semaforoDe(ind, meta) {
+  const auto = semaforoPor(valorSemaforo(ind));
+  const f = meta && meta.statusManual;
+  if (!f) return auto;
+  const forc = SEM_ORDEM.find(x => x.id === f);
+  if (!forc) return auto;
+  return {
+    id: forc.id, rot: forc.rot, cls: forc.cls, cor: forc.cor, pdf: forc.pdf,
+    forcado: true, autoRot: auto.rot, autoId: auto.id,
+    motivo: String((meta.statusMotivo || '')).trim()
+  };
+}
+/** A frase que explica o ajuste, usada na tela e no papel. */
+function textoAjusteStatus(sem) {
+  if (!sem || !sem.forcado) return '';
+  return 'Situação definida por você: ' + sem.rot
+    + ' (pelo ' + semBase() + ' seria ' + sem.autoRot + ')'
+    + (sem.motivo ? ' — ' + sem.motivo : '');
+}
 const SEM_ORDEM = [
   { id: 'saudavel', rot: 'Saudável', cls: 'sem-ok', cor: 'var(--ok)', pdf: '#1F8A5B' },
   { id: 'atencao', rot: 'Atenção', cls: 'sem-at', cor: 'var(--warn)', pdf: '#E97132' },
@@ -11715,7 +11822,7 @@ function resumoPortfolio(lista) {
     const i = x.ind, h = i.horas || { prev: 0, feitas: 0 };
     prev += h.prev; feitas += h.feitas;
     if (h.prev > 0 && h.feitas > h.prev) { excedido += h.feitas - h.prev; nExced++; }
-    cont[semaforoDe(i).id]++;
+    cont[semaforoDe(i, x.meta).id]++;
     if (i.IDP != null) { somaIDP += i.IDP; nIDP++; }
     if (i.IDC != null) { somaIDC += i.IDC; nIDC++; }
     if (h.prev > 0 && h.feitas > 0) { EVh += h.prev * clamp(i.real, 0, 100) / 100; ACh += h.feitas; }
@@ -12261,7 +12368,7 @@ function pizzasPortfolio(lista, r) {
 
   const porSit = { saudavel: [], atencao: [], critico: [], sem: [] };
   for (const x of (lista || []).filter(x => x && !x.erro && x.ind)) {
-    porSit[semaforoDe(x.ind).id].push({
+    porSit[semaforoDe(x.ind, x.meta).id].push({
       rot: (x.meta.client ? x.meta.client + ' · ' : '') + (x.meta.name || 'Projeto'),
       det: valorSemaforo(x.ind) == null ? 'sem ' + semBase() : semBase() + ' ' + num2(valorSemaforo(x.ind))
     });
@@ -12529,7 +12636,7 @@ function painelDestaqueVisao(lista, fechados, r) {
   const pausados = bons.filter(x => ehPausado(x.meta));
   const correndo = bons.filter(x => !ehPausado(x.meta));
   const cont = { saudavel: 0, atencao: 0, critico: 0, sem: 0 };
-  for (const x of correndo) cont[semaforoDe(x.ind).id]++;
+  for (const x of correndo) cont[semaforoDe(x.ind, x.meta).id]++;
   const ativos = bons.length;
   const pc = n => ativos ? fmtNum(100 * n / ativos, 0) + '% dos projetos' : ' ';
 
@@ -12958,7 +13065,7 @@ function desenharListaPortfolioSVG(bloco, pag, totPag, LW, LH) {
   const num = (v, casas) => v == null ? '—' : fmtNum(v, casas);
   const dec = v => v == null ? '—' : v.toFixed(2).replace('.', ',');
   for (const it of bloco) {
-    const i2 = it.ind, m = it.meta, sem = semaforoDe(i2);
+    const i2 = it.ind, m = it.meta, sem = semaforoDe(i2, m);
     const hp = i2.horas || { prev: 0, feitas: 0, saldo: 0 };
     R(M, y - 12, W - 2 * M, 19, CORES_ST.caixa, 2);
     const vals = [
@@ -12983,7 +13090,7 @@ function desenharListaPortfolioSVG(bloco, pag, totPag, LW, LH) {
     });
     R(xcol[9] + 5, y - 9.5, 7, 7, sem.cor === 'var(--ok)' ? CORES_ST.saudavel
       : sem.cor === 'var(--warn)' ? CORES_ST.atencao : sem.cor === 'var(--critical)' ? CORES_ST.critico : CORES_ST.neutro, 2);
-    T(xcol[9] + 17, y, sem.rot, 9, 600, sem.cor === 'var(--ok)' ? CORES_ST.saudavel
+    T(xcol[9] + 17, y, sem.rot + (sem.forcado ? ' *' : ''), 9, 600, sem.cor === 'var(--ok)' ? CORES_ST.saudavel
       : sem.cor === 'var(--warn)' ? CORES_ST.atencao : sem.cor === 'var(--critical)' ? CORES_ST.critico : CORES_ST.neutro,
       null, larg[9] - 19);
     y += 20;
@@ -13001,7 +13108,7 @@ function desenharListaPortfolioSVG(bloco, pag, totPag, LW, LH) {
     somaP - somaF < 0 ? CORES_ST.critico : CORES_ST.saudavel, 'end');
 
   L(M, H - 24, W - M, H - 24, CORES_ST.linha, 1);
-  T(M, H - 11, 'IDP = realizado ÷ planejado  ·  IDC = entregue ÷ consumido  ·  Situação pelo ' + semBase() +
+  T(M, H - 11, '* situação definida pela gerência  ·  IDP = realizado ÷ planejado  ·  IDC = entregue ÷ consumido  ·  Situação pelo ' + semBase() +
     ': saudável de 1,00 para cima, atenção de 0,80 a 0,99, crítico abaixo  ·  Ativ. = concluídas / total',
     8, 400, CORES_ST.tinta3);
   return pg;
