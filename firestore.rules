@@ -55,9 +55,41 @@ service cloud.firestore {
           && get(docMembro(org)).data.ativo != false
           && orgViva(org);
     }
-    function papelNa(org) { return get(docMembro(org)).data.papel; }
+    function papelNa(org) { return get(docMembro(org)).data.get('papel', 'leitor'); }
     function editaOrg(org)  { return daOrg(org) && orgNoPrazo(org) && papelNa(org) in ['admin', 'gerente']; }
     function mandaNaOrg(org) { return daOrg(org) && orgNoPrazo(org) && papelNa(org) == 'admin'; }
+
+    // ---- o analista pertence à empresa, mas não enxerga a empresa ----------
+    // Até aqui, pertencer bastava: quem era membro lia tudo. O analista quebra
+    // essa igualdade — ele existe para lançar as horas dele e nada mais, então
+    // `daOrg` continua querendo dizer "pertence" e `veOrg` passa a querer dizer
+    // "pode ver a empresa". Todo lugar que mostrava a carteira, os projetos, os
+    // recursos e os valores trocou para `veOrg`.
+    //
+    // Escrito assim de propósito: um papel novo que aparecesse por engano no
+    // cadastro entraria como quem NÃO vê, em vez de herdar a leitura total.
+    function veOrg(org) { return daOrg(org) && papelNa(org) != 'analista'; }
+
+    // ---- a que projetos um analista pertence -------------------------------
+    // Um documento por pessoa dentro do projeto. Quem o cria é quem edita o
+    // projeto; quem é nomeado só consegue lê-lo.
+    function docEquipe(org, projeto) {
+      return /databases/$(database)/documents/orgs/$(org)/projects/$(projeto)/equipe/$(eu());
+    }
+    function naEquipe(org, projeto) {
+      return daOrg(org) && exists(docEquipe(org, projeto))
+          && get(docEquipe(org, projeto)).data.get('ativo', true) != false;
+    }
+    // Lançar hora é escrita: para o prazo da empresa, vale a mesma régua de
+    // sempre — vencido, ninguém escreve, nem o analista.
+    function analistaNoProjeto(org, projeto) {
+      return papelNa(org) == 'analista' && naEquipe(org, projeto) && orgNoPrazo(org);
+    }
+    // Uma hora só é do analista se os dois campos disserem o mesmo: o dono do
+    // lançamento e quem o criou. Senão alguém lançaria em nome de outro.
+    function horaMinha(d) {
+      return d.get('pessoaEmail', '') == eu() && d.get('criadoPor', '') == eu();
+    }
 
     // ---- modo suporte ------------------------------------------------------
     // O administrador da empresa libera, por prazo, o acesso da plataforma aos
@@ -102,7 +134,11 @@ service cloud.firestore {
 
       // ---- quem pertence à empresa ---------------------------------------
       match /members/{email} {
-        allow get, list: if daOrg(org) || souPlataforma();
+        // O analista precisa do próprio cadastro para o sistema saber o papel
+        // dele; a lista da empresa (quem é quem, com que papel) não é dele.
+        allow get: if veOrg(org) || souPlataforma()
+                   || (daOrg(org) && email.lower() == eu());
+        allow list: if veOrg(org) || souPlataforma();
 
         // A plataforma cadastra UM administrador ao criar a empresa, e só
         // enquanto a empresa ainda não tem dono.
@@ -137,23 +173,79 @@ service cloud.firestore {
       // ---- cronogramas: SÓ membros da empresa ----------------------------
       // (a plataforma não aparece em nenhuma destas linhas, de propósito)
       match /projects/{projeto} {
-        allow read: if daOrg(org) || suporteAtivo(org);
+        allow read: if veOrg(org) || suporteAtivo(org);
         allow write: if editaOrg(org) || suporteEdita(org);
         match /{documento=**} {
-          allow read: if daOrg(org) || suporteAtivo(org);
+          allow read: if veOrg(org) || suporteAtivo(org);
           allow write: if editaOrg(org) || suporteEdita(org);
+        }
+
+        /* Os três blocos abaixo ACRESCENTAM caminho, não tiram: no Firestore as
+           regras se somam, e o curinga acima já não alcança o analista, porque
+           ele não é `veOrg` nem `editaOrg`. É por aqui, e só por aqui, que ele
+           entra. */
+
+        // Quem está na equipe do projeto. O analista lê a própria nomeação —
+        // é por ela que ele descobre em que projetos trabalha, e é ela que
+        // carrega o nome do projeto, para ele nunca precisar abrir o projeto.
+        match /equipe/{email} {
+          allow read: if veOrg(org) || suporteAtivo(org) || email.lower() == eu();
+          allow write: if editaOrg(org) || suporteEdita(org);
+        }
+
+        // As atividades, para o analista escolher a que trabalhou. Nome, data e
+        // andamento; dinheiro não mora aqui — está em `resources`, que ele não
+        // lê, e é por isso que o custo não vaza por este caminho.
+        match /tasks/{tarefa} {
+          allow read: if veOrg(org) || suporteAtivo(org) || naEquipe(org, projeto);
+        }
+
+        // ---- os lançamentos de hora ---------------------------------------
+        // O analista enxerga os dele e mais nada: a regra exige o campo, então
+        // uma consulta sem o filtro por pessoa é recusada inteira — não é a
+        // tela que esconde as horas dos colegas, é o banco.
+        match /horas/{lancamento} {
+          allow read: if veOrg(org) || suporteAtivo(org)
+                      || (naEquipe(org, projeto) && resource.data.get('pessoaEmail', '') == eu());
+
+          // Nasce pendente, com as horas dentro de um dia. O GP é quem decide
+          // se entra na conta — por isso o analista não escolhe o estado.
+          allow create: if editaOrg(org) || suporteEdita(org)
+                        || (analistaNoProjeto(org, projeto)
+                            && horaMinha(request.resource.data)
+                            && request.resource.data.get('estado', '') == 'pendente'
+                            && request.resource.data.h is number
+                            && request.resource.data.h > 0
+                            && request.resource.data.h <= 24);
+
+          // Corrige o próprio lançamento ENQUANTO pendente. Depois de aceito
+          // trava: um mês que já foi apresentado não muda sozinho.
+          allow update: if editaOrg(org) || suporteEdita(org)
+                        || (analistaNoProjeto(org, projeto)
+                            && horaMinha(resource.data)
+                            && resource.data.get('estado', '') == 'pendente'
+                            && horaMinha(request.resource.data)
+                            && request.resource.data.get('estado', '') == 'pendente'
+                            && request.resource.data.h is number
+                            && request.resource.data.h > 0
+                            && request.resource.data.h <= 24);
+
+          allow delete: if editaOrg(org) || suporteEdita(org)
+                        || (analistaNoProjeto(org, projeto)
+                            && horaMinha(resource.data)
+                            && resource.data.get('estado', '') == 'pendente');
         }
       }
 
       // ---- equipe: cadastro único dentro da empresa -----------------------
       match /resources/{recurso} {
-        allow read: if daOrg(org) || suporteAtivo(org);
+        allow read: if veOrg(org) || suporteAtivo(org);
         allow write: if editaOrg(org) || suporteEdita(org);
       }
 
       // ---- liberação do suporte: quem manda na empresa decide -------------
       match /suporte/acesso {
-        allow get: if daOrg(org) || souPlataforma();
+        allow get: if veOrg(org) || souPlataforma();
         allow create, update: if mandaNaOrg(org)
                               && request.resource.data.modo in ['leitura', 'edicao']
                               && request.resource.data.ate is int
@@ -170,7 +262,7 @@ service cloud.firestore {
       // A resposta vale uma vez só, dentro do prazo, e só mexe nas respostas.
       match /pesquisas/{codigo} {
         allow get: if true;
-        allow list: if daOrg(org) || suporteAtivo(org);
+        allow list: if veOrg(org) || suporteAtivo(org);
         allow create: if false;
         allow update: if resource.data.respondidaEm == null
                       && request.time.toMillis() < resource.data.expiraEm
@@ -183,7 +275,7 @@ service cloud.firestore {
 
       // ---- histórico do suporte: só se acrescenta, ninguém apaga ----------
       match /suporteLog/{registro} {
-        allow read: if daOrg(org) || souPlataforma();
+        allow read: if veOrg(org) || souPlataforma();
         allow create: if request.resource.data.por == eu()
                       && request.resource.data.em is int
                       && (mandaNaOrg(org) || suporteAtivo(org));
@@ -223,7 +315,7 @@ service cloud.firestore {
     match /agendasStatus/{chave} {
       // create e update separados de delete de propósito: em delete não existe
       // request.resource, e uma regra escrita como `write` erraria ao lê-lo.
-      allow read: if daOrg(resource.data.get('orgId', '—'))
+      allow read: if veOrg(resource.data.get('orgId', '—'))
                   || suporteAtivo(resource.data.get('orgId', '—'));
       allow create, update: if editaOrg(request.resource.data.get('orgId', '—'))
                    && chave == request.resource.data.get('orgId', '—') + '__' + request.resource.data.get('pid', '—')
@@ -231,6 +323,16 @@ service cloud.firestore {
                        || resource.data.get('orgId', request.resource.data.get('orgId', '—'))
                           == request.resource.data.get('orgId', '—'));
       allow delete: if mandaNaOrg(resource.data.get('orgId', '—'));
+    }
+
+    // ---- em que projetos eu estou na equipe --------------------------------
+    // O analista não pode listar os projetos da empresa — se pudesse, veria a
+    // carteira inteira. Então ele pergunta o contrário: uma consulta de grupo
+    // por `equipe` trazendo os documentos cujo campo `email` é o dele. A regra
+    // exige esse campo, então a consulta sem o filtro não devolve nada.
+    // Precisa do índice de grupo em `equipe.email` (firestore.indexes.json).
+    match /{caminho=**}/equipe/{email} {
+      allow read: if logado() && resource.data.get('email', '') == eu();
     }
 
     // ---- estrutura antiga, anterior à separação por empresa ---------------

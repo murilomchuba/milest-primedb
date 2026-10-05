@@ -782,6 +782,49 @@ body.embutido .view{height:100%}
   #printArea tr{break-inside:avoid}
   #printArea .pgantt{break-before:page}
 }
+
+/* ============ tela do analista ============
+   A única tela do MILEST que nasce para o telefone. Quem lança hora lança no
+   fim do dia, em pé, no cliente — não sentado numa mesa com 1440 px. Por isso
+   ela não é uma aba do sistema: é uma tela inteira, com um campo por linha,
+   alvos grandes e nada que role na horizontal. */
+.pill.warn{background:#FFF1DC;color:#8A5200}
+:root[data-theme="dark"] .pill.warn{background:#3A2A10;color:#F0C27A}
+.ap{position:fixed;inset:0;z-index:50;background:var(--surface-2);overflow:auto;-webkit-overflow-scrolling:touch}
+.ap[hidden]{display:none}
+.ap .apbar{position:sticky;top:0;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:12px 16px;background:var(--surface-1);border-bottom:1px solid var(--line)}
+.ap .apbar .quem{min-width:0}
+.ap .apbar .quem b{display:block;font-family:var(--f-display);font-size:14px;line-height:1.2;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ap .apbar .quem span{font-size:11px;color:var(--ink-3)}
+.ap .apcorpo{max-width:620px;margin:0 auto;padding:16px 16px 56px;display:flex;flex-direction:column;gap:16px}
+.ap .card{background:var(--surface-1);border:1px solid var(--line);border-radius:12px;padding:16px}
+.ap .card > h3{margin:0 0 12px;font-family:var(--f-display);font-size:15px}
+.ap .campo{display:block;margin-bottom:12px}
+.ap .campo > label{display:block;font-family:var(--f-mono);font-size:9.5px;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--ink-3);margin-bottom:5px}
+.ap .campo .inp{width:100%;box-sizing:border-box;font-size:16px;padding:11px 12px;min-height:46px}
+.ap .bgrande{width:100%;min-height:50px;font-size:16px;font-weight:600}
+.ap .lanc{display:flex;gap:12px;align-items:flex-start;padding:12px 0;border-top:1px solid var(--line)}
+.ap .lanc:first-child{border-top:0}
+.ap .lanc .h{font-family:var(--f-mono);font-size:17px;font-weight:700;min-width:62px;text-align:right}
+.ap .lanc .meio{flex:1;min-width:0}
+.ap .lanc .meio .t{font-size:13.5px;line-height:1.35}
+.ap .lanc .meio .s{font-size:11.5px;color:var(--ink-3);margin-top:3px}
+.ap .lanc .acoes{display:flex;gap:6px;flex-direction:column}
+.ap .vazio{color:var(--ink-3);font-size:13px;padding:14px 0;text-align:center}
+.ap .somas{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);
+  border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-bottom:14px}
+.ap .somas > div{background:var(--surface-1);padding:11px 10px;text-align:center}
+.ap .somas .k{font-family:var(--f-mono);font-size:9px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3)}
+.ap .somas .v{font-family:var(--f-mono);font-size:17px;font-weight:700;margin-top:3px}
+.ap .recusa{background:#FBE6E4;color:#8A2D26;border-radius:8px;padding:8px 10px;font-size:12px;margin-top:6px}
+:root[data-theme="dark"] .ap .recusa{background:#3A1A17;color:#F0A89F}
+@media (max-width:420px){
+  .ap .apcorpo{padding:12px 12px 48px;gap:12px}
+  .ap .card{padding:13px;border-radius:10px}
+}
 </style>
 
 <div class="topbar">
@@ -1631,8 +1674,17 @@ const DONO = 'mmc.chuba@gmail.com';   // sempre administrador, para nunca ficar 
 const PAPEIS = {
   admin: { rot: 'Administrador', desc: 'Edita tudo e cadastra usuários.' },
   gerente: { rot: 'Gerente', desc: 'Cria e edita cronogramas, recursos e status reports.' },
-  leitor: { rot: 'Leitor', desc: 'Apenas consulta e baixa os relatórios.' }
+  leitor: { rot: 'Leitor', desc: 'Apenas consulta e baixa os relatórios.' },
+  /* O analista é o primeiro papel que NÃO enxerga a empresa. Os outros três se
+     diferenciam pelo que podem escrever; este se diferencia pelo que pode ver:
+     nada além das próprias horas, nos projetos em que foi nomeado. Quem o
+     recebe não abre o MILEST — abre uma tela só de apontamento. */
+  analista: { rot: 'Analista', desc: 'Lança só as próprias horas, nos projetos em que está na equipe. Não vê a carteira.' }
 };
+/** Quem entra para lançar hora e nada mais. */
+function souAnalista() {
+  return ST.comLogin && !ST.suporte && !!ST.perfil && ST.perfil.papel === 'analista';
+}
 function papelAtual() {
   // sem login por conta (dados locais ou banco do artifact) quem está na
   // frente do sistema é o próprio dono, então pode tudo
@@ -1643,6 +1695,7 @@ function papelAtual() {
 }
 function podeEditar() {
   if (ARQUIVO) return false;               // cópia de segurança: só leitura
+  if (souAnalista()) return false;         // ele não edita projeto: só lança hora
   if (typeof embedSoLeitura !== 'undefined' && embedSoLeitura) return false;
   if (ST.perfil && ST.perfil.expirado) return false;   // prazo vencido: só leitura
   const p = papelAtual(); return p === 'admin' || p === 'gerente';
@@ -4341,6 +4394,7 @@ function congelarP(P) {
     tasks: (P.tasks || []).map(t => Object.assign({}, t, { res: (t.res || []).map(a => Object.assign({}, a)) })),
     resources: P.resources,
     horasDocs: Array.isArray(P.horasDocs) ? P.horasDocs.map(x => Object.assign({}, x)) : undefined,
+    equipe: Array.isArray(P.equipe) ? P.equipe.map(x => Object.assign({}, x)) : undefined,
     logo: P.logo || null
   };
 }
@@ -8187,8 +8241,8 @@ function renderUsuarios() {
 
   const explica = el('div', 'panel');
   explica.appendChild(el('h3', '', 'Como funcionam os papéis'));
-  const ul = el('div', 'formgrid'); ul.style.gridTemplateColumns = 'repeat(3,1fr)';
-  for (const k of ['admin', 'gerente', 'leitor']) {
+  const ul = el('div', 'formgrid'); ul.style.gridTemplateColumns = 'repeat(4,1fr)';
+  for (const k of ['admin', 'gerente', 'leitor', 'analista']) {
     const f = el('div', 'field');
     f.appendChild(el('label', '', PAPEIS[k].rot));
     f.appendChild(el('div', 'hint', PAPEIS[k].desc));
@@ -8221,7 +8275,7 @@ function renderUsuarios() {
 
       const tdP = el('td');
       const selP = el('select', 'inp');
-      for (const k of ['admin', 'gerente', 'leitor']) { const o = el('option', '', PAPEIS[k].rot); o.value = k; selP.appendChild(o); }
+      for (const k of ['admin', 'gerente', 'leitor', 'analista']) { const o = el('option', '', PAPEIS[k].rot); o.value = k; selP.appendChild(o); }
       selP.value = PAPEIS[u.papel] ? u.papel : 'leitor';
       selP.disabled = unicoAdmin;
       selP.title = unicoAdmin ? 'A empresa precisa de pelo menos um administrador.' : '';
@@ -8314,7 +8368,7 @@ function modalUsuario(atual) {
     }
     const f3 = el('div', 'field'); f3.appendChild(el('label', '', 'Papel'));
     const sel = el('select', 'inp');
-    for (const k of ['gerente', 'leitor', 'admin']) { const o = el('option', '', PAPEIS[k].rot + ' — ' + PAPEIS[k].desc); o.value = k; sel.appendChild(o); }
+    for (const k of ['gerente', 'leitor', 'admin', 'analista']) { const o = el('option', '', PAPEIS[k].rot + ' — ' + PAPEIS[k].desc); o.value = k; sel.appendChild(o); }
     sel.value = (atual && PAPEIS[atual.papel]) ? atual.papel : 'leitor';
     f3.appendChild(sel); body.appendChild(f3);
 
@@ -9272,19 +9326,20 @@ async function coletarBackupTotal(aviso, comAnexos) {
     const ps = await ST.db.collection(base + '/projects').get().catch(() => vazio);
     for (const d of ps.docs) {
       const bp = base + '/projects/' + d.id;
-      const [t, v, vd, dc, dd, di, hh] = await Promise.all([
+      const [t, v, vd, dc, dd, di, hh, eq] = await Promise.all([
         ST.db.collection(bp + '/tasks').get().catch(() => vazio),
         ST.db.collection(bp + '/versions').get().catch(() => vazio),
         ST.db.collection(bp + '/versionsData').get().catch(() => vazio),
         ST.db.collection(bp + '/docs').get().catch(() => vazio),
         saida.anexos ? ST.db.collection(bp + '/docsData').get().catch(() => vazio) : Promise.resolve(vazio),
         ST.db.collection(bp + '/diario').get().catch(() => vazio),
-        ST.db.collection(bp + '/horas').get().catch(() => vazio)
+        ST.db.collection(bp + '/horas').get().catch(() => vazio),
+        ST.db.collection(bp + '/equipe').get().catch(() => vazio)
       ]);
       emp.projects.push({
         id: d.id, meta: d.data() || {}, tasks: lista(t), versions: lista(v),
         versionsData: lista(vd), docs: lista(dc), docsData: lista(dd), diario: lista(di),
-        horas: lista(hh)
+        horas: lista(hh), equipe: lista(eq)
       });
     }
     emp.resources = lista(await ST.db.collection(base + '/resources').get().catch(() => vazio));
@@ -9705,6 +9760,7 @@ async function aplicarBackup(d, orgAlvo) {
          se descobriria no dia em que fizessem falta. */
       await emLotes(p.diario || [], v => ST.db.doc(base + '/diario/' + v.id).set(v));
       await emLotes(p.horas || [], v => ST.db.doc(base + '/horas/' + v.id).set(v));
+      await emLotes(p.equipe || [], v => ST.db.doc(base + '/equipe/' + v.id).set(v));
     }
     await emLotes(d.resources || [], r => ST.db.doc(alvoRecurso(r.id)).set(r));
     if (ehAdmin() && !orgAlvo) await emLotes(d.users || [], u => ST.db.doc('users/' + u.id).set(u).catch(() => { }));
@@ -9724,7 +9780,7 @@ async function aplicarBackup(d, orgAlvo) {
       all.projects[p.id] = {
         meta: p.meta, tasks: p.tasks || [], versions: p.versions || [],
         versionsData: p.versionsData || [], docs: p.docs || [], docsData: p.docsData || [],
-        diario: p.diario || [], horas: p.horas || []
+        diario: p.diario || [], horas: p.horas || [], equipe: p.equipe || []
       };
     }
     all.resources = (d.resources || []).slice();
@@ -13249,10 +13305,17 @@ async function gerarPDFPortfolio(titulo, comStatus) {
    projeto, que a carteira já lê de qualquer jeito. */
 const cHorasDe = pid => dProjeto(pid || ST.pid) + '/horas';
 
+/* Lançamento sem estado é lançamento antigo, de quando só o gestor lançava e
+   tudo nascia valendo: conta como aceito. Pendente e recusado NÃO contam —
+   é o que mantém o GP dono do número que ele apresenta. */
+function horaVale(x) {
+  const e = x && x.estado;
+  return !e || e === 'aceito';
+}
 function horasDe(P) {
   const m = (P && P.meta) || {};
   const prev = Math.max(0, Number(m.horasPrev) || 0);
-  const soma = l => l.reduce((a, x) => a + (x && x.estado === 'recusado' ? 0 : (Number(x && x.h) || 0)), 0);
+  const soma = l => l.reduce((a, x) => a + (horaVale(x) ? (Number(x && x.h) || 0) : 0), 0);
   let lista, feitas;
   if (P && Array.isArray(P.horasDocs)) {
     lista = P.horasDocs; feitas = soma(lista);
@@ -13278,8 +13341,10 @@ function horasDoProjeto() {
 function atualizarResumoHoras() {
   const l = horasDoProjeto();
   ST.P.meta.horasResumo = {
-    feitas: l.reduce((a, x) => a + (x.estado === 'recusado' ? 0 : (Number(x.h) || 0)), 0),
-    n: l.length, atualizadoEm: Date.now()
+    feitas: l.reduce((a, x) => a + (horaVale(x) ? (Number(x.h) || 0) : 0), 0),
+    n: l.filter(horaVale).length,
+    pendentes: l.filter(x => x && x.estado === 'pendente').length,
+    atualizadoEm: Date.now()
   };
 }
 
@@ -13336,11 +13401,331 @@ async function migrarHoras(pid) {
   dirty.meta = true;
   await flushSave();
 }
+
+/* ---- quem lança hora neste projeto ----
+   Um documento por pessoa, dentro do projeto. Parece redundante com o cadastro
+   de usuários da empresa, e não é: lá está o papel (o que a pessoa é), aqui
+   está o pertencimento (em que projetos ela trabalha). As regras do Firestore
+   decidem o acesso do analista olhando ESTE documento, e só ele.
+
+   Ele guarda o nome do projeto e o cliente de propósito. Sem isso, o analista
+   precisaria ler o documento do projeto para saber onde está lançando — e o
+   documento do projeto é onde moram o status report, os riscos e o orçamento.
+   Copiar duas palavras aqui evita abrir aquilo inteiro. */
+const cEquipeDe = pid => dProjeto(pid || ST.pid) + '/equipe';
+function equipeDoProjeto() {
+  if (!Array.isArray(ST.P.equipe)) ST.P.equipe = [];
+  return ST.P.equipe;
+}
+function carimboDoProjeto() {
+  const m = ST.P.meta || {};
+  return { nomeProjeto: m.name || '', cliente: m.client || '' };
+}
+async function nomearNaEquipe(email, recursoId, nome) {
+  if (semPermissao()) return false;
+  const chave = chaveEmail(email);
+  if (!chave) { toast('Informe o e-mail da pessoa.'); return false; }
+  const reg = Object.assign({
+    email: chave, nome: nome || nomeDeExibicao(chave), papel: 'analista',
+    recursoId: recursoId || '', ativo: true, desde: Date.now(), por: chaveEmail(ST.userEmail || '')
+  }, carimboDoProjeto());
+  try {
+    await ST.db.doc(cEquipeDe() + '/' + chave).set(reg);
+  } catch (e) {
+    toast('Não consegui nomear: ' + ((e && e.message) || 'erro'));
+    return false;
+  }
+  const l = equipeDoProjeto();
+  const i = l.findIndex(x => x.email === chave);
+  if (i >= 0) l[i] = reg; else l.push(reg);
+  return true;
+}
+async function tirarDaEquipe(email) {
+  if (semPermissao()) return false;
+  const chave = chaveEmail(email);
+  try { await ST.db.doc(cEquipeDe() + '/' + chave).delete(); }
+  catch (e) { toast('Não consegui remover: ' + ((e && e.message) || 'erro')); return false; }
+  const l = equipeDoProjeto();
+  const i = l.findIndex(x => x.email === chave);
+  if (i >= 0) l.splice(i, 1);
+  return true;
+}
+/* O nome do projeto mudou depois que a equipe foi montada: as nomeações ficam
+   com o nome velho, e é só esse nome que o analista enxerga. Reescrever é
+   barato e acontece quando o GP abre a aba Horas. */
+async function atualizarCarimboEquipe() {
+  if (ST.mode !== 'db' || !podeEditar()) return;
+  const c = carimboDoProjeto();
+  const velhas = equipeDoProjeto().filter(x => x.nomeProjeto !== c.nomeProjeto || x.cliente !== c.cliente);
+  if (!velhas.length) return;
+  for (const x of velhas) {
+    Object.assign(x, c);
+    try { await ST.db.doc(cEquipeDe() + '/' + x.email).set(Object.assign({}, x)); } catch (e) { return; }
+  }
+}
+
+/* ---- o GP decide o que entra na conta ----
+   Aceitar e recusar não são edição de texto: mudam o número que o projeto
+   apresenta. Por isso gravam quem decidiu e quando, e por isso a recusa pede
+   um motivo — o analista vê o motivo na tela dele e corrige. */
+function decidirHoras(lista, estado, motivo) {
+  if (semPermissao()) return 0;
+  let n = 0;
+  for (const x of lista) {
+    if (!x || x.estado !== 'pendente') continue;
+    x.estado = estado;
+    x.decididoEm = Date.now();
+    x.decididoPor = chaveEmail(ST.userEmail || '');
+    x.motivoRecusa = estado === 'recusado' ? String(motivo || '').slice(0, 300) : '';
+    dirty.horas.add(x.id);
+    n++;
+  }
+  if (!n) return 0;
+  atualizarResumoHoras(); markMeta();
+  ST.portfolio = null; ST.portfolioEm = 0; esquecerCarteira();
+  return n;
+}
 const fmtH = v => fmtNum(v, (Math.abs(v) % 1) ? 1 : 0) + ' h';
+/** Data curta, do jeito que se lê em português. */
+const fmtData = s => {
+  const p = String(s || '').split('-');
+  return p.length === 3 ? p[2] + '/' + p[1] + '/' + p[0] : (s || '—');
+};
+
+
+/* ---- quem lança hora neste projeto (painel do GP) ----
+   Fica na aba Horas, e não na aba Usuários, de propósito: a aba Usuários
+   responde "quem tem acesso à empresa", esta pergunta é outra — "quem trabalha
+   NESTE projeto". São listas diferentes e confundi-las é o que faz um analista
+   acabar vendo a carteira inteira. */
+function painelEquipeHoras() {
+  const p = el('div', 'panel');
+  const cab = el('h3', '', 'Quem lança horas neste projeto');
+  cab.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap';
+  p.appendChild(cab);
+
+  if (ST.mode !== 'db' || !ST.comLogin) {
+    p.appendChild(el('div', 'empty',
+      'A equipe do projeto só existe com login por conta. Neste modo, quem lança as horas é você mesmo, no quadro acima.'));
+    return p;
+  }
+
+  const equipe = equipeDoProjeto();
+  const corpo = el('div'); p.appendChild(corpo);
+
+  const desenhar = () => {
+    corpo.textContent = '';
+    if (!equipe.length) {
+      corpo.appendChild(el('div', 'empty',
+        'Ninguém nomeado ainda. Você continua lançando as horas de todo mundo no quadro acima; '
+        + 'nomear alguém aqui é o que permite que essa pessoa lance as dela, do celular.'));
+      return;
+    }
+    const tb = el('table', 'data');
+    const hr = el('tr');
+    for (const c of ['Pessoa', 'Recurso no cronograma', 'Situação', '']) hr.appendChild(el('th', '', c));
+    const th = el('thead'); th.appendChild(hr); tb.appendChild(th);
+    const tbo = el('tbody');
+    for (const x of equipe.slice().sort((a, b) => String(a.email).localeCompare(String(b.email)))) {
+      const tr = el('tr');
+      const tdN = el('td');
+      tdN.appendChild(el('div', '', x.nome || nomeDeExibicao(x.email)));
+      const sub = el('div', 'hint', x.email); sub.style.marginTop = '2px';
+      tdN.appendChild(sub); tr.appendChild(tdN);
+
+      const tdR = el('td');
+      const sR = el('select', 'inp');
+      const ov = el('option', '', '— não ligado —'); ov.value = ''; sR.appendChild(ov);
+      for (const r of (ST.P.resources || [])) { const o = el('option', '', r.name); o.value = r.id; sR.appendChild(o); }
+      sR.value = x.recursoId || '';
+      sR.disabled = !podeEditar();
+      sR.addEventListener('change', async () => {
+        if (await nomearNaEquipe(x.email, sR.value, x.nome)) { renderHoras(); }
+      });
+      tdR.appendChild(sR); tr.appendChild(tdR);
+
+      const tdS = el('td');
+      const quantas = horasDoProjeto().filter(y => chaveEmail(y.pessoaEmail) === x.email);
+      const pend = quantas.filter(y => y.estado === 'pendente').length;
+      tdS.appendChild(el('span', 'pill' + (pend ? ' warn' : ' on'),
+        pend ? pend + ' pendente(s)' : fmtNum(quantas.filter(horaVale).length) + ' lançamento(s)'));
+      tr.appendChild(tdS);
+
+      const tdX = el('td');
+      const bX = el('button', 'btn icon danger reqedit', '✕');
+      bX.title = 'Tira esta pessoa do projeto. As horas já lançadas continuam onde estão.';
+      bX.addEventListener('click', async () => {
+        if (!(await tirarDaEquipe(x.email))) return;
+        toast('Removido do projeto. As horas já lançadas continuam aqui.');
+        renderHoras();
+      });
+      tdX.appendChild(bX); tr.appendChild(tdX);
+      tbo.appendChild(tr);
+    }
+    tb.appendChild(tbo);
+    const sc = el('div', 'tscroll'); sc.appendChild(tb); corpo.appendChild(sc);
+  };
+  desenhar();
+
+  if (podeEditar()) {
+    const bAdd = el('button', 'btn primary', '＋ Nomear quem lança');
+    bAdd.addEventListener('click', () => janelaNomearEquipe());
+    cab.appendChild(bAdd);
+  }
+  p.appendChild(el('div', 'tagline',
+    'Quem é nomeado aqui entra no MILEST e vê só uma tela: a de lançar as próprias horas, nos projetos em que está. '
+    + 'Não vê a carteira, não vê os outros projetos, não vê valores — nem as horas dos colegas. '
+    + 'O que ele lança chega aqui como pendente e só entra na conta depois que você aceita.'));
+  return p;
+}
+
+function janelaNomearEquipe() {
+  if (semPermissao()) return;
+  modal('Nomear quem lança horas', (body, close) => {
+    body.appendChild(el('div', 'hint',
+      'A pessoa precisa já estar cadastrada na empresa com o papel Analista (aba Usuários). '
+      + 'Aqui você diz em que projeto ela trabalha.'));
+    const g = el('div', 'formgrid'); g.style.gridTemplateColumns = '1fr';
+    const campo = (rot, node, dica) => {
+      const d = el('div', 'field');
+      d.appendChild(el('label', '', rot)); d.appendChild(node);
+      if (dica) d.appendChild(el('div', 'hint', dica));
+      g.appendChild(d); return node;
+    };
+    const sel = el('select', 'inp');
+    sel.appendChild(el('option', '', 'carregando…'));
+    campo('Pessoa', sel);
+    const sR = el('select', 'inp');
+    const ov = el('option', '', '— não ligar agora —'); ov.value = ''; sR.appendChild(ov);
+    for (const r of (ST.P.resources || [])) { const o = el('option', '', r.name); o.value = r.id; sR.appendChild(o); }
+    campo('Recurso no cronograma', sR,
+      'Ligar a pessoa a um recurso faz a tela dela mostrar só as atividades em que ela está alocada — e faz as horas dela entrarem no custo da atividade certa.');
+    body.appendChild(g);
+    const aviso = el('div', 'hint'); aviso.style.marginTop = '10px'; body.appendChild(aviso);
+
+    const jaEstao = new Set(equipeDoProjeto().map(x => x.email));
+    const preencher = (lista) => {
+      sel.textContent = '';
+      const candidatos = lista.filter(u => (u.papel === 'analista') && u.ativo !== false && !jaEstao.has(chaveEmail(u.email || u.id)));
+      if (!candidatos.length) {
+        sel.appendChild(el('option', '', '— nenhum analista disponível —'));
+        aviso.textContent = lista.some(u => u.papel === 'analista')
+          ? 'Todos os analistas da empresa já estão neste projeto.'
+          : 'Nenhum analista cadastrado ainda. Cadastre a pessoa na aba Usuários com o papel Analista e volte aqui.';
+        return;
+      }
+      for (const u of candidatos) {
+        const e = chaveEmail(u.email || u.id);
+        const o = el('option', '', (u.nome || nomeDeExibicao(e)) + ' · ' + e); o.value = e;
+        sel.appendChild(o);
+      }
+    };
+    if (ST.usuarios) preencher(ST.usuarios);
+    else carregarUsuarios().then(l => { ST.usuarios = l; preencher(l); })
+      .catch(() => { sel.textContent = ''; sel.appendChild(el('option', '', '— não consegui ler os usuários —')); });
+
+    body.__salvar = async () => {
+      const email = sel.value;
+      if (!email || email.indexOf('@') < 0) { toast('Escolha a pessoa.'); return; }
+      const u = (ST.usuarios || []).find(x => chaveEmail(x.email || x.id) === email);
+      if (!(await nomearNaEquipe(email, sR.value, u && u.nome))) return;
+      close(); renderHoras();
+      toast(nomeDeExibicao(email) + ' já pode lançar horas neste projeto.');
+    };
+  }, [
+    { label: 'Cancelar', fn: f => f() },
+    {
+      label: 'Nomear', primary: true, fn: () => {
+        const b = document.querySelector('.modalwrap:last-child .body');
+        if (b && b.__salvar) b.__salvar();
+      }
+    }
+  ]);
+}
+
+/* ---- o que o analista mandou e ainda não entrou na conta ----
+   Aparece acima de tudo quando existe, porque é a única coisa nesta tela que
+   espera uma decisão. Em lote, porque ninguém aprova trinta linhas uma a uma
+   numa segunda-feira — e uma a uma quando a linha estiver errada. */
+function painelPendentes(pendentes) {
+  const p = el('div', 'panel');
+  const cab = el('h3', '', 'Aguardando o seu aceite — ' + fmtH(pendentes.reduce((a, x) => a + (Number(x.h) || 0), 0)));
+  cab.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap';
+  const acs = el('div'); acs.style.cssText = 'display:flex;gap:7px;flex-wrap:wrap';
+  const bTudo = el('button', 'btn primary', 'Aceitar todas');
+  bTudo.addEventListener('click', () => {
+    const n = decidirHoras(pendentes.slice(), 'aceito');
+    if (n) { toast(n + ' lançamento(s) aceito(s).'); renderHoras(); renderKPIs(); }
+  });
+  acs.appendChild(bTudo); cab.appendChild(acs);
+  p.appendChild(cab);
+
+  const sch = ST.sch;
+  const nomeAtiv = id => { const t = ST.P.tasks.find(x => x.id === id); return t ? t.name : ''; };
+  const tb = el('table', 'data');
+  const hr = el('tr');
+  for (const c of [['Data', ''], ['Quem', ''], ['Atividade', ''], ['Horas', 'num'], ['Observação', ''], ['', '']]) hr.appendChild(el('th', c[1], c[0]));
+  const th = el('thead'); th.appendChild(hr); tb.appendChild(th);
+  const tbo = el('tbody');
+  for (const x of pendentes.slice().sort((a, b) => String(a.data).localeCompare(String(b.data)))) {
+    const tr = el('tr');
+    tr.appendChild(el('td', '', fmtData(x.data)));
+    tr.appendChild(el('td', '', x.pessoa || nomeDeExibicao(x.pessoaEmail || '')));
+    tr.appendChild(el('td', '', x.tid ? nomeAtiv(x.tid) : '—'));
+    tr.appendChild(el('td', 'num', fmtH(Number(x.h) || 0)));
+    tr.appendChild(el('td', '', x.obs || ''));
+    const tdA = el('td');
+    const grupo = el('div'); grupo.style.cssText = 'display:flex;gap:5px;justify-content:flex-end';
+    const bOk = el('button', 'btn icon reqedit', '✓'); bOk.title = 'Aceitar';
+    bOk.addEventListener('click', () => {
+      if (decidirHoras([x], 'aceito')) { renderHoras(); renderKPIs(); }
+    });
+    const bNo = el('button', 'btn icon danger reqedit', '✕'); bNo.title = 'Recusar';
+    bNo.addEventListener('click', () => janelaRecusar(x));
+    grupo.appendChild(bOk); grupo.appendChild(bNo);
+    tdA.appendChild(grupo); tr.appendChild(tdA);
+    tbo.appendChild(tr);
+  }
+  tb.appendChild(tbo);
+  const sc = el('div', 'tscroll'); sc.appendChild(tb); p.appendChild(sc);
+  p.appendChild(el('div', 'tagline',
+    'Hora pendente não entra no realizado nem no IDC. Enquanto está aqui, o analista ainda pode corrigi-la; '
+    + 'depois de aceita, trava para ele e só você muda.'));
+  return p;
+}
+
+function janelaRecusar(x) {
+  modal('Recusar o lançamento', (body, close) => {
+    body.appendChild(el('div', 'hint',
+      (x.pessoa || nomeDeExibicao(x.pessoaEmail || '')) + ' · ' + fmtData(x.data) + ' · ' + fmtH(Number(x.h) || 0)
+      + '. O motivo aparece na tela dela, para que possa corrigir e mandar de novo.'));
+    const i = el('input', 'inp'); i.placeholder = 'ex.: essa data é de outro projeto';
+    i.style.marginTop = '10px'; body.appendChild(i);
+    setTimeout(() => i.focus(), 60);
+    body.__motivo = () => i.value;
+  }, [
+    { label: 'Cancelar', fn: f => f() },
+    {
+      label: 'Recusar', fn: fechar => {
+        const b = document.querySelector('.modalwrap:last-child .body');
+        const motivo = b && b.__motivo ? b.__motivo() : '';
+        if (decidirHoras([x], 'recusado', motivo)) { fechar(); renderHoras(); renderKPIs(); }
+        else fechar();
+      }
+    }
+  ]);
+}
 
 function renderHoras() {
   const host = $('#hrView'); host.textContent = '';
-  const lista = horasDoProjeto(), h = horasDe(ST.P), ed = podeEditar();
+  const todos = horasDoProjeto(), h = horasDe(ST.P), ed = podeEditar();
+  /* Três listas, porque são três perguntas diferentes: o que espera decisão,
+     o que conta no número do projeto, e o que a tabela mostra (o que conta
+     mais o que foi recusado, que precisa ficar visível para alguém reverter). */
+  const pendentes = todos.filter(x => x && x.estado === 'pendente');
+  const lista = todos.filter(horaVale);
+  const naTabela = todos.filter(x => !x || x.estado !== 'pendente');
+  if (ST.mode === 'db') atualizarCarimboEquipe();
   const sch = ST.sch;
   const folhas = ST.P.tasks.filter(t => !sch.out.get(t.id).sum);
   const nomeAtiv = id => { const t = ST.P.tasks.find(x => x.id === id); return t ? t.name : ''; };
@@ -13376,7 +13761,8 @@ function renderHoras() {
     res.appendChild(d);
   };
   bloco('Previstas', h.prev ? fmtH(h.prev) : '—', h.prev ? 'contratadas para o projeto' : 'informe acima');
-  bloco('Realizadas', fmtH(h.feitas), fmtNum(lista.length) + ' lançamento(s)');
+  bloco('Realizadas', fmtH(h.feitas), fmtNum(lista.length) + ' lançamento(s)'
+    + (pendentes.length ? ' · ' + pendentes.length + ' pendente(s)' : ''));
   bloco('Saldo', h.prev ? fmtH(h.saldo) : '—', h.prev ? (h.saldo < 0 ? 'estourou o previsto' : 'ainda disponível') : '',
     h.prev ? (h.saldo < 0 ? 'bad' : 'good') : '');
   bloco('Consumido', consumo == null ? '—' : fmtNum(consumo, 1).replace('.', ',') + '%',
@@ -13395,6 +13781,8 @@ function renderHoras() {
     'O IDC compara o que o projeto já entregou com o que já consumiu: horas previstas × avanço físico ÷ horas lançadas. ' +
     'Acima de 1,00 o projeto rende mais do que gasta; abaixo, gasta mais horas do que entrega.'));
   host.appendChild(topo);
+
+  if (pendentes.length && ed) host.appendChild(painelPendentes(pendentes));
 
   /* ---- lançar ---- */
   if (ed) {
@@ -13441,14 +13829,16 @@ function renderHoras() {
     host.appendChild(pl);
   }
 
+  host.appendChild(painelEquipeHoras());
+
   /* ---- o que já foi lançado ---- */
   const cols = el('div', 'cols2');
   const pt = el('div', 'panel');
   pt.appendChild(el('h3', '', 'Lançamentos'));
-  if (!lista.length) {
+  if (!naTabela.length) {
     pt.appendChild(el('div', 'empty', 'Nenhuma hora lançada ainda.'));
   } else {
-    const ordenada = lista.slice().sort((a, b) => String(b.data).localeCompare(String(a.data)) || (b.criadoEm || 0) - (a.criadoEm || 0));
+    const ordenada = naTabela.slice().sort((a, b) => String(b.data).localeCompare(String(a.data)) || (b.criadoEm || 0) - (a.criadoEm || 0));
     const tb = el('table', 'data tabhoras');
     const hr = el('tr');
     for (const c of [['Data', ''], ['Pessoa', ''], ['Atividade', ''], ['Horas', 'num'], ['Observação', ''], ['', '']]) hr.appendChild(el('th', c[1], c[0]));
@@ -13460,12 +13850,15 @@ function renderHoras() {
       if (mes !== mesAtual) {
         mesAtual = mes;
         const soma = lista.filter(y => String(y.data || '').slice(0, 7) === mes).reduce((a, y) => a + (Number(y.h) || 0), 0);
+        /* `lista` aqui já exclui pendente e recusado: o subtotal do mês tem de
+           bater com o realizado do quadro de cima, não com o que está na tela. */
         const tr = el('tr', 'mudrow'), td = el('td');
         td.colSpan = 6;
         const d = el('div', 'hrmes', (MESES_L[Number(mes.slice(5, 7)) - 1] || '') + ' de ' + mes.slice(0, 4) + ' — ' + fmtH(soma));
         d.style.padding = '6px 12px'; td.appendChild(d); tr.appendChild(td); tbo.appendChild(tr);
       }
       const tr = el('tr');
+      if (x.estado === 'recusado') tr.style.opacity = '.55';
       const troca = (campo, node, conv) => {
         node.addEventListener('change', () => {
           if (semPermissao()) { renderHoras(); return; }
@@ -13488,7 +13881,12 @@ function renderHoras() {
       iHo.value = x.h; iHo.disabled = !ed; troca('h', iHo, v => Math.max(0, Number(v) || 0));
       tdH.appendChild(iHo); tr.appendChild(tdH);
       const tdO = el('td'); const iO = el('input', 'inp'); iO.value = x.obs || ''; iO.disabled = !ed;
-      troca('obs', iO); tdO.appendChild(iO); tr.appendChild(tdO);
+      troca('obs', iO); tdO.appendChild(iO);
+      if (x.estado === 'recusado') {
+        const m = el('div', 'hint', 'recusado' + (x.motivoRecusa ? ' — ' + x.motivoRecusa : ''));
+        m.style.marginTop = '3px'; tdO.appendChild(m);
+      }
+      tr.appendChild(tdO);
       const tdX = el('td');
       const bX = el('button', 'btn icon danger reqedit', '✕'); bX.title = 'Remover este lançamento';
       bX.addEventListener('click', () => {
@@ -13501,7 +13899,8 @@ function renderHoras() {
     }
     tb.appendChild(tbo);
     const sc = el('div', 'tscroll'); sc.appendChild(tb); pt.appendChild(sc);
-    pt.appendChild(el('div', 'tagline', fmtNum(lista.length) + ' lançamento(s), somando ' + fmtH(h.feitas) + '.'));
+    pt.appendChild(el('div', 'tagline', fmtNum(lista.length) + ' lançamento(s), somando ' + fmtH(h.feitas) + '.'
+      + (naTabela.length > lista.length ? ' As linhas apagadas foram recusadas e não entram na conta.' : '')));
   }
   cols.appendChild(pt);
 
@@ -13543,10 +13942,17 @@ async function exportarHorasCSV() {
   const lista = horasDoProjeto(), sch = ST.sch;
   const nome = id => { const t = ST.P.tasks.find(x => x.id === id); return t ? t.name : ''; };
   const esc = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
-  const linhas = [['Data', 'Pessoa', 'EAP', 'Atividade', 'Horas', 'Observação'].map(esc).join(';')];
+  /* A planilha leva tudo, inclusive o que está pendente e o que foi recusado,
+     com a situação numa coluna. Quem abre o CSV costuma estar conferindo com o
+     cliente ou com o RH, e aí a linha que NÃO entrou na conta é justamente a
+     que precisa aparecer — some-a e a conversa vira "faltou um dia aqui". */
+  const linhas = [['Data', 'Pessoa', 'E-mail', 'EAP', 'Atividade', 'Horas', 'Situação', 'Observação'].map(esc).join(';')];
+  const SIT = { aceito: 'Aceita', pendente: 'Aguardando aceite', recusado: 'Recusada' };
   for (const x of lista.slice().sort((a, b) => String(a.data).localeCompare(String(b.data)))) {
     const o = x.tid && sch.out.get(x.tid);
-    linhas.push([x.data || '', x.pessoa || '', o ? o.wbs : '', nome(x.tid), String(x.h).replace('.', ','), x.obs || ''].map(esc).join(';'));
+    linhas.push([x.data || '', x.pessoa || '', x.pessoaEmail || '', o ? o.wbs : '', nome(x.tid),
+      String(x.h).replace('.', ','), SIT[x.estado] || 'Aceita',
+      (x.obs || '') + (x.estado === 'recusado' && x.motivoRecusa ? ' [recusa: ' + x.motivoRecusa + ']' : '')].map(esc).join(';'));
   }
   const txt = '﻿' + linhas.join('\r\n');
   await offerDownload(slug(ST.P.meta.name) + '-horas.csv', new Blob([txt], { type: 'text/csv;charset=utf-8' }));
@@ -15151,6 +15557,354 @@ async function openProject(pid) {
   renderProjectList(); refresh();
 }
 
+
+/* ============ tela do analista ============
+   Quem entra como analista não abre o MILEST: abre isto. Não é uma aba com as
+   outras escondidas — é uma tela que cobre tudo, e o sistema por baixo nunca
+   chega a carregar projeto nenhum. A diferença importa: se fosse aba, bastaria
+   um render esquecido para a carteira aparecer. Aqui não existe carteira
+   carregada para aparecer, e as regras do Firestore recusariam a leitura de
+   qualquer forma. Duas trancas na mesma porta, de propósito.
+
+   O que ele descobre, e como: não dá para listar os projetos da empresa (seria
+   a carteira). Então a pergunta é invertida — uma consulta de grupo por
+   `equipe` traz as nomeações cujo campo `email` é o dele, e cada nomeação diz
+   em que projeto está e como ele se chama. O nome do projeto viaja na própria
+   nomeação justamente para ele nunca precisar abrir o documento do projeto. */
+const AP = {
+  projetos: null, pid: null, tarefas: [], horas: [],
+  carregando: false, erro: '', salvando: false
+};
+
+function apHost() {
+  let h = document.getElementById('apontamento');
+  if (!h) {
+    h = el('div', 'ap'); h.id = 'apontamento'; h.hidden = true;
+    document.body.appendChild(h);
+  }
+  return h;
+}
+
+async function abrirApontamento() {
+  const h = apHost(); h.hidden = false;
+  document.body.style.overflow = 'hidden';
+  setSync('live', 'Apontamento');
+  AP.carregando = true; renderApontamento();
+  try {
+    AP.projetos = await apMeusProjetos();
+    AP.erro = '';
+    if (AP.projetos.length) await apAbrirProjeto(AP.projetos[0].pid);
+  } catch (e) {
+    AP.erro = (e && /permission|insufficient/i.test(String(e.code || e.message || '')))
+      ? 'O banco recusou a consulta. Quase sempre é a regra ainda não publicada, ou o índice de grupo em "equipe" ainda sendo criado — isso leva alguns minutos depois da publicação.'
+      : 'Não consegui carregar: ' + ((e && e.message) || 'erro');
+  }
+  AP.carregando = false; renderApontamento();
+}
+
+/** As nomeações desta conta, em qualquer projeto da empresa dela. */
+async function apMeusProjetos() {
+  const eu = chaveEmail(ST.userEmail || '');
+  if (!ST.db || typeof ST.db.collectionGroup !== 'function') return [];
+  const snap = await ST.db.collectionGroup('equipe').where('email', '==', eu).get();
+  const fora = [];
+  for (const d of snap.docs) {
+    const dados = d.data() || {};
+    if (dados.ativo === false) continue;
+    const projRef = d.ref.parent && d.ref.parent.parent;
+    if (!projRef) continue;
+    const orgRef = projRef.parent && projRef.parent.parent;
+    // a consulta é de grupo, então vale conferir aqui também de que empresa veio
+    if (ST.orgId && orgRef && orgRef.id !== ST.orgId) continue;
+    fora.push({
+      pid: projRef.id,
+      nome: dados.nomeProjeto || 'Projeto',
+      cliente: dados.cliente || '',
+      recursoId: dados.recursoId || ''
+    });
+  }
+  fora.sort((a, b) => String(a.nome).localeCompare(String(b.nome)));
+  return fora;
+}
+
+function apProjeto() { return (AP.projetos || []).find(p => p.pid === AP.pid) || null; }
+
+async function apAbrirProjeto(pid) {
+  AP.pid = pid; AP.tarefas = []; AP.horas = [];
+  const base = 'orgs/' + ST.orgId + '/projects/' + pid;
+  const eu = chaveEmail(ST.userEmail || '');
+  const [tSnap, hSnap] = await Promise.all([
+    ST.db.collection(base + '/tasks').get().catch(() => ({ docs: [] })),
+    ST.db.collection(base + '/horas').where('pessoaEmail', '==', eu).get()
+  ]);
+  AP.tarefas = (tSnap.docs || []).map(d => Object.assign({ id: d.id }, d.data() || {}));
+  AP.horas = (hSnap.docs || []).map(d => Object.assign({ id: d.id }, d.data() || {}));
+}
+
+/* As atividades que ele pode escolher: as folhas em que ele é o recurso
+   alocado. Sem alocação, a lista vem vazia e ele lança sem atividade — é o
+   caso comum de quem entra no meio do projeto. */
+function apMinhasTarefas() {
+  const p = apProjeto();
+  const meu = p && p.recursoId;
+  const folhas = AP.tarefas.filter(t => !(t.sum === true));
+  const temFilho = new Set(AP.tarefas.map(t => t.parent).filter(x => x));
+  const semFilho = folhas.filter(t => !temFilho.has(t.id));
+  if (!meu) return [];
+  return semFilho
+    .filter(t => (t.res || []).some(a => a && a.rid === meu))
+    .sort((a, b) => (a.ord || 0) - (b.ord || 0));
+}
+
+async function apLancar(reg) {
+  if (AP.salvando) return false;
+  const eu = chaveEmail(ST.userEmail || '');
+  const r = Object.assign({
+    id: uid('h'), data: todayISO(), pessoa: nomeDeExibicao(eu), pessoaEmail: eu,
+    recursoId: (apProjeto() || {}).recursoId || '', tid: '', h: 0, obs: '',
+    estado: 'pendente', criadoEm: Date.now(), criadoPor: eu
+  }, reg || {});
+  AP.salvando = true;
+  try {
+    await ST.db.doc('orgs/' + ST.orgId + '/projects/' + AP.pid + '/horas/' + r.id).set(r);
+    AP.horas.push(r);
+    return true;
+  } catch (e) {
+    toast(apMotivo(e));
+    return false;
+  } finally { AP.salvando = false; }
+}
+
+async function apRegravar(x) {
+  try {
+    await ST.db.doc('orgs/' + ST.orgId + '/projects/' + AP.pid + '/horas/' + x.id).set(Object.assign({}, x));
+    return true;
+  } catch (e) { toast(apMotivo(e)); return false; }
+}
+
+async function apApagar(x) {
+  try {
+    await ST.db.doc('orgs/' + ST.orgId + '/projects/' + AP.pid + '/horas/' + x.id).delete();
+    const i = AP.horas.indexOf(x); if (i >= 0) AP.horas.splice(i, 1);
+    return true;
+  } catch (e) { toast(apMotivo(e)); return false; }
+}
+
+/* A regra recusa por três motivos, e cada um pede uma frase diferente — "erro
+   de permissão" não diz a ninguém o que fazer a seguir. */
+function apMotivo(e) {
+  const t = String((e && (e.code || e.message)) || '');
+  if (!/permission|insufficient/i.test(t)) return 'Não consegui salvar: ' + (t || 'erro');
+  return 'O banco recusou. Isso acontece quando você já não está neste projeto, '
+    + 'quando o lançamento já foi aceito (aí só o gestor muda) ou quando o acesso da empresa venceu.';
+}
+
+function renderApontamento() {
+  const host = apHost(); host.textContent = '';
+  const eu = chaveEmail(ST.userEmail || '');
+
+  const bar = el('div', 'apbar');
+  const quem = el('div', 'quem');
+  quem.appendChild(el('b', '', nomeDeExibicao(eu)));
+  quem.appendChild(el('span', '', 'Apontamento de horas'));
+  bar.appendChild(quem);
+  const bSair = el('button', 'btn', 'Sair');
+  bSair.addEventListener('click', () => { try { ST.auth.signOut(); } catch (e) { } location.reload(); });
+  bar.appendChild(bSair);
+  host.appendChild(bar);
+
+  const corpo = el('div', 'apcorpo'); host.appendChild(corpo);
+
+  if (AP.carregando) { corpo.appendChild(el('div', 'vazio', 'Carregando…')); return; }
+  if (AP.erro) {
+    const c = el('div', 'card');
+    c.appendChild(el('h3', '', 'Não consegui abrir'));
+    c.appendChild(el('div', '', AP.erro));
+    const b = el('button', 'btn bgrande', 'Tentar de novo'); b.style.marginTop = '12px';
+    b.addEventListener('click', () => abrirApontamento());
+    c.appendChild(b);
+    corpo.appendChild(c); return;
+  }
+  if (!AP.projetos || !AP.projetos.length) {
+    const c = el('div', 'card');
+    c.appendChild(el('h3', '', 'Você ainda não está em nenhum projeto'));
+    c.appendChild(el('div', '',
+      'Quem gerencia o projeto precisa nomear você na equipe dele. Assim que isso acontecer, ele aparece aqui.'));
+    const b = el('button', 'btn bgrande', 'Atualizar'); b.style.marginTop = '12px';
+    b.addEventListener('click', () => abrirApontamento());
+    c.appendChild(b);
+    corpo.appendChild(c); return;
+  }
+
+  /* ---- lançar ---- */
+  const p = apProjeto();
+  const cL = el('div', 'card');
+  cL.appendChild(el('h3', '', 'Lançar horas'));
+
+  const campo = (rot, node, dica) => {
+    const d = el('div', 'campo');
+    d.appendChild(el('label', '', rot)); d.appendChild(node);
+    if (dica) { const h2 = el('div', 'hint', dica); h2.style.marginTop = '4px'; d.appendChild(h2); }
+    cL.appendChild(d); return node;
+  };
+
+  const sProj = el('select', 'inp');
+  for (const x of AP.projetos) {
+    const o = el('option', '', x.nome + (x.cliente ? ' · ' + x.cliente : '')); o.value = x.pid;
+    sProj.appendChild(o);
+  }
+  sProj.value = AP.pid;
+  sProj.addEventListener('change', async () => {
+    AP.carregando = true; renderApontamento();
+    try { await apAbrirProjeto(sProj.value); } catch (e) { AP.erro = apMotivo(e); }
+    AP.carregando = false; renderApontamento();
+  });
+  if (AP.projetos.length > 1) campo('Projeto', sProj);
+  else {
+    const d = el('div', 'campo');
+    d.appendChild(el('label', '', 'Projeto'));
+    const t = el('div'); t.style.cssText = 'font-family:var(--f-display);font-size:15px';
+    t.textContent = p.nome + (p.cliente ? ' · ' + p.cliente : '');
+    d.appendChild(t); cL.appendChild(d);
+  }
+
+  const iData = el('input', 'inp'); iData.type = 'date'; iData.value = todayISO();
+  campo('Dia trabalhado', iData);
+
+  const minhas = apMinhasTarefas();
+  const sAtiv = el('select', 'inp');
+  const ov = el('option', '', '— sem atividade —'); ov.value = ''; sAtiv.appendChild(ov);
+  for (const t of minhas) { const o = el('option', '', t.name || 'atividade'); o.value = t.id; sAtiv.appendChild(o); }
+  campo('Atividade', sAtiv, minhas.length
+    ? 'As atividades em que você está alocado neste projeto.'
+    : 'Você ainda não está alocado em nenhuma atividade deste projeto — pode lançar sem escolher uma.');
+
+  const iH = el('input', 'inp'); iH.type = 'number'; iH.min = '0.5'; iH.max = '24'; iH.step = '0.5';
+  iH.placeholder = '8'; iH.inputMode = 'decimal';
+  campo('Horas', iH);
+
+  const iObs = el('input', 'inp'); iObs.placeholder = 'o que você fez (opcional)';
+  campo('Observação', iObs);
+
+  const bLan = el('button', 'btn primary bgrande', 'Lançar');
+  bLan.addEventListener('click', async () => {
+    const horas = Number(iH.value);
+    if (!isFinite(horas) || horas <= 0) { toast('Informe as horas.'); iH.focus(); return; }
+    if (horas > 24) { toast('Um dia tem 24 horas.'); iH.focus(); return; }
+    if (!iData.value) { toast('Informe o dia.'); return; }
+    bLan.disabled = true;
+    const ok = await apLancar({
+      data: iData.value, tid: sAtiv.value || '', h: horas, obs: iObs.value.trim()
+    });
+    bLan.disabled = false;
+    if (!ok) return;
+    toast(fmtH(horas) + ' enviadas para aceite.');
+    renderApontamento();
+  });
+  cL.appendChild(bLan);
+  corpo.appendChild(cL);
+
+  /* ---- o que eu já mandei ---- */
+  const cH = el('div', 'card');
+  cH.appendChild(el('h3', '', 'O que você lançou aqui'));
+
+  const soma = est => AP.horas.filter(x => (x.estado || 'aceito') === est).reduce((a, x) => a + (Number(x.h) || 0), 0);
+  const somas = el('div', 'somas');
+  for (const [k, v] of [['Aceitas', soma('aceito')], ['Aguardando', soma('pendente')], ['Recusadas', soma('recusado')]]) {
+    const d = el('div');
+    d.appendChild(el('div', 'k', k));
+    d.appendChild(el('div', 'v', fmtH(v)));
+    somas.appendChild(d);
+  }
+  cH.appendChild(somas);
+
+  const nomeTar = id => { const t = AP.tarefas.find(x => x.id === id); return t ? (t.name || '') : ''; };
+  const ordem = { pendente: 0, recusado: 1, aceito: 2 };
+  const lista = AP.horas.slice().sort((a, b) =>
+    (ordem[a.estado || 'aceito'] - ordem[b.estado || 'aceito'])
+    || String(b.data).localeCompare(String(a.data)));
+
+  if (!lista.length) {
+    cH.appendChild(el('div', 'vazio', 'Nada lançado neste projeto ainda.'));
+  } else {
+    for (const x of lista) {
+      const est = x.estado || 'aceito';
+      const linha = el('div', 'lanc');
+      linha.appendChild(el('div', 'h', fmtH(Number(x.h) || 0)));
+      const meio = el('div', 'meio');
+      meio.appendChild(el('div', 't', fmtData(x.data) + (x.tid ? ' · ' + nomeTar(x.tid) : '')));
+      const sub = el('div', 's');
+      const marca = el('span', 'pill ' + (est === 'aceito' ? 'on' : est === 'pendente' ? 'warn' : 'off'),
+        est === 'aceito' ? 'aceita' : est === 'pendente' ? 'aguardando' : 'recusada');
+      sub.appendChild(marca);
+      if (x.obs) { const o = el('span', '', ' ' + x.obs); sub.appendChild(o); }
+      meio.appendChild(sub);
+      if (est === 'recusado' && x.motivoRecusa) meio.appendChild(el('div', 'recusa', x.motivoRecusa));
+      linha.appendChild(meio);
+
+      if (est === 'pendente') {
+        const acoes = el('div', 'acoes');
+        const bE = el('button', 'btn icon', '✎'); bE.title = 'Corrigir';
+        bE.addEventListener('click', () => apJanelaCorrigir(x));
+        const bX = el('button', 'btn icon danger', '✕'); bX.title = 'Apagar';
+        bX.addEventListener('click', async () => {
+          if (await apApagar(x)) { toast('Lançamento apagado.'); renderApontamento(); }
+        });
+        acoes.appendChild(bE); acoes.appendChild(bX);
+        linha.appendChild(acoes);
+      }
+      cH.appendChild(linha);
+    }
+  }
+  cH.appendChild(el('div', 'tagline',
+    'O que você lança fica aguardando até quem gerencia o projeto aceitar. '
+    + 'Enquanto estiver aguardando você ainda pode corrigir; depois de aceita, só o gestor muda.'));
+  corpo.appendChild(cH);
+}
+
+function apJanelaCorrigir(x) {
+  modal('Corrigir o lançamento', (body, close) => {
+    const g = el('div');
+    const campo = (rot, node) => {
+      const d = el('div', 'campo'); d.style.marginBottom = '12px';
+      d.appendChild(el('label', '', rot)); d.appendChild(node); g.appendChild(d); return node;
+    };
+    const iData = el('input', 'inp'); iData.type = 'date'; iData.value = x.data || todayISO();
+    campo('Dia trabalhado', iData);
+    const minhas = apMinhasTarefas();
+    const sAtiv = el('select', 'inp');
+    const ov = el('option', '', '— sem atividade —'); ov.value = ''; sAtiv.appendChild(ov);
+    for (const t of minhas) { const o = el('option', '', t.name || 'atividade'); o.value = t.id; sAtiv.appendChild(o); }
+    if (x.tid && !minhas.some(t => t.id === x.tid)) {
+      const o = el('option', '', 'atividade atual'); o.value = x.tid; sAtiv.appendChild(o);
+    }
+    sAtiv.value = x.tid || '';
+    campo('Atividade', sAtiv);
+    const iH = el('input', 'inp'); iH.type = 'number'; iH.min = '0.5'; iH.max = '24'; iH.step = '0.5';
+    iH.value = x.h; iH.inputMode = 'decimal';
+    campo('Horas', iH);
+    const iObs = el('input', 'inp'); iObs.value = x.obs || '';
+    campo('Observação', iObs);
+    body.appendChild(g);
+    body.__salvar = async () => {
+      const horas = Number(iH.value);
+      if (!isFinite(horas) || horas <= 0 || horas > 24) { toast('Informe as horas (até 24).'); return; }
+      const antes = Object.assign({}, x);
+      x.data = iData.value; x.tid = sAtiv.value || ''; x.h = horas; x.obs = iObs.value.trim();
+      if (await apRegravar(x)) { close(); toast('Corrigido.'); renderApontamento(); }
+      else Object.assign(x, antes);     // o banco recusou: a tela volta ao que o banco tem
+    };
+  }, [
+    { label: 'Cancelar', fn: f => f() },
+    {
+      label: 'Salvar', primary: true, fn: () => {
+        const b = document.querySelector('.modalwrap:last-child .body');
+        if (b && b.__salvar) b.__salvar();
+      }
+    }
+  ]);
+}
+
 /* ============ banco compartilhado ============ */
 async function claudeUse(name) {
   try { if (window.claude && window.claude.use) return await window.claude.use(name); } catch (e) { }
@@ -15162,18 +15916,20 @@ function setSync(mode, label) {
 }
 async function loadProject(pid) {
   const db = ST.db, base = dProjeto(pid);
-  const [mSnap, tSnap, rSnap, antigos, marca, hSnap] = await Promise.all([
+  const [mSnap, tSnap, rSnap, antigos, marca, hSnap, eSnap] = await Promise.all([
     db.doc(base).get(), db.collection(base + '/tasks').get(),
     db.collection(cRecursos()).get(),
     db.collection(base + '/resources').get(),
     db.doc(base + '/marca/logo').get().catch(() => null),
-    db.collection(base + '/horas').get().catch(() => ({ docs: [] }))
+    db.collection(base + '/horas').get().catch(() => ({ docs: [] })),
+    db.collection(base + '/equipe').get().catch(() => ({ docs: [] }))
   ]);
   ST.P.logo = (marca && marca.exists) ? marca.data() : null;
   ST.P.meta = Object.assign(newMeta(), mSnap.exists ? mSnap.data() : {});
   ST.P.tasks = sortTasks(tSnap.docs.map(d => Object.assign(newTask(), d.data(), { id: d.id })));
   ST.P.resources = rSnap.docs.map(d => Object.assign({ capacity: 100, rate: 0 }, d.data(), { id: d.id }));
   ST.P.horasDocs = (hSnap.docs || []).map(d => Object.assign({ estado: 'aceito' }, d.data(), { id: d.id }));
+  ST.P.equipe = (eSnap.docs || []).map(d => Object.assign({ ativo: true }, d.data(), { email: d.id }));
   await migrarRecursos(pid, antigos.docs.map(d => Object.assign({ capacity: 100, rate: 0 }, d.data(), { id: d.id })));
   await migrarHoras(pid);
 }
@@ -15683,6 +16439,15 @@ async function bootFirebase(cfg) {
       $('#btnSenha').hidden = false;
       // entrou com a senha temporária que o administrador passou: troca agora
       if (perfil.senhaProvisoria) setTimeout(() => modalSenha('obrigatoria'), 400);
+      if (ST.orgId && souAnalista()) {
+        /* O analista não passa por adoptSharedDb, e não é só por economia: essa
+           função LISTA os projetos da empresa. Para ele a listagem seria
+           recusada pelas regras, e mesmo que não fosse, seria a carteira
+           inteira indo parar na memória de quem não deve vê-la. Ele sai da
+           entrada direto para a tela dele. */
+        await abrirApontamento();
+        return;
+      }
       if (ST.orgId) {
         await adoptSharedDb();
         setSync('live', podeEditar() ? 'Sincronizado' : 'Somente leitura');

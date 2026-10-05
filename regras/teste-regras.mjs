@@ -3,7 +3,7 @@
    Nada aqui toca o banco de produção — tudo acontece no emulador local. */
 import { initializeTestEnvironment, assertSucceeds, assertFails } from '@firebase/rules-unit-testing';
 import { readFileSync } from 'node:fs';
-import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, collectionGroup, query, where, getDocs, serverTimestamp } from 'firebase/firestore';
 
 const env = await initializeTestEnvironment({
   projectId: 'milest-teste',
@@ -18,6 +18,8 @@ const DONA = 'mmc.chuba@gmail.com';          // conta dona: gestora por definiç
 const ANA = 'ana@unimed.com.br';        // administradora da Unimed
 const CAIO = 'caio@unimed.com.br';      // leitor da Unimed
 const BRUNO = 'bruno@varejo.com.br';    // gerente do Varejo Norte
+const ELI = 'eli@unimed.com.br';       // analista da Unimed, na equipe do p1
+const IGOR = 'igor@unimed.com.br';     // analista da Unimed, fora de toda equipe
 const FORA = 'estranho@outra.com';
 const DORA = 'dora@teste.com.br';       // administradora de duas empresas de teste
 
@@ -40,6 +42,29 @@ await env.withSecurityRulesDisabled(async ctx => {
   await setDoc(doc(db, 'orgs/unimed/projects', 'p1'), { name: 'Migração OIC' });
   await setDoc(doc(db, 'orgs/unimed/projects/p1/tasks', 't1'), { name: 'Levantamento' });
   await setDoc(doc(db, 'orgs/unimed/resources', 'r1'), { name: 'Ana Prado' });
+
+  // dois analistas: um nomeado no p1, outro sem equipe nenhuma
+  await setDoc(doc(db, 'users', ELI), { email: ELI, orgId: 'unimed' });
+  await setDoc(doc(db, 'users', IGOR), { email: IGOR, orgId: 'unimed' });
+  await setDoc(doc(db, 'orgs/unimed/members', ELI), { email: ELI, papel: 'analista', ativo: true });
+  await setDoc(doc(db, 'orgs/unimed/members', IGOR), { email: IGOR, papel: 'analista', ativo: true });
+  await setDoc(doc(db, 'orgs/unimed/projects/p1/equipe', ELI),
+    { email: ELI, papel: 'analista', recursoId: 'r1', ativo: true, nomeProjeto: 'Migração OIC', cliente: 'Unimed Uberaba' });
+  await setDoc(doc(db, 'orgs/unimed/projects/p1/horas', 'hE'),
+    { pessoaEmail: ELI, criadoPor: ELI, estado: 'pendente', data: '2026-10-01', h: 8 });
+  await setDoc(doc(db, 'orgs/unimed/projects/p1/horas', 'hE2'),
+    { pessoaEmail: ELI, criadoPor: ELI, estado: 'pendente', data: '2026-10-02', h: 6 });
+  await setDoc(doc(db, 'orgs/unimed/projects/p1/horas', 'hEaceita'),
+    { pessoaEmail: ELI, criadoPor: ELI, estado: 'aceito', data: '2026-09-30', h: 8 });
+  await setDoc(doc(db, 'orgs/unimed/projects/p1/horas', 'hA'),
+    { pessoaEmail: ANA, criadoPor: ANA, estado: 'aceito', data: '2026-10-01', h: 4 });
+  // um segundo projeto da mesma empresa, em que o analista NÃO está
+  await setDoc(doc(db, 'orgs/unimed/projects', 'p2'), { name: 'Projeto alheio' });
+  await setDoc(doc(db, 'orgs/unimed/projects/p2/tasks', 't2'), { name: 'Outra coisa' });
+  // um analista na empresa de prazo vencido
+  await setDoc(doc(db, 'orgs/vencida/members', ELI), { email: ELI, papel: 'analista', ativo: true });
+  await setDoc(doc(db, 'orgs/vencida/projects/v1/equipe', ELI),
+    { email: ELI, papel: 'analista', recursoId: '', ativo: true, nomeProjeto: 'Piloto' });
 
   await setDoc(doc(db, 'orgs', 'varejo'), { nome: 'Varejo Norte', ativo: true, semDono: false });
   await setDoc(doc(db, 'orgs/varejo/members', BRUNO), { email: BRUNO, papel: 'gerente', ativo: true });
@@ -172,6 +197,130 @@ await caso('prazo vencido: NÃO lança hora', () =>
   assertFails(setDoc(doc(conta(DORA), 'orgs/vencida/projects/v1/horas', 'h1'), hora(DORA, 8))));
 await caso('admin apaga a própria hora lançada', () =>
   assertSucceeds(deleteDoc(doc(conta(ANA), 'orgs/unimed/projects/p1/horas', 'h1'))));
+
+console.log('\nO ANALISTA PERTENCE À EMPRESA, MAS NÃO ENXERGA A EMPRESA');
+/* É a única mudança do sistema em que um erro não incomoda: vaza. Até aqui
+   pertencer e enxergar eram a mesma coisa — todo membro lia tudo. O analista
+   separa as duas, e estes casos são o lugar onde essa separação é verificada
+   antes de qualquer tela existir. */
+const horaDe = (quem, h, estado) => ({ data: '2026-10-05', pessoa: 'Fulano', pessoaEmail: quem, criadoPor: quem, recursoId: '', tid: '', h: h, obs: '', estado: estado || 'pendente', criadoEm: Date.now() });
+
+await caso('analista lê o PRÓPRIO cadastro de membro', () =>
+  assertSucceeds(getDoc(doc(conta(ELI), 'orgs/unimed/members', ELI))));
+await caso('analista NÃO lê o cadastro de outro membro', () =>
+  assertFails(getDoc(doc(conta(ELI), 'orgs/unimed/members', ANA))));
+await caso('analista NÃO lista os membros da empresa', () =>
+  assertFails(getDocs(collection(conta(ELI), 'orgs/unimed/members'))));
+await caso('analista NÃO lê o projeto em que trabalha', () =>
+  assertFails(getDoc(doc(conta(ELI), 'orgs/unimed/projects', 'p1'))));
+await caso('analista NÃO lista a carteira', () =>
+  assertFails(getDocs(collection(conta(ELI), 'orgs/unimed/projects'))));
+await caso('analista NÃO lê os recursos (é onde mora o valor/hora)', () =>
+  assertFails(getDoc(doc(conta(ELI), 'orgs/unimed/resources', 'r1'))));
+await caso('analista NÃO lê o diário do projeto', () =>
+  assertFails(getDocs(collection(conta(ELI), 'orgs/unimed/projects/p1/diario'))));
+
+await caso('analista lê a PRÓPRIA nomeação na equipe', () =>
+  assertSucceeds(getDoc(doc(conta(ELI), 'orgs/unimed/projects/p1/equipe', ELI))));
+await caso('analista NÃO lê a nomeação de outro', () =>
+  assertFails(getDoc(doc(conta(IGOR), 'orgs/unimed/projects/p1/equipe', ELI))));
+await caso('analista NÃO se nomeia na equipe', () =>
+  assertFails(setDoc(doc(conta(IGOR), 'orgs/unimed/projects/p1/equipe', IGOR), { email: IGOR, papel: 'analista', ativo: true })));
+await caso('gerente nomeia analista na equipe', () =>
+  assertSucceeds(setDoc(doc(conta(ANA), 'orgs/unimed/projects/p2/equipe', IGOR), { email: IGOR, papel: 'analista', recursoId: '', ativo: true, nomeProjeto: 'Projeto alheio' })));
+
+await caso('analista lê as atividades do projeto em que está na equipe', () =>
+  assertSucceeds(getDoc(doc(conta(ELI), 'orgs/unimed/projects/p1/tasks', 't1'))));
+await caso('analista NÃO lê as atividades de projeto em que não está', () =>
+  assertFails(getDoc(doc(conta(ELI), 'orgs/unimed/projects/p2/tasks', 't2'))));
+await caso('analista NÃO grava atividade', () =>
+  assertFails(setDoc(doc(conta(ELI), 'orgs/unimed/projects/p1/tasks', 't9'), { name: 'minha' })));
+
+await caso('analista lê a PRÓPRIA hora', () =>
+  assertSucceeds(getDoc(doc(conta(ELI), 'orgs/unimed/projects/p1/horas', 'hE'))));
+await caso('analista NÃO lê a hora de outra pessoa', () =>
+  assertFails(getDoc(doc(conta(ELI), 'orgs/unimed/projects/p1/horas', 'hA'))));
+await caso('analista NÃO lista as horas do projeto', () =>
+  assertFails(getDocs(collection(conta(ELI), 'orgs/unimed/projects/p1/horas'))));
+await caso('analista lista as horas filtrando por si', () =>
+  assertSucceeds(getDocs(query(collection(conta(ELI), 'orgs/unimed/projects/p1/horas'), where('pessoaEmail', '==', ELI)))));
+await caso('analista NÃO lista filtrando pelo nome de outro', () =>
+  assertFails(getDocs(query(collection(conta(ELI), 'orgs/unimed/projects/p1/horas'), where('pessoaEmail', '==', ANA)))));
+await caso('gerente lista as horas do projeto inteiro', () =>
+  assertSucceeds(getDocs(collection(conta(ANA), 'orgs/unimed/projects/p1/horas'))));
+
+await caso('analista lança a própria hora, pendente', () =>
+  assertSucceeds(setDoc(doc(conta(ELI), 'orgs/unimed/projects/p1/horas', 'nova1'), horaDe(ELI, 8))));
+await caso('analista NÃO lança a hora já aceita', () =>
+  assertFails(setDoc(doc(conta(ELI), 'orgs/unimed/projects/p1/horas', 'nova2'), horaDe(ELI, 8, 'aceito'))));
+await caso('analista NÃO lança em nome de outro', () =>
+  assertFails(setDoc(doc(conta(ELI), 'orgs/unimed/projects/p1/horas', 'nova3'), horaDe(ANA, 8))));
+await caso('analista NÃO lança assinando com o e-mail de outro', () =>
+  assertFails(setDoc(doc(conta(ELI), 'orgs/unimed/projects/p1/horas', 'nova4'),
+    Object.assign(horaDe(ELI, 8), { criadoPor: ANA }))));
+await caso('analista NÃO lança em projeto em que não está na equipe', () =>
+  assertFails(setDoc(doc(conta(ELI), 'orgs/unimed/projects/p2/horas', 'nova5'), horaDe(ELI, 8))));
+await caso('analista sem equipe nenhuma NÃO lança', () =>
+  assertFails(setDoc(doc(conta(IGOR), 'orgs/unimed/projects/p1/horas', 'nova6'), horaDe(IGOR, 8))));
+await caso('analista NÃO lança zero hora', () =>
+  assertFails(setDoc(doc(conta(ELI), 'orgs/unimed/projects/p1/horas', 'nova7'), horaDe(ELI, 0))));
+await caso('analista NÃO lança mais de 24 h num dia', () =>
+  assertFails(setDoc(doc(conta(ELI), 'orgs/unimed/projects/p1/horas', 'nova8'), horaDe(ELI, 25))));
+await caso('analista NÃO lança hora em texto', () =>
+  assertFails(setDoc(doc(conta(ELI), 'orgs/unimed/projects/p1/horas', 'nova9'),
+    Object.assign(horaDe(ELI, 8), { h: '8' }))));
+
+await caso('analista corrige a própria hora pendente', () =>
+  assertSucceeds(updateDoc(doc(conta(ELI), 'orgs/unimed/projects/p1/horas', 'hE'), { h: 7, obs: 'corrigi' })));
+await caso('analista NÃO aceita a própria hora', () =>
+  assertFails(updateDoc(doc(conta(ELI), 'orgs/unimed/projects/p1/horas', 'hE'), { estado: 'aceito' })));
+await caso('analista NÃO mexe na hora já aceita', () =>
+  assertFails(updateDoc(doc(conta(ELI), 'orgs/unimed/projects/p1/horas', 'hEaceita'), { h: 99 })));
+await caso('analista NÃO mexe na hora de outro', () =>
+  assertFails(updateDoc(doc(conta(ELI), 'orgs/unimed/projects/p1/horas', 'hA'), { h: 99 })));
+await caso('analista apaga a própria hora pendente', () =>
+  assertSucceeds(deleteDoc(doc(conta(ELI), 'orgs/unimed/projects/p1/horas', 'hE2'))));
+await caso('analista NÃO apaga a hora já aceita', () =>
+  assertFails(deleteDoc(doc(conta(ELI), 'orgs/unimed/projects/p1/horas', 'hEaceita'))));
+await caso('analista NÃO apaga a hora de outro', () =>
+  assertFails(deleteDoc(doc(conta(ELI), 'orgs/unimed/projects/p1/horas', 'hA'))));
+
+await caso('o GP aceita a hora do analista', () =>
+  assertSucceeds(updateDoc(doc(conta(ANA), 'orgs/unimed/projects/p1/horas', 'hE'), { estado: 'aceito', decididoPor: ANA, decididoEm: Date.now() })));
+await caso('depois de aceita, o analista não a corrige mais', () =>
+  assertFails(updateDoc(doc(conta(ELI), 'orgs/unimed/projects/p1/horas', 'hE'), { h: 1 })));
+
+await caso('analista de uma empresa NÃO alcança outra', () =>
+  assertFails(setDoc(doc(conta(ELI), 'orgs/varejo/projects/p9/horas', 'x'), horaDe(ELI, 8))));
+await caso('prazo vencido: nem o analista lança', () =>
+  assertFails(setDoc(doc(conta(ELI), 'orgs/vencida/projects/v1/horas', 'x'), horaDe(ELI, 8))));
+
+await caso('analista desligado da equipe NÃO lança mais', async () => {
+  await env.withSecurityRulesDisabled(async ctx =>
+    setDoc(doc(ctx.firestore(), 'orgs/unimed/projects/p1/equipe', ELI), { email: ELI, papel: 'analista', ativo: false }));
+  await assertFails(setDoc(doc(conta(ELI), 'orgs/unimed/projects/p1/horas', 'depois'), horaDe(ELI, 8)));
+  await env.withSecurityRulesDisabled(async ctx =>
+    setDoc(doc(ctx.firestore(), 'orgs/unimed/projects/p1/equipe', ELI),
+      { email: ELI, papel: 'analista', recursoId: 'r1', ativo: true, nomeProjeto: 'Migração OIC' }));
+});
+
+console.log('\nEM QUE PROJETOS EU ESTOU (consulta de grupo)');
+await caso('analista encontra as próprias nomeações', () =>
+  assertSucceeds(getDocs(query(collectionGroup(conta(ELI), 'equipe'), where('email', '==', ELI)))));
+await caso('analista NÃO varre as equipes sem se filtrar', () =>
+  assertFails(getDocs(collectionGroup(conta(ELI), 'equipe'))));
+await caso('ninguém encontra as nomeações de outro', () =>
+  assertFails(getDocs(query(collectionGroup(conta(IGOR), 'equipe'), where('email', '==', ELI)))));
+
+console.log('\nO QUE NÃO PODE TER MUDADO COM O PAPEL NOVO');
+await caso('leitor continua lendo o projeto', () =>
+  assertSucceeds(getDoc(doc(conta(CAIO), 'orgs/unimed/projects', 'p1'))));
+await caso('leitor continua lendo os recursos', () =>
+  assertSucceeds(getDoc(doc(conta(CAIO), 'orgs/unimed/resources', 'r1'))));
+await caso('leitor continua listando a carteira', () =>
+  assertSucceeds(getDocs(collection(conta(CAIO), 'orgs/unimed/projects'))));
+await caso('gerente continua gravando hora direto como aceita', () =>
+  assertSucceeds(setDoc(doc(conta(ANA), 'orgs/unimed/projects/p1/horas', 'doGP'), horaDe(ANA, 8, 'aceito'))));
 
 console.log('\nEMPRESA SUSPENSA');
 await caso('membro de empresa suspensa NÃO lê projeto', () =>

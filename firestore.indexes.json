@@ -1,1 +1,13 @@
-{ "indexes": [], "fieldOverrides": [] }
+{
+  "indexes": [],
+  "fieldOverrides": [
+    {
+      "collectionGroup": "equipe",
+      "fieldPath": "email",
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION" },
+        { "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }
+      ]
+    }
+  ]
+}
