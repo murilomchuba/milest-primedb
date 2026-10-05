@@ -15565,7 +15565,8 @@ async function openProject(pid) {
    nomeação justamente para ele nunca precisar abrir o documento do projeto. */
 const AP = {
   projetos: null, pid: null, tarefas: [], horas: [],
-  carregando: false, erro: '', salvando: false
+  carregando: false, erro: '', salvando: false,
+  esperandoIndice: false, tentativas: 0, timer: null
 };
 
 function apHost() {
@@ -15577,19 +15578,62 @@ function apHost() {
   return h;
 }
 
-async function abrirApontamento() {
+/* O índice de grupo em `equipe` não existe no instante em que as regras são
+   publicadas: o Firestore o constrói depois, e isso leva alguns minutos. É
+   uma espera que acontece UMA vez na vida da instalação — e logo no primeiro
+   acesso do primeiro analista, que é exatamente quem menos tem contexto para
+   entender a mensagem crua do banco ("requires a COLLECTION_GROUP_ASC index",
+   seguida de uma URL de 200 caracteres). Então a tela reconhece esse caso,
+   diz em português o que está havendo, e fica tentando sozinha enquanto a
+   pessoa olha — porque o que ela precisa fazer é só esperar.
+
+   A tentativa é limitada: para de insistir depois de uns três minutos e
+   devolve o botão. Uma tela que tenta para sempre esconde um problema de
+   verdade atrás de um "carregando" eterno. */
+const AP_ESPERA = 20000, AP_MAX_TENTA = 9;
+
+/* O Firestore põe o motivo no `code` e a explicação na `message`, e aqui as
+   duas importam: o código diz `failed-precondition` (que também é outras
+   coisas) e só a mensagem diz que é um índice. Olhar um só dos dois foi o
+   primeiro jeito que escrevi isto, e não reconhecia nada. */
+function apTexto(e) {
+  return String((e && e.code) || '') + ' ' + String((e && e.message) || '');
+}
+function apErroDeIndice(e) {
+  const t = apTexto(e);
+  return /index/i.test(t) && /(not ready|building|requires)/i.test(t);
+}
+
+async function abrirApontamento(deNovo) {
   const h = apHost(); h.hidden = false;
   document.body.style.overflow = 'hidden';
   setSync('live', 'Apontamento');
-  AP.carregando = true; renderApontamento();
+  if (!deNovo) { AP.tentativas = 0; clearTimeout(AP.timer); }
+  AP.carregando = true; AP.esperandoIndice = false; renderApontamento();
   try {
     AP.projetos = await apMeusProjetos();
-    AP.erro = '';
+    AP.erro = ''; AP.tentativas = 0;
     if (AP.projetos.length) await apAbrirProjeto(AP.projetos[0].pid);
   } catch (e) {
-    AP.erro = (e && /permission|insufficient/i.test(String(e.code || e.message || '')))
-      ? 'O banco recusou a consulta. Quase sempre é a regra ainda não publicada, ou o índice de grupo em "equipe" ainda sendo criado — isso leva alguns minutos depois da publicação.'
-      : 'Não consegui carregar: ' + ((e && e.message) || 'erro');
+    if (apErroDeIndice(e)) {
+      AP.tentativas = (AP.tentativas || 0) + 1;
+      AP.esperandoIndice = AP.tentativas <= AP_MAX_TENTA;
+      AP.erro = AP.esperandoIndice
+        ? 'O MILEST está terminando de preparar o seu acesso. Isso acontece uma única vez, '
+          + 'logo depois de o sistema ser atualizado, e costuma levar alguns minutos. '
+          + 'Pode deixar esta tela aberta — ela abre sozinha assim que ficar pronto.'
+        : 'A preparação está demorando mais do que o normal. Avise quem administra o sistema: '
+          + 'o índice de grupo do campo "equipe.email" precisa terminar de ser criado no Firestore.';
+      if (AP.esperandoIndice) {
+        clearTimeout(AP.timer);
+        AP.timer = setTimeout(() => abrirApontamento(true), AP_ESPERA);
+      }
+    } else if (/permission|insufficient/i.test(apTexto(e))) {
+      AP.erro = 'O banco recusou a consulta. Quase sempre é a atualização do sistema ainda não publicada. '
+        + 'Avise quem administra o MILEST.';
+    } else {
+      AP.erro = 'Não consegui carregar: ' + ((e && e.message) || 'erro');
+    }
   }
   AP.carregando = false; renderApontamento();
 }
@@ -15685,8 +15729,8 @@ async function apApagar(x) {
 /* A regra recusa por três motivos, e cada um pede uma frase diferente — "erro
    de permissão" não diz a ninguém o que fazer a seguir. */
 function apMotivo(e) {
-  const t = String((e && (e.code || e.message)) || '');
-  if (!/permission|insufficient/i.test(t)) return 'Não consegui salvar: ' + (t || 'erro');
+  const t = apTexto(e);
+  if (!/permission|insufficient/i.test(t)) return 'Não consegui salvar: ' + ((e && e.message) || 'erro');
   return 'O banco recusou. Isso acontece quando você já não está neste projeto, '
     + 'quando o lançamento já foi aceito (aí só o gestor muda) ou quando o acesso da empresa venceu.';
 }
@@ -15710,9 +15754,14 @@ function renderApontamento() {
   if (AP.carregando) { corpo.appendChild(el('div', 'vazio', 'Carregando…')); return; }
   if (AP.erro) {
     const c = el('div', 'card');
-    c.appendChild(el('h3', '', 'Não consegui abrir'));
+    c.appendChild(el('h3', '', AP.esperandoIndice ? 'Quase lá' : 'Não consegui abrir'));
     c.appendChild(el('div', '', AP.erro));
-    const b = el('button', 'btn bgrande', 'Tentar de novo'); b.style.marginTop = '12px';
+    if (AP.esperandoIndice) {
+      const e2 = el('div', 'hint', 'Tentando de novo a cada 20 segundos — tentativa ' + AP.tentativas + '.');
+      e2.style.marginTop = '10px'; c.appendChild(e2);
+    }
+    const b = el('button', 'btn bgrande', AP.esperandoIndice ? 'Tentar agora' : 'Tentar de novo');
+    b.style.marginTop = '12px';
     b.addEventListener('click', () => abrirApontamento());
     c.appendChild(b);
     corpo.appendChild(c); return;
