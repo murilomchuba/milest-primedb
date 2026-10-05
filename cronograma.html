@@ -1607,7 +1607,7 @@ function localSave() {
   } catch (e) { }
 }
 
-let saveTimer = null, dirty = { meta: false, tasks: new Set(), res: new Set(), delT: new Set(), delR: new Set() };
+let saveTimer = null, dirty = { meta: false, tasks: new Set(), res: new Set(), delT: new Set(), delR: new Set(), horas: new Set(), delH: new Set() };
 /* ============ caminhos no banco ============
    Cada empresa é a raiz dos próprios dados: orgs/{orgId}/projects/...
    O isolamento é estrutural, não um campo que alguém pode esquecer de filtrar.
@@ -1697,16 +1697,18 @@ function markDelRes(id) { if (!podeEditarCronograma()) return; dirty.delR.add(id
 function queueSave() { clearTimeout(saveTimer); saveTimer = setTimeout(flushSave, 350); }
 
 async function flushSave() {
-  const d = dirty; dirty = { meta: false, tasks: new Set(), res: new Set(), delT: new Set(), delR: new Set() };
+  const d = dirty; dirty = { meta: false, tasks: new Set(), res: new Set(), delT: new Set(), delR: new Set(), horas: new Set(), delH: new Set() };
   if (ST.mode === 'embed') { embedAvisar(); return; }
   if (ST.mode !== 'db') { localSave(); autoVersao(); return; }
-  if (ST.suporte && (d.meta || d.tasks.size || d.res.size || d.delT.size || d.delR.size)) registrarEdicaoSuporte();
+  if (ST.suporte && (d.meta || d.tasks.size || d.res.size || d.delT.size || d.delR.size || d.horas.size || d.delH.size)) registrarEdicaoSuporte();
   const db = ST.db, base = dProjeto(ST.pid);
   const jobs = [];
   try {
     if (d.meta) jobs.push(db.doc(base).set(stripMeta(ST.P.meta)));
     for (const id of d.tasks) { const t = ST.P.tasks.find(x => x.id === id); if (t) jobs.push(db.doc(base + '/tasks/' + id).set(stripTask(t))); }
     for (const id of d.res) { const r = ST.P.resources.find(x => x.id === id); if (r) jobs.push(db.doc(dRecurso(id)).set(Object.assign({}, r))); }
+    for (const id of d.horas) { const x = (ST.P.horasDocs || []).find(y => y.id === id); if (x) jobs.push(db.doc(base + '/horas/' + id).set(Object.assign({}, x))); }
+    for (const id of d.delH) jobs.push(db.doc(base + '/horas/' + id).delete());
     for (const id of d.delT) jobs.push(db.doc(base + '/tasks/' + id).delete());
     for (const id of d.delR) jobs.push(db.doc(dRecurso(id)).delete());
     await Promise.all(jobs);
@@ -4338,6 +4340,7 @@ function congelarP(P) {
     meta: Object.assign({}, P.meta),
     tasks: (P.tasks || []).map(t => Object.assign({}, t, { res: (t.res || []).map(a => Object.assign({}, a)) })),
     resources: P.resources,
+    horasDocs: Array.isArray(P.horasDocs) ? P.horasDocs.map(x => Object.assign({}, x)) : undefined,
     logo: P.logo || null
   };
 }
@@ -9269,17 +9272,19 @@ async function coletarBackupTotal(aviso, comAnexos) {
     const ps = await ST.db.collection(base + '/projects').get().catch(() => vazio);
     for (const d of ps.docs) {
       const bp = base + '/projects/' + d.id;
-      const [t, v, vd, dc, dd, di] = await Promise.all([
+      const [t, v, vd, dc, dd, di, hh] = await Promise.all([
         ST.db.collection(bp + '/tasks').get().catch(() => vazio),
         ST.db.collection(bp + '/versions').get().catch(() => vazio),
         ST.db.collection(bp + '/versionsData').get().catch(() => vazio),
         ST.db.collection(bp + '/docs').get().catch(() => vazio),
         saida.anexos ? ST.db.collection(bp + '/docsData').get().catch(() => vazio) : Promise.resolve(vazio),
-        ST.db.collection(bp + '/diario').get().catch(() => vazio)
+        ST.db.collection(bp + '/diario').get().catch(() => vazio),
+        ST.db.collection(bp + '/horas').get().catch(() => vazio)
       ]);
       emp.projects.push({
         id: d.id, meta: d.data() || {}, tasks: lista(t), versions: lista(v),
-        versionsData: lista(vd), docs: lista(dc), docsData: lista(dd), diario: lista(di)
+        versionsData: lista(vd), docs: lista(dc), docsData: lista(dd), diario: lista(di),
+        horas: lista(hh)
       });
     }
     emp.resources = lista(await ST.db.collection(base + '/resources').get().catch(() => vazio));
@@ -9695,6 +9700,11 @@ async function aplicarBackup(d, orgAlvo) {
       await emLotes(p.versionsData || [], v => ST.db.doc(base + '/versionsData/' + v.id).set(v));
       await emLotes(p.docs || [], v => ST.db.doc(base + '/docs/' + v.id).set(v));
       await emLotes(p.docsData || [], v => ST.db.doc(base + '/docsData/' + v.id).set(v));
+      /* O diário era coletado no backup e não voltava na restauração: o
+         arquivo tinha os dados, a restauração os descartava em silêncio, e só
+         se descobriria no dia em que fizessem falta. */
+      await emLotes(p.diario || [], v => ST.db.doc(base + '/diario/' + v.id).set(v));
+      await emLotes(p.horas || [], v => ST.db.doc(base + '/horas/' + v.id).set(v));
     }
     await emLotes(d.resources || [], r => ST.db.doc(alvoRecurso(r.id)).set(r));
     if (ehAdmin() && !orgAlvo) await emLotes(d.users || [], u => ST.db.doc('users/' + u.id).set(u).catch(() => { }));
@@ -9713,7 +9723,8 @@ async function aplicarBackup(d, orgAlvo) {
     for (const p of d.projects) {
       all.projects[p.id] = {
         meta: p.meta, tasks: p.tasks || [], versions: p.versions || [],
-        versionsData: p.versionsData || [], docs: p.docs || [], docsData: p.docsData || []
+        versionsData: p.versionsData || [], docs: p.docs || [], docsData: p.docsData || [],
+        diario: p.diario || [], horas: p.horas || []
       };
     }
     all.resources = (d.resources || []).slice();
@@ -13211,19 +13222,119 @@ async function gerarPDFPortfolio(titulo, comStatus) {
 
 /* ============ Horas realizadas ============
    Lançamento manual: uma linha por dia trabalhado, com pessoa, atividade
-   (opcional) e horas. Fica em meta.horas, então acompanha o projeto na nuvem,
-   no backup e na restauração sem nenhum caminho novo a tratar. */
+   (opcional) e horas. */
+/* ---- onde as horas moram ----
+   Antes: um array dentro do documento do projeto, junto do cronograma, do
+   Canvas e da RACI. Funcionava com um gestor escrevendo. Não funciona com uma
+   equipe, por três motivos que aparecem juntos:
+
+   PERMISSÃO — regra do Firestore não autoriza "só acrescentar um item neste
+   array". Ou a pessoa escreve o documento inteiro — orçamento, custos, status
+   report — ou nada. Não há meio-termo, então não há analista possível.
+
+   CONCORRÊNCIA — grava-se o array todo, então dois lançamentos no mesmo
+   minuto fazem o último apagar o primeiro, sem deixar rastro.
+
+   TAMANHO — o documento tem teto de 1 MB, e dez pessoas lançando o ano
+   inteiro são umas centenas de KB somadas a tudo o que já mora ali.
+
+   Agora cada lançamento é um documento em projects/{pid}/horas. Os campos já
+   nascem no formato final (estado, criadoPor, recursoId) mesmo que hoje só o
+   gestor escreva e tudo nasça aceito: acrescentar campo depois é migração,
+   deixar o espaço reservado é só não usá-lo ainda.
+
+   O RESUMO é o que mantém a carteira barata. A Visão geral soma 19 projetos
+   e não abre nenhum: baixar a coleção de horas de cada um seriam 19 idas à
+   rede a cada abertura. Então o total aceito fica gravado no cabeçalho do
+   projeto, que a carteira já lê de qualquer jeito. */
+const cHorasDe = pid => dProjeto(pid || ST.pid) + '/horas';
+
 function horasDe(P) {
   const m = (P && P.meta) || {};
-  const lista = Array.isArray(m.horas) ? m.horas : [];
-  const feitas = lista.reduce((a, x) => a + (Number(x.h) || 0), 0);
   const prev = Math.max(0, Number(m.horasPrev) || 0);
+  const soma = l => l.reduce((a, x) => a + (x && x.estado === 'recusado' ? 0 : (Number(x && x.h) || 0)), 0);
+  let lista, feitas;
+  if (P && Array.isArray(P.horasDocs)) {
+    lista = P.horasDocs; feitas = soma(lista);
+  } else if (m.horasResumo && isFinite(Number(m.horasResumo.feitas))) {
+    lista = []; feitas = Number(m.horasResumo.feitas) || 0;
+  } else {
+    lista = Array.isArray(m.horas) ? m.horas : []; feitas = soma(lista);
+  }
   return { lista: lista, feitas: feitas, prev: prev, saldo: prev - feitas, temPrev: prev > 0 };
 }
+
+/** A lista que a aba Horas edita. No banco é a coleção; sem banco, o array. */
 function horasDoProjeto() {
+  if (ST.mode === 'db') {
+    if (!Array.isArray(ST.P.horasDocs)) ST.P.horasDocs = [];
+    return ST.P.horasDocs;
+  }
   const m = ST.P.meta;
   if (!Array.isArray(m.horas)) m.horas = [];
   return m.horas;
+}
+
+function atualizarResumoHoras() {
+  const l = horasDoProjeto();
+  ST.P.meta.horasResumo = {
+    feitas: l.reduce((a, x) => a + (x.estado === 'recusado' ? 0 : (Number(x.h) || 0)), 0),
+    n: l.length, atualizadoEm: Date.now()
+  };
+}
+
+function lancarHora(reg) {
+  const r = Object.assign({
+    id: uid('h'), data: todayISO(), pessoa: '', pessoaEmail: '', recursoId: '',
+    tid: '', h: 0, obs: '', estado: 'aceito', criadoEm: Date.now(),
+    criadoPor: chaveEmail(ST.userEmail || '')
+  }, reg || {});
+  if (!podeEditar()) return r;      // igual a markTask/markRes: quem só lê não suja nada
+  horasDoProjeto().push(r);
+  if (ST.mode === 'db') dirty.horas.add(r.id);
+  atualizarResumoHoras(); markMeta();
+  return r;
+}
+
+function removerHora(x) {
+  if (!podeEditar()) return;
+  const l = horasDoProjeto();
+  const i = l.indexOf(x); if (i >= 0) l.splice(i, 1);
+  if (ST.mode === 'db') { dirty.horas.delete(x.id); dirty.delH.add(x.id); }
+  atualizarResumoHoras(); markMeta();
+}
+
+/* Roda uma vez por projeto, no mesmo lugar e pelo mesmo motivo que
+   migrarRecursos. Grava com o id que o lançamento já tinha, então repetir não
+   duplica: sobrescreve o mesmo documento. */
+async function migrarHoras(pid) {
+  if (ST.mode !== 'db') return;
+  /* Quem só lê não migra: as gravações seriam recusadas uma a uma, a cada
+     abertura, sem ninguém ver. Quem pode gravar abre o projeto e migra. */
+  if (!podeEditar()) return;
+  if (!Array.isArray(ST.P.horasDocs)) ST.P.horasDocs = [];
+  const antigas = Array.isArray(ST.P.meta.horas) ? ST.P.meta.horas : [];
+  if (!antigas.length) { atualizarResumoHoras(); return; }
+  const jaTem = new Set(ST.P.horasDocs.map(x => x.id));
+  const base = cHorasDe(pid);
+  try {
+    for (const x of antigas) {
+      const r = Object.assign({
+        estado: 'aceito', criadoEm: Date.now(), criadoPor: '', pessoaEmail: '', recursoId: ''
+      }, x);
+      await ST.db.doc(base + '/' + r.id).set(r);
+      if (!jaTem.has(r.id)) ST.P.horasDocs.push(r);
+    }
+  } catch (e) {
+    /* falhou no meio: o array antigo NÃO é limpo, então a próxima abertura
+       tenta de novo e os que já foram são só regravados por cima */
+    atualizarResumoHoras();
+    return;
+  }
+  ST.P.meta.horas = [];
+  atualizarResumoHoras();
+  dirty.meta = true;
+  await flushSave();
 }
 const fmtH = v => fmtNum(v, (Math.abs(v) % 1) ? 1 : 0) + ' h';
 
@@ -13312,11 +13423,13 @@ function renderHoras() {
       const horas = Number(iH.value);
       if (!isFinite(horas) || horas <= 0) { toast('Informe as horas.'); iH.focus(); return; }
       if (!iData.value) { toast('Informe a data.'); return; }
-      lista.push({
-        id: uid('h'), data: iData.value, pessoa: iPessoa.value.trim(),
-        tid: sAtiv.value || '', h: horas, obs: iObs.value.trim(), criadoEm: Date.now()
+      const achado = (ST.P.resources || []).find(r => semAcento(r.name) === semAcento(iPessoa.value));
+      lancarHora({
+        data: iData.value, pessoa: iPessoa.value.trim(),
+        recursoId: achado ? achado.id : '',
+        tid: sAtiv.value || '', h: horas, obs: iObs.value.trim()
       });
-      markMeta(); ST.portfolio = null; ST.portfolioEm = 0; esquecerCarteira();
+      ST.portfolio = null; ST.portfolioEm = 0; esquecerCarteira();
       iH.value = ''; iObs.value = '';
       renderHoras(); renderKPIs();
       toast(fmtH(horas) + ' lançadas.');
@@ -13380,8 +13493,8 @@ function renderHoras() {
       const bX = el('button', 'btn icon danger reqedit', '✕'); bX.title = 'Remover este lançamento';
       bX.addEventListener('click', () => {
         if (semPermissao()) return;
-        const i = lista.indexOf(x); if (i >= 0) lista.splice(i, 1);
-        markMeta(); ST.portfolio = null; ST.portfolioEm = 0; esquecerCarteira(); renderHoras(); renderKPIs();
+        removerHora(x);
+        ST.portfolio = null; ST.portfolioEm = 0; esquecerCarteira(); renderHoras(); renderKPIs();
       });
       tdX.appendChild(bX); tr.appendChild(tdX);
       tbo.appendChild(tr);
@@ -14869,7 +14982,7 @@ async function createProject(name, start, cliente, resumo, horasPrev, logo) {
 async function excluirProjeto(pid) {
   if (semPermissao()) return false;
   clearTimeout(saveTimer);                              // nada pendente pode ressuscitar o projeto
-  dirty = { meta: false, tasks: new Set(), res: new Set(), delT: new Set(), delR: new Set() };
+  dirty = { meta: false, tasks: new Set(), res: new Set(), delT: new Set(), delR: new Set(), horas: new Set(), delH: new Set() };
   for (const u of ST.unsub) { try { u(); } catch (e) { } } ST.unsub = [];
   try {
     if (ST.mode === 'db') {
@@ -15049,17 +15162,20 @@ function setSync(mode, label) {
 }
 async function loadProject(pid) {
   const db = ST.db, base = dProjeto(pid);
-  const [mSnap, tSnap, rSnap, antigos, marca] = await Promise.all([
+  const [mSnap, tSnap, rSnap, antigos, marca, hSnap] = await Promise.all([
     db.doc(base).get(), db.collection(base + '/tasks').get(),
     db.collection(cRecursos()).get(),
     db.collection(base + '/resources').get(),
-    db.doc(base + '/marca/logo').get().catch(() => null)
+    db.doc(base + '/marca/logo').get().catch(() => null),
+    db.collection(base + '/horas').get().catch(() => ({ docs: [] }))
   ]);
   ST.P.logo = (marca && marca.exists) ? marca.data() : null;
   ST.P.meta = Object.assign(newMeta(), mSnap.exists ? mSnap.data() : {});
   ST.P.tasks = sortTasks(tSnap.docs.map(d => Object.assign(newTask(), d.data(), { id: d.id })));
   ST.P.resources = rSnap.docs.map(d => Object.assign({ capacity: 100, rate: 0 }, d.data(), { id: d.id }));
+  ST.P.horasDocs = (hSnap.docs || []).map(d => Object.assign({ estado: 'aceito' }, d.data(), { id: d.id }));
   await migrarRecursos(pid, antigos.docs.map(d => Object.assign({ capacity: 100, rate: 0 }, d.data(), { id: d.id })));
+  await migrarHoras(pid);
 }
 
 /* Recursos passaram a ser um cadastro único do sistema. Este trecho traz os que

@@ -45,17 +45,19 @@ async function coletarTudo(db, opcoes) {
     const ps = await semErro(db.collection(base + '/projects').get());
     for (const d of ps.docs) {
       const bp = base + '/projects/' + d.id;
-      const [t, v, vd, dc, dd, di] = await Promise.all([
+      const [t, v, vd, dc, dd, di, hh] = await Promise.all([
         semErro(db.collection(bp + '/tasks').get()),
         semErro(db.collection(bp + '/versions').get()),
         semErro(db.collection(bp + '/versionsData').get()),
         semErro(db.collection(bp + '/docs').get()),
         saida.anexos ? semErro(db.collection(bp + '/docsData').get()) : Promise.resolve(VAZIO),
-        semErro(db.collection(bp + '/diario').get())
+        semErro(db.collection(bp + '/diario').get()),
+        semErro(db.collection(bp + '/horas').get())
       ]);
       emp.projects.push({
         id: d.id, meta: d.data() || {}, tasks: lista(t), versions: lista(v),
-        versionsData: lista(vd), docs: lista(dc), docsData: lista(dd), diario: lista(di)
+        versionsData: lista(vd), docs: lista(dc), docsData: lista(dd), diario: lista(di),
+        horas: lista(hh)
       });
     }
     emp.resources = lista(await semErro(db.collection(base + '/resources').get()));

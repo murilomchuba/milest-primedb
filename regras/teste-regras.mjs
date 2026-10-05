@@ -143,6 +143,36 @@ await caso('admin da empresa aponta o índice para a própria empresa', () =>
 await caso('admin da empresa NÃO rouba conta de outra empresa', () =>
   assertFails(setDoc(doc(conta(ANA), 'users', BRUNO), { email: BRUNO, orgId: 'unimed' })));
 
+console.log('\nAPONTAMENTO DE HORAS');
+/* Os lançamentos passaram a ser documentos em projects/{pid}/horas. Hoje quem
+   grava é quem já gravava o projeto — a regra curinga de projects cobre a
+   coleção nova sem nenhuma linha a mais. Estes casos fixam esse contrato:
+   quando o papel de analista entrar, é exatamente aqui que a conta muda, e a
+   mudança tem de aparecer como teste quebrado, não como surpresa. */
+const hora = (quem, h) => ({ data: '2026-10-01', pessoa: 'Ana Prado', pessoaEmail: quem, recursoId: '', tid: '', h: h, obs: '', estado: 'aceito', criadoEm: Date.now(), criadoPor: quem });
+await caso('admin da empresa lança hora no projeto da empresa', () =>
+  assertSucceeds(setDoc(doc(conta(ANA), 'orgs/unimed/projects/p1/horas', 'h1'), hora(ANA, 8))));
+await caso('gerente lança hora no projeto da empresa', () =>
+  assertSucceeds(setDoc(doc(conta(BRUNO), 'orgs/varejo/projects/p9/horas', 'h1'), hora(BRUNO, 4))));
+await caso('leitor lê as horas', () =>
+  assertSucceeds(getDoc(doc(conta(CAIO), 'orgs/unimed/projects/p1/horas', 'h1'))));
+await caso('leitor NÃO lança hora', () =>
+  assertFails(setDoc(doc(conta(CAIO), 'orgs/unimed/projects/p1/horas', 'h2'), hora(CAIO, 8))));
+await caso('leitor NÃO apaga hora', () =>
+  assertFails(deleteDoc(doc(conta(CAIO), 'orgs/unimed/projects/p1/horas', 'h1'))));
+await caso('outra empresa NÃO lê as horas', () =>
+  assertFails(getDoc(doc(conta(BRUNO), 'orgs/unimed/projects/p1/horas', 'h1'))));
+await caso('outra empresa NÃO lança hora', () =>
+  assertFails(setDoc(doc(conta(BRUNO), 'orgs/unimed/projects/p1/horas', 'h3'), hora(BRUNO, 8))));
+await caso('quem não entrou NÃO lê as horas', () =>
+  assertFails(getDoc(doc(anonimo(), 'orgs/unimed/projects/p1/horas', 'h1'))));
+await caso('a plataforma NÃO lê as horas do cliente', () =>
+  assertFails(getDoc(doc(conta(PLATAFORMA), 'orgs/unimed/projects/p1/horas', 'h1'))));
+await caso('prazo vencido: NÃO lança hora', () =>
+  assertFails(setDoc(doc(conta(DORA), 'orgs/vencida/projects/v1/horas', 'h1'), hora(DORA, 8))));
+await caso('admin apaga a própria hora lançada', () =>
+  assertSucceeds(deleteDoc(doc(conta(ANA), 'orgs/unimed/projects/p1/horas', 'h1'))));
+
 console.log('\nEMPRESA SUSPENSA');
 await caso('membro de empresa suspensa NÃO lê projeto', () =>
   assertFails(getDoc(doc(conta(BRUNO), 'orgs/suspensa/projects', 'qualquer'))));
