@@ -2200,18 +2200,27 @@ function closeEditor(commit) {
   if (commit) applyEdit(t, f, inp.value);
   refresh();
 }
+/* O % de uma atividade não é só um número numa célula: é o que move o IDP, a
+   aderência e a curva S. Passou a ser escrito de dois lugares — a grade e o
+   aceite de um apontamento —, então a regra de o que acontece junto com ele
+   mora aqui, e não em cada um deles. */
+function aplicarPct(t, raw) {
+  const novo = clamp(Math.round(parseFloat(raw) || 0), 0, 100);
+  if (novo === (t.pct || 0)) return false;
+  // guardo a data em que a atividade foi dada por concluída: é ela que
+  // alimenta as "conquistas da semana" no status report
+  if (novo >= 100 && (t.pct || 0) < 100) t.doneAt = todayISO();
+  else if (novo < 100) t.doneAt = null;
+  t.pct = novo;
+  markTask(t.id);
+  return true;
+}
+
 function applyEdit(t, f, raw) {
   const o = ST.sch.out.get(t.id), cal = ST.sch.cal;
   if (f === 'name') { const v = String(raw).trim(); if (v) t.name = v; }
   else if (f === 'dur') { t.dur = Math.max(0, Math.round(parseFloat(String(raw).replace(',', '.')) || 0)); }
-  else if (f === 'pct') {
-    const novo = clamp(Math.round(parseFloat(raw) || 0), 0, 100);
-    // guardo a data em que a atividade foi dada por concluída: é ela que
-    // alimenta as "conquistas da semana" no status report
-    if (novo >= 100 && (t.pct || 0) < 100) t.doneAt = todayISO();
-    else if (novo < 100) t.doneAt = null;
-    t.pct = novo;
-  }
+  else if (f === 'pct') { aplicarPct(t, raw); }
   else if (f === 'cost') { t.fixed = Math.max(0, parseFloat(String(raw).replace(',', '.')) || 0); }
   else if (f === 'preds') { t.preds = textToPreds(raw); }
   else if (f === 'res') { t.res = textToRes(raw); }
@@ -13582,21 +13591,41 @@ async function atualizarCarimboEquipe() {
    apresenta. Por isso gravam quem decidiu e quando, e por isso a recusa pede
    um motivo — o analista vê o motivo na tela dele e corrige. */
 function decidirHoras(lista, estado, motivo) {
-  if (semPermissao()) return 0;
-  let n = 0;
-  for (const x of lista) {
+  if (semPermissao()) return { n: 0, tarefas: 0 };
+  /* Em lote, a ordem importa: duas pessoas podem propor % diferentes para a
+     mesma atividade na mesma semana, e quem manda é o lançamento mais recente.
+     Ordenar por data aqui é o que faz "Aceitar todas" terminar no mesmo lugar
+     em que terminaria se o GP tivesse aceitado um a um, de cima para baixo. */
+  const ordem = lista.slice().sort((a, b) =>
+    String(a && a.data).localeCompare(String(b && b.data)) || ((a && a.criadoEm) || 0) - ((b && b.criadoEm) || 0));
+  let n = 0, tarefas = 0;
+  for (const x of ordem) {
     if (!x || x.estado !== 'pendente') continue;
     x.estado = estado;
     x.decididoEm = Date.now();
     x.decididoPor = chaveEmail(ST.userEmail || '');
     x.motivoRecusa = estado === 'recusado' ? String(motivo || '').slice(0, 300) : '';
+    /* O % proposto só vale quando o lançamento é aceito, e pelo mesmo motivo
+       das horas: quem apresenta o número à diretoria é o GP. Recusar não mexe
+       no cronograma — nem para desfazer, porque o que foi recusado nunca
+       chegou a entrar. */
+    if (estado === 'aceito' && x.tid && isFinite(Number(x.pctProposto))) {
+      const t = ST.P.tasks.find(y => y.id === x.tid);
+      if (t && podeEditarCronograma() && aplicarPct(t, Number(x.pctProposto))) tarefas++;
+      x.pctAplicado = !!t;
+    }
     dirty.horas.add(x.id);
     n++;
   }
-  if (!n) return 0;
+  if (!n) return { n: 0, tarefas: 0 };
   atualizarResumoHoras(); markMeta();
   ST.portfolio = null; ST.portfolioEm = 0; esquecerCarteira();
-  return n;
+  return { n: n, tarefas: tarefas };
+}
+/** "3 lançamentos aceitos, 2 atividades atualizadas." */
+function recadoDecisao(r, estado) {
+  const base = r.n + ' lançamento(s) ' + (estado === 'aceito' ? 'aceito(s)' : 'recusado(s)') + '.';
+  return r.tarefas ? base + ' ' + r.tarefas + ' atividade(s) teve(ram) o % atualizado.' : base;
 }
 const fmtH = v => fmtNum(v, (Math.abs(v) % 1) ? 1 : 0) + ' h';
 /** Data curta, do jeito que se lê em português. */
@@ -13772,8 +13801,8 @@ function painelPendentes(pendentes) {
   const acs = el('div'); acs.style.cssText = 'display:flex;gap:7px;flex-wrap:wrap';
   const bTudo = el('button', 'btn primary', 'Aceitar todas');
   bTudo.addEventListener('click', () => {
-    const n = decidirHoras(pendentes.slice(), 'aceito');
-    if (n) { toast(n + ' lançamento(s) aceito(s).'); renderHoras(); renderKPIs(); }
+    const r = decidirHoras(pendentes.slice(), 'aceito');
+    if (r.n) { toast(recadoDecisao(r, 'aceito')); refresh(); }
   });
   acs.appendChild(bTudo); cab.appendChild(acs);
   p.appendChild(cab);
@@ -13782,7 +13811,7 @@ function painelPendentes(pendentes) {
   const nomeAtiv = id => { const t = ST.P.tasks.find(x => x.id === id); return t ? t.name : ''; };
   const tb = el('table', 'data');
   const hr = el('tr');
-  for (const c of [['Data', ''], ['Quem', ''], ['Atividade', ''], ['Horas', 'num'], ['Observação', ''], ['', '']]) hr.appendChild(el('th', c[1], c[0]));
+  for (const c of [['Data', ''], ['Quem', ''], ['Atividade', ''], ['Horas', 'num'], ['% da atividade', ''], ['Observação', ''], ['', '']]) hr.appendChild(el('th', c[1], c[0]));
   const th = el('thead'); th.appendChild(hr); tb.appendChild(th);
   const tbo = el('tbody');
   for (const x of pendentes.slice().sort((a, b) => String(a.data).localeCompare(String(b.data)))) {
@@ -13791,12 +13820,14 @@ function painelPendentes(pendentes) {
     tr.appendChild(el('td', '', x.pessoa || nomeDeExibicao(x.pessoaEmail || '')));
     tr.appendChild(el('td', '', x.tid ? nomeAtiv(x.tid) : '—'));
     tr.appendChild(el('td', 'num', fmtH(Number(x.h) || 0)));
+    tr.appendChild(celulaPctProposto(x));
     tr.appendChild(el('td', '', x.obs || ''));
     const tdA = el('td');
     const grupo = el('div'); grupo.style.cssText = 'display:flex;gap:5px;justify-content:flex-end';
     const bOk = el('button', 'btn icon reqedit', '✓'); bOk.title = 'Aceitar';
     bOk.addEventListener('click', () => {
-      if (decidirHoras([x], 'aceito')) { renderHoras(); renderKPIs(); }
+      const r = decidirHoras([x], 'aceito');
+      if (r.n) { toast(recadoDecisao(r, 'aceito')); refresh(); }
     });
     const bNo = el('button', 'btn icon danger reqedit', '✕'); bNo.title = 'Recusar';
     bNo.addEventListener('click', () => janelaRecusar(x));
@@ -13807,9 +13838,33 @@ function painelPendentes(pendentes) {
   tb.appendChild(tbo);
   const sc = el('div', 'tscroll'); sc.appendChild(tb); p.appendChild(sc);
   p.appendChild(el('div', 'tagline',
-    'Hora pendente não entra no realizado nem no IDC. Enquanto está aqui, o analista ainda pode corrigi-la; '
-    + 'depois de aceita, trava para ele e só você muda.'));
+    'Hora pendente não entra no realizado nem no IDC, e o % proposto não entra no cronograma. '
+    + 'As duas coisas acontecem quando você aceita — e é por isso que o IDP continua sendo um número seu. '
+    + 'Enquanto está aqui, o analista ainda pode corrigir; depois de aceita, trava para ele.'));
   return p;
+}
+
+/* O que o analista propôs, contra o que a atividade tem hoje. Ver só "60%" não
+   diz nada a quem decide: o que importa é o movimento, e se ele é para trás. */
+function celulaPctProposto(x) {
+  const td = el('td');
+  if (!x.tid || !isFinite(Number(x.pctProposto))) { td.appendChild(el('span', 'hint', '—')); return td; }
+  const t = ST.P.tasks.find(y => y.id === x.tid);
+  const hoje = t ? (t.pct || 0) : null;
+  const novo = clamp(Math.round(Number(x.pctProposto)), 0, 100);
+  if (hoje == null) { td.textContent = novo + '%'; return td; }
+  if (novo === hoje) { td.appendChild(el('span', 'hint', 'segue em ' + novo + '%')); return td; }
+  const d = el('div');
+  d.appendChild(el('span', 'hint', hoje + '% → '));
+  const forte = el('b', '', novo + '%');
+  if (novo < hoje) forte.style.color = 'var(--critical)';
+  d.appendChild(forte);
+  if (novo < hoje) {
+    const av = el('div', 'hint', 'volta atrás');
+    av.style.marginTop = '2px'; d.appendChild(av);
+  }
+  td.appendChild(d);
+  return td;
 }
 
 function janelaRecusar(x) {
@@ -13827,8 +13882,9 @@ function janelaRecusar(x) {
       label: 'Recusar', fn: fechar => {
         const b = document.querySelector('.modalwrap:last-child .body');
         const motivo = b && b.__motivo ? b.__motivo() : '';
-        if (decidirHoras([x], 'recusado', motivo)) { fechar(); renderHoras(); renderKPIs(); }
-        else fechar();
+        const r = decidirHoras([x], 'recusado', motivo);
+        fechar();
+        if (r.n) { toast(recadoDecisao(r, 'recusado')); renderHoras(); renderKPIs(); }
       }
     }
   ]);
@@ -15950,6 +16006,35 @@ function renderApontamento() {
   iH.placeholder = '8'; iH.inputMode = 'decimal';
   campo('Horas', iH);
 
+  /* O andamento da atividade vem junto das horas, e não numa tela separada,
+     porque é no fim do dia que a pessoa sabe os dois. O campo só existe quando
+     há atividade escolhida: sem ela não há o que adiantar. */
+  const dPct = el('div', 'campo');
+  dPct.appendChild(el('label', '', 'Quanto da atividade já está pronto'));
+  const iPct = el('input', 'inp'); iPct.type = 'number'; iPct.min = '0'; iPct.max = '100'; iPct.step = '5';
+  iPct.inputMode = 'numeric';
+  dPct.appendChild(iPct);
+  const dicaPct = el('div', 'hint'); dicaPct.style.marginTop = '4px'; dPct.appendChild(dicaPct);
+  cL.appendChild(dPct);
+
+  const tarefaEscolhida = () => AP.tarefas.find(t => t.id === sAtiv.value) || null;
+  const ajustarPct = (trocouAtividade) => {
+    const t = tarefaEscolhida();
+    dPct.style.display = t ? '' : 'none';
+    if (!t) return;
+    const hoje = Math.round(t.pct || 0);
+    if (trocouAtividade) iPct.value = hoje;
+    const novo = Math.round(Number(iPct.value));
+    dicaPct.textContent = !isFinite(novo) || novo === hoje
+      ? 'Hoje está em ' + hoje + '%. Mude se avançou — quem gerencia o projeto confirma ao aceitar.'
+      : (novo < hoje
+        ? 'Atenção: está abaixo dos ' + hoje + '% que a atividade tem hoje.'
+        : 'Sobe de ' + hoje + '% para ' + novo + '% quando for aceito.');
+  };
+  sAtiv.addEventListener('change', () => ajustarPct(true));
+  iPct.addEventListener('input', () => ajustarPct(false));
+  ajustarPct(true);
+
   const iObs = el('input', 'inp'); iObs.placeholder = 'o que você fez (opcional)';
   campo('Observação', iObs);
 
@@ -15959,10 +16044,11 @@ function renderApontamento() {
     if (!isFinite(horas) || horas <= 0) { toast('Informe as horas.'); iH.focus(); return; }
     if (horas > 24) { toast('Um dia tem 24 horas.'); iH.focus(); return; }
     if (!iData.value) { toast('Informe o dia.'); return; }
+    const t = tarefaEscolhida();
     bLan.disabled = true;
-    const ok = await apLancar({
+    const ok = await apLancar(Object.assign({
       data: iData.value, tid: sAtiv.value || '', h: horas, obs: iObs.value.trim()
-    });
+    }, t ? { pctProposto: clamp(Math.round(Number(iPct.value) || 0), 0, 100), pctAntes: Math.round(t.pct || 0) } : {}));
     bLan.disabled = false;
     if (!ok) return;
     toast(fmtH(horas) + ' enviadas para aceite.');
@@ -16004,7 +16090,14 @@ function renderApontamento() {
       const marca = el('span', 'pill ' + (est === 'aceito' ? 'on' : est === 'pendente' ? 'warn' : 'off'),
         est === 'aceito' ? 'aceita' : est === 'pendente' ? 'aguardando' : 'recusada');
       sub.appendChild(marca);
-      if (x.obs) { const o = el('span', '', ' ' + x.obs); sub.appendChild(o); }
+      if (isFinite(Number(x.pctProposto)) && x.tid) {
+        const p = Math.round(Number(x.pctProposto));
+        sub.appendChild(el('span', '',
+          est === 'aceito' ? ' atividade em ' + p + '%'
+            : est === 'pendente' ? ' você marcou ' + p + '%'
+              : ' ' + p + '% não foi aplicado'));
+      }
+      if (x.obs) { const o = el('span', '', ' · ' + x.obs); sub.appendChild(o); }
       meio.appendChild(sub);
       if (est === 'recusado' && x.motivoRecusa) meio.appendChild(el('div', 'recusa', x.motivoRecusa));
       linha.appendChild(meio);
@@ -16036,6 +16129,8 @@ function apJanelaCorrigir(x) {
       const d = el('div', 'campo'); d.style.marginBottom = '12px';
       d.appendChild(el('label', '', rot)); d.appendChild(node); g.appendChild(d); return node;
     };
+    /* devolve o input; quem precisa da caixa inteira (o bloco do % some
+       quando não há atividade escolhida) sobe por parentNode */
     const iData = el('input', 'inp'); iData.type = 'date'; iData.value = x.data || todayISO();
     campo('Dia trabalhado', iData);
     const minhas = apMinhasTarefas();
@@ -16050,6 +16145,11 @@ function apJanelaCorrigir(x) {
     const iH = el('input', 'inp'); iH.type = 'number'; iH.min = '0.5'; iH.max = '24'; iH.step = '0.5';
     iH.value = x.h; iH.inputMode = 'decimal';
     campo('Horas', iH);
+    const iPct = el('input', 'inp'); iPct.type = 'number'; iPct.min = '0'; iPct.max = '100'; iPct.step = '5';
+    iPct.value = isFinite(Number(x.pctProposto)) ? Math.round(Number(x.pctProposto)) : '';
+    const dPct = campo('Quanto da atividade já está pronto', iPct);
+    const verPct = () => { dPct.parentNode.style.display = sAtiv.value ? '' : 'none'; };
+    sAtiv.addEventListener('change', verPct); verPct();
     const iObs = el('input', 'inp'); iObs.value = x.obs || '';
     campo('Observação', iObs);
     body.appendChild(g);
@@ -16058,6 +16158,8 @@ function apJanelaCorrigir(x) {
       if (!isFinite(horas) || horas <= 0 || horas > 24) { toast('Informe as horas (até 24).'); return; }
       const antes = Object.assign({}, x);
       x.data = iData.value; x.tid = sAtiv.value || ''; x.h = horas; x.obs = iObs.value.trim();
+      if (x.tid && iPct.value !== '') x.pctProposto = clamp(Math.round(Number(iPct.value) || 0), 0, 100);
+      else delete x.pctProposto;
       if (await apRegravar(x)) { close(); toast('Corrigido.'); renderApontamento(); }
       else Object.assign(x, antes);     // o banco recusou: a tela volta ao que o banco tem
     };
