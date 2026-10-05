@@ -5472,7 +5472,7 @@ function desenharCapaPortfolio(todos, bloco, pag, totPag) {
      A largura que ela ocupava foi para o nome do cliente — que antes era
      cortado em 148pt — e para as horas. */
   const cols = [
-    ['Cliente', 272, 'start'], ['Início', 64, 'start'], ['Término', 64, 'start'],
+    ['Cliente', 226, 'start'], ['Porte', 42, 'start'], ['Início', 64, 'start'], ['Término', 64, 'start'],
     ['Plan.', 54, 'end'], ['Real.', 54, 'end'], ['IDP', 48, 'end'], ['IDC', 48, 'end'],
     ['H. prev.', 66, 'end'], ['H. real.', 66, 'end'], ['Ativ.', 52, 'end'], ['Situação', 112, 'start']
   ];
@@ -5489,8 +5489,10 @@ function desenharCapaPortfolio(todos, bloco, pag, totPag) {
     const est = statusPor(it.meta, it.ind), ind = it.ind;
     const hp = ind.horas || { prev: 0, feitas: 0 };
     R(M, y - 13, W - 2 * M, 20, CORES_ST.caixa, 2);
+    const tier = tierDoProjeto(ind);
     const vals = [
       cortar(it.meta.client || '—', cols[0][1] - 10, 10),
+      tier ? tier.id : '—',
       fmtBR(ind.inicio), fmtBR(ind.fim),
       num(ind.plan.pct, 0) + '%', num(ind.real, 0) + '%',
       num(ind.IDP, 2), num(ind.IDC, 2),
@@ -5503,18 +5505,23 @@ function desenharCapaPortfolio(todos, bloco, pag, totPag) {
       /* o consumido fica vermelho quando passou do previsto: é a leitura que
          a diretoria faz primeiro, e procurá-la comparando duas colunas de
          número preto é trabalho que a cor faz de graça */
-      const estourou = i === 8 && hp.prev > 0 && hp.feitas > hp.prev;
-      T(fim ? xcol[i] + cols[i][1] - 8 : xcol[i], y, v, 10, (i === 0 || estourou) ? 600 : 400,
-        estourou ? CORES_ST.critico : (i === 0 ? CORES_ST.tinta : CORES_ST.tinta2), fim ? 'end' : null);
+      const estourou = i === 9 && hp.prev > 0 && hp.feitas > hp.prev;
+      T(fim ? xcol[i] + cols[i][1] - 8 : xcol[i], y, v, 10,
+        (i === 0 || i === 1 || estourou) ? 600 : 400,
+        estourou ? CORES_ST.critico
+          : i === 0 ? CORES_ST.tinta
+            : i === 1 ? (tier ? tier.cor : CORES_ST.tinta3) : CORES_ST.tinta2,
+        fim ? 'end' : null);
     });
-    R(xcol[10], y - 11, 8, 8, est.cor, 2);
-    T(xcol[10] + 14, y, est.rot, 9.5, 600, est.cor);
+    R(xcol[11], y - 11, 8, 8, est.cor, 2);
+    T(xcol[11] + 14, y, est.rot, 9.5, 600, est.cor);
     y += 21;
   }
   L(M, H - 26, W - M, H - 26, CORES_ST.linha, 1);
-  T(M, H - 12, 'IDP = realizado ÷ planejado  ·  IDC = valor agregado ÷ custo real  ·  H. prev. e H. real. em horas, '
-    + 'em vermelho quando o consumido passou do previsto  ·  Ativ. = atividades no cronograma  ·  Gerado em ' + fmtBR(todayISO()),
-    9, 400, CORES_ST.tinta3);
+  T(M, H - 12, 'IDP = realizado ÷ planejado  ·  IDC = valor agregado ÷ custo real  ·  '
+    + 'Porte pelas horas previstas: ' + TIERS.map(t => t.id + ' ' + t.faixa).join(', ')
+    + '  ·  H. real. em vermelho quando passou do previsto  ·  Gerado em ' + fmtBR(todayISO()),
+    8.4, 400, CORES_ST.tinta3);
   assinaturaNoSVG(pg, W - M - 74, H - 22, 15, CORES_ST.tinta2);
   return pg;
 }
@@ -11653,6 +11660,29 @@ function seletorSemBase(aoTrocar) {
   return cx;
 }
 /** A faixa: a partir de 1,00 saudável, de 0,80 a 0,99 atenção, abaixo crítico. */
+/* ---- porte do projeto (Tier) ----
+   Classifica pelo tamanho contratado em horas, nas mesmas faixas que a
+   planilha da diretoria já usa. Serve para uma coisa que nenhum dos outros
+   indicadores responde: se a carteira é feita de muitos projetos pequenos ou
+   de poucos grandes. Duas carteiras com o mesmo total de horas e o mesmo IDC
+   exigem equipes diferentes, e é o porte que mostra isso.
+
+   A escala é de magnitude, então a cor vai do claro ao escuro em vez de
+   verde-amarelo-vermelho: porte não é bom nem ruim. */
+const TIERS = [
+  { id: 'T1', rot: 'Baixo esforço', faixa: 'até 100 h', ate: 100, cor: '#9EC5E8' },
+  { id: 'T2', rot: 'Médio esforço', faixa: '101 a 500 h', ate: 500, cor: '#5B9BD5' },
+  { id: 'T3', rot: 'Alto esforço', faixa: '501 a 1.000 h', ate: 1000, cor: '#1F6FB2' },
+  { id: 'T4', rot: 'Muito alto esforço', faixa: 'acima de 1.000 h', ate: Infinity, cor: '#014479' }
+];
+/** Projeto sem horas previstas não tem porte: não é T1, é sem medida. */
+function tierDe(horasPrevistas) {
+  const h = Number(horasPrevistas);
+  if (!isFinite(h) || h <= 0) return null;
+  return TIERS.find(t => h <= t.ate) || TIERS[TIERS.length - 1];
+}
+function tierDoProjeto(ind) { return tierDe(((ind || {}).horas || {}).prev); }
+
 function semaforoPor(v) {
   if (v == null) return { id: 'sem', rot: 'Sem medição', cls: 'sem-no', cor: 'var(--ink-3)' };
   if (v >= 1) return { id: 'saudavel', rot: 'Saudável', cls: 'sem-ok', cor: 'var(--ok)' };
@@ -12548,6 +12578,45 @@ function painelDestaqueVisao(lista, fechados, r) {
   vgCard(l2, { valor: pct1(r.taxa), rotulo: 'Taxa de consumo',
     sub: 'contra ' + pct1(r.avanco) + ' de avanço físico',
     corNum: r.taxa == null ? null : (r.taxa > r.avanco + 10 ? '#B3322B' : r.taxa > r.avanco + 3 ? '#B0790F' : '#1F8A5B') });
+
+  /* ---- porte da carteira ----
+     Nenhum dos cartões acima responde se a carteira é feita de muitos
+     projetos pequenos ou de poucos grandes — e duas carteiras com o mesmo
+     total de horas e o mesmo IDC exigem equipes bem diferentes. */
+  const porte = {};
+  let semPorte = 0;
+  for (const x of bons) {
+    const t = tierDoProjeto(x.ind);
+    if (!t) { semPorte++; continue; }
+    porte[t.id] = (porte[t.id] || 0) + 1;
+  }
+  if (Object.keys(porte).length || semPorte) {
+    const faixa = el('div');
+    faixa.style.cssText = 'display:flex;gap:16px;flex-wrap:wrap;align-items:center;'
+      + 'border:1px solid var(--line);border-radius:10px;padding:11px 14px;background:var(--surface)';
+    const tit = el('div', '', 'PORTE DA CARTEIRA');
+    tit.style.cssText = 'font-size:10.5px;font-weight:700;font-family:var(--f-mono);color:var(--ink-3);letter-spacing:.5px';
+    faixa.appendChild(tit);
+    for (const t of TIERS) {
+      const n = porte[t.id] || 0;
+      const it = el('div'); it.style.cssText = 'display:flex;gap:7px;align-items:center';
+      it.title = t.rot + ' — ' + t.faixa + ' previstas';
+      const q = el('span', '', t.id);
+      q.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:20px;'
+        + 'border-radius:5px;font-family:var(--f-mono);font-size:10.5px;font-weight:700;padding:0 5px;'
+        + 'background:' + t.cor + ';color:#fff' + (n ? '' : ';opacity:.32');
+      const tx = el('span', '', n + ' · ' + t.faixa);
+      tx.style.cssText = 'font-size:12px;color:' + (n ? 'var(--ink-2)' : 'var(--ink-3)');
+      it.appendChild(q); it.appendChild(tx); faixa.appendChild(it);
+    }
+    if (semPorte) {
+      const d = el('div', '', semPorte + ' sem horas previstas');
+      d.style.cssText = 'font-size:11.5px;color:var(--ink-3);margin-left:auto';
+      d.title = 'Projeto sem horas previstas não tem porte: não é pequeno, é sem medida.';
+      faixa.appendChild(d);
+    }
+    cx.appendChild(faixa);
+  }
   return cx;
 }
 
