@@ -129,7 +129,10 @@ service cloud.firestore {
       allow update: if (souPlataforma()
                         && !(resource.data.semDono == false && request.resource.data.semDono == true)
                         && request.resource.data.get('propria', false) == resource.data.get('propria', false))
-                    || (mandaNaOrg(org) && mexeuSomenteEm(['nome', 'cnpj', 'atualizadoEm', 'projetos', 'usuarios']))
+                    // `abasOcultas` é preferência de tela, não permissão: esconder uma aba
+                    // não tira o acesso a nada, e as regras de leitura e escrita dos dados
+                    // dela continuam exatamente as mesmas.
+                    || (mandaNaOrg(org) && mexeuSomenteEm(['nome', 'cnpj', 'atualizadoEm', 'projetos', 'usuarios', 'abasOcultas']))
                     || (editaOrg(org)   && mexeuSomenteEm(['projetos', 'usuarios', 'atualizadoEm']));
 
       // ---- quem pertence à empresa ---------------------------------------

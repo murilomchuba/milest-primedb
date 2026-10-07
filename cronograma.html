@@ -837,6 +837,7 @@ body.embutido .view{height:100%}
   <button class="btn" id="btnHoras" title="Esconde as horas da tela, para apresentar o cronograma ao cliente">👁 Horas</button>
   <div class="syncdot" id="syncDot"><i></i><span>—</span></div>
   <div class="userchip" id="userChip" hidden><span class="org" id="orgChip" hidden></span><span class="papel" id="userRole" hidden></span><span id="userEmail"></span><button class="btn icon" id="btnSenha" title="Criar ou trocar a senha desta conta" hidden>Senha</button><button class="btn icon" id="btnSignOut" title="Sair da conta">Sair</button></div>
+  <button class="btn icon" id="btnAbas" title="Escolher quais abas aparecem" hidden>⋯</button>
   <div class="tabs" role="tablist">
     <button class="tab" role="tab" data-view="overview" aria-selected="true">Portfólio</button>
     <button class="tab" role="tab" data-view="kpi" aria-selected="false">Visão</button>
@@ -3615,6 +3616,24 @@ function usoPorProjeto(rid) {
   return nomes;
 }
 
+/* A aba Recursos mostrava o cadastro inteiro da empresa, e o cadastro é único
+   — a mesma pessoa aparece em todos os projetos. Num projeto de quatro pessoas
+   isso significava rolar por trinta linhas das quais vinte e seis não têm
+   nada a ver com ele, com as colunas de trabalho e custo zeradas.
+
+   Agora a aba abre pelo projeto. O cadastro não sumiu: ele é a outra metade
+   do mesmo botão, e é lá que se corrige um valor/hora, uma capacidade, ou se
+   cadastra gente nova. A escolha não é gravada de propósito — "o projeto
+   aberto" é a pergunta de todo dia, e o cadastro é a visita ocasional. */
+let RES_TODOS = false;
+
+/** Os recursos alocados em alguma atividade do projeto aberto. */
+function recursosDoProjeto() {
+  const dentro = new Set();
+  for (const t of ST.P.tasks) for (const a of (t.res || [])) if (a && a.rid) dentro.add(a.rid);
+  return (ST.P.resources || []).filter(r => dentro.has(r.id));
+}
+
 function renderResources() {
   const host = $('#resView'); host.textContent = '';
   const cur = ST.P.meta.currency, sch = ST.sch, comCusto = costsOn();
@@ -3631,12 +3650,31 @@ function renderResources() {
   const { carga, projetos } = cargaTodosProjetos();
   const picoDe = rid => { const m = carga.get(rid); return m && m.size ? Math.max(...[...m.values()].map(v => v.atual + v.outros)) : 0; };
 
+  const doProjeto = recursosDoProjeto();
+  const todos = ST.P.resources || [];
+  const lista = RES_TODOS ? todos : doProjeto;
+  const deFora = todos.length - doProjeto.length;
+
   const p1 = el('div', 'panel');
-  const h1 = el('h3', '', 'Equipe — cadastro único do sistema');
+  const h1 = el('h3', '', RES_TODOS ? 'Equipe — cadastro da empresa' : 'Equipe deste projeto');
   h1.style.display = 'flex'; h1.style.alignItems = 'center'; h1.style.justifyContent = 'space-between'; h1.style.gap = '12px';
+  const acs1 = el('div'); acs1.style.cssText = 'display:flex;gap:10px;align-items:center;flex-wrap:wrap';
   const marca = el('span', '', projetos > 1 ? 'carga somando ' + projetos + ' projetos' : 'carga do projeto aberto');
-  marca.style.fontFamily = 'var(--f-mono)'; marca.style.fontSize = '10px'; marca.style.fontWeight = '400'; marca.style.color = 'var(--ink-3)';
-  h1.appendChild(marca); p1.appendChild(h1);
+  marca.style.cssText = 'font-family:var(--f-mono);font-size:10px;font-weight:400;color:var(--ink-3)';
+  acs1.appendChild(marca);
+  /* O botão só existe quando há o que revelar: numa empresa em que todo mundo
+     está neste projeto, alternar não muda nada e o botão seria ruído. */
+  if (deFora > 0 || RES_TODOS) {
+    const bTog = el('button', 'btn', RES_TODOS
+      ? '← Só deste projeto'
+      : 'Todos da empresa (' + todos.length + ')');
+    bTog.title = RES_TODOS
+      ? 'Volta a mostrar apenas quem está alocado em alguma atividade deste projeto'
+      : 'Mostra o cadastro inteiro, para corrigir valores, capacidade ou cadastrar alguém';
+    bTog.addEventListener('click', () => { RES_TODOS = !RES_TODOS; renderResources(); });
+    acs1.appendChild(bTog);
+  }
+  h1.appendChild(acs1); p1.appendChild(h1);
 
   const tb = el('table', 'data');
   const thead = el('thead'), hr = el('tr');
@@ -3657,7 +3695,7 @@ function renderResources() {
   for (const h of heads) hr.appendChild(el('th', h[1], h[0]));
   thead.appendChild(hr); tb.appendChild(thead);
   const tbody = el('tbody');
-  for (const r of ST.P.resources) {
+  for (const r of lista) {
     const tr = el('tr');
     const mk = (val, key, type, w) => {
       const td = el('td'); const i = el('input', 'inp'); i.type = type || 'text'; i.value = val;
@@ -3714,12 +3752,24 @@ function renderResources() {
   }
   tb.appendChild(tbody);
   const sc = el('div', 'tscroll'); sc.appendChild(tb); p1.appendChild(sc);
-  if (!ST.P.resources.length) p1.appendChild(el('div', 'empty', 'Nenhum recurso cadastrado. Use o botão abaixo, ou a coluna “Recursos” da grade.'));
-  const add = el('div'); add.style.padding = '12px 14px';
-  const ab = el('button', 'btn reqedit', '＋ Novo recurso');
-  ab.addEventListener('click', () => { const r = { id: uid('r'), name: 'Recurso ' + (ST.P.resources.length + 1), role: '', rate: 0, capacity: 100 }; ST.P.resources.push(r); markRes(r.id); refresh(); });
-  add.appendChild(ab); p1.appendChild(add);
-  p1.appendChild(el('div', 'tagline', 'A equipe é a mesma em todos os cronogramas: alterar aqui vale para o sistema inteiro. A coluna Projetos mostra em quantos deles cada pessoa está alocada.'
+  if (!lista.length) {
+    p1.appendChild(el('div', 'empty', RES_TODOS
+      ? 'Nenhum recurso cadastrado. Use o botão abaixo, ou a coluna “Recursos” da grade.'
+      : (todos.length
+        ? 'Ninguém está alocado nas atividades deste projeto ainda. Aloque pela coluna “Recursos” da grade do cronograma — ou veja o cadastro inteiro da empresa no botão acima.'
+        : 'Nenhum recurso cadastrado ainda. Abra o cadastro da empresa no botão acima para criar o primeiro.')));
+  }
+  /* Cadastrar só aparece no cadastro. No modo do projeto, a pessoa recém-criada
+     sumiria da tela no mesmo instante — ela nasce sem alocação nenhuma. */
+  if (RES_TODOS) {
+    const add = el('div'); add.style.padding = '12px 14px';
+    const ab = el('button', 'btn reqedit', '＋ Novo recurso');
+    ab.addEventListener('click', () => { const r = { id: uid('r'), name: 'Recurso ' + (todos.length + 1), role: '', rate: 0, capacity: 100 }; ST.P.resources.push(r); markRes(r.id); refresh(); });
+    add.appendChild(ab); p1.appendChild(add);
+  }
+  p1.appendChild(el('div', 'tagline', RES_TODOS
+    ? 'Este é o cadastro da empresa inteira: alterar aqui vale para todos os cronogramas. A coluna Projetos mostra em quantos deles cada pessoa está alocada.'
+    : 'Quem aparece aqui está alocado em alguma atividade deste projeto. Para trazer mais alguém, aloque pela coluna “Recursos” da grade do cronograma.'
     + (comAcesso ? ' Quem tem acesso entra no MILEST e vê só a tela de lançar as próprias horas — depois é preciso nomeá-la na aba Horas de cada projeto em que trabalhar.' : '')));
 
   /* a lista de contas vem uma vez e fica; sem ela a coluna acima nem aparece */
@@ -3735,10 +3785,10 @@ function renderResources() {
   bSugR.addEventListener('click', () => janelaSugestoes());
   h2r.appendChild(bSugR);
   p2.appendChild(h2r);
-  if (!ST.P.resources.length || !carga.size) {
+  if (!lista.length || !carga.size) {
     p2.appendChild(el('div', 'empty', 'Aloque recursos às atividades para ver o histograma de carga.'));
   } else {
-    for (const r of ST.P.resources) {
+    for (const r of lista) {
       const m = carga.get(r.id); if (!m || !m.size) continue;
       p2.appendChild(loadStrip(r, m, projetos > 1));
     }
@@ -8139,6 +8189,7 @@ async function carregarPerfil() {
         perfil.senhaProvisoria = m.senhaProvisoria === true;
         const org = oSnap.data() || {};
         perfil.nomeOrg = org.nome || '';
+        perfil.abasOcultas = Array.isArray(org.abasOcultas) ? org.abasOcultas : [];
         perfil.plano = org.plano || '';
         perfil.expiraEm = org.expiraEm || 0;
         perfil.expirado = !!(perfil.expiraEm && Date.now() >= perfil.expiraEm);
@@ -8203,6 +8254,122 @@ function avisoDePausa() {
   }
 }
 
+/* ============ quais abas aparecem ============
+   O MILEST cresceu para treze abas, e nenhuma operação usa as treze. Quem não
+   faz RACI olha para "RACI" todo dia sem nunca clicar, e a barra fica longa o
+   bastante para rolar em tela de notebook.
+
+   A escolha mora na EMPRESA, não no navegador: "a minha operação não usa
+   Canvas" é uma decisão da operação, não da máquina em que a pessoa está
+   sentada. Quem muda é o administrador; quem entra depois já encontra a barra
+   do jeito que ela deve ser.
+
+   Esconder não apaga nada. Os dados de uma aba escondida continuam no projeto,
+   nos relatórios e no backup — ela volta na mesma janela em que saiu. */
+const ABAS_ESCONDIVEIS = [
+  { id: 'kpi', rot: 'Visão', desc: 'Cartões com o retrato da carteira' },
+  { id: 'canvas', rot: 'Canvas', desc: 'Project Model Canvas, os treze blocos' },
+  { id: 'kickoff', rot: 'Kickoff', desc: 'A apresentação de abertura do projeto' },
+  { id: 'resources', rot: 'Recursos', desc: 'Equipe, capacidade e carga' },
+  { id: 'raci', rot: 'RACI', desc: 'Quem faz, responde, é consultado e informado' },
+  { id: 'horas', rot: 'Horas', desc: 'Horas previstas, lançadas e o aceite' },
+  { id: 'status', rot: 'Status', desc: 'O conteúdo do status report' },
+  { id: 'diario', rot: 'Diário', desc: 'O acompanhamento do dia a dia e as tabelas' },
+  { id: 'docs', rot: 'Documentos', desc: 'Arquivos anexados ao projeto' },
+  { id: 'curve', rot: 'Curva S', desc: 'Avanço físico previsto contra realizado' },
+  { id: 'settings', rot: 'Calendário', desc: 'Semana de trabalho, feriados e jornada' }
+];
+/* Portfólio e Cronograma não entram na lista: sem eles não existe para onde
+   mandar quem esconder a aba aberta, e um sistema de cronogramas sem a aba de
+   cronograma não é uma preferência, é um defeito. */
+const LS_ABAS = 'milest.abas.ocultas';
+
+function abasOcultas() {
+  let l = [];
+  if (ST.comLogin && ST.perfil && Array.isArray(ST.perfil.abasOcultas)) l = ST.perfil.abasOcultas;
+  else { try { l = JSON.parse(localStorage.getItem(LS_ABAS) || '[]'); } catch (e) { l = []; } }
+  const validas = new Set(ABAS_ESCONDIVEIS.map(x => x.id));
+  return new Set((Array.isArray(l) ? l : []).filter(x => validas.has(x)));
+}
+
+async function gravarAbasOcultas(lista) {
+  const l = [...new Set(lista)].filter(x => ABAS_ESCONDIVEIS.some(y => y.id === x));
+  if (ST.comLogin && ST.mode === 'db' && ST.orgId && !ST.suporte) {
+    try {
+      await ST.db.doc(dOrg(ST.orgId)).set({ abasOcultas: l, atualizadoEm: Date.now() }, { merge: true });
+    } catch (e) {
+      toast('Não consegui gravar: ' + ((e && e.message) || 'erro'));
+      return false;
+    }
+    if (ST.perfil) ST.perfil.abasOcultas = l;
+  } else {
+    try { localStorage.setItem(LS_ABAS, JSON.stringify(l)); } catch (e) { }
+    if (!ST.perfil) ST.perfil = {};
+    ST.perfil.abasOcultas = l;
+  }
+  aplicarAbas();
+  return true;
+}
+
+function aplicarAbas() {
+  const fora = abasOcultas();
+  for (const b of document.querySelectorAll('.tab[data-view]')) {
+    const v = b.dataset.view;
+    if (!ABAS_ESCONDIVEIS.some(x => x.id === v)) continue;
+    b.hidden = fora.has(v);
+  }
+  /* A aba aberta acabou de sumir: quem estava nela precisa ir a algum lugar,
+     e o Portfólio é o único que nunca some. */
+  if (fora.has(VIEW)) setView('overview');
+}
+
+function janelaAbas() {
+  if (!ehAdmin() && ST.comLogin) { toast('Só o administrador da empresa muda quais abas aparecem.'); return; }
+  const fora = abasOcultas();
+  modal('Quais abas aparecem', (body, close) => {
+    body.appendChild(el('div', 'hint',
+      (ST.comLogin
+        ? 'A escolha vale para a sua empresa inteira, em qualquer computador. '
+        : 'A escolha fica neste navegador. ')
+      + 'Esconder uma aba não apaga nada: os dados continuam no projeto, nos relatórios e no backup, '
+      + 'e ela volta aqui quando você quiser.'));
+    const g = el('div'); g.style.cssText = 'margin-top:14px;display:flex;flex-direction:column;gap:2px';
+    const caixas = new Map();
+    for (const x of ABAS_ESCONDIVEIS) {
+      const lin = el('label');
+      lin.style.cssText = 'display:flex;gap:10px;align-items:flex-start;padding:9px 10px;border-radius:8px;cursor:pointer';
+      lin.addEventListener('mouseenter', () => lin.style.background = 'var(--surface-2)');
+      lin.addEventListener('mouseleave', () => lin.style.background = '');
+      const c = el('input'); c.type = 'checkbox'; c.checked = !fora.has(x.id);
+      c.style.cssText = 'margin-top:3px;width:16px;height:16px;flex:0 0 auto';
+      caixas.set(x.id, c);
+      const txt = el('div');
+      txt.appendChild(el('div', '', x.rot));
+      txt.appendChild(el('div', 'hint', x.desc));
+      lin.appendChild(c); lin.appendChild(txt);
+      g.appendChild(lin);
+    }
+    body.appendChild(g);
+    body.appendChild(el('div', 'tagline',
+      'Portfólio e Cronograma não aparecem nesta lista: são a navegação mínima do sistema.'));
+    body.__salvar = async () => {
+      const esconder = [...caixas.entries()].filter(([, c]) => !c.checked).map(([k]) => k);
+      if (await gravarAbasOcultas(esconder)) {
+        close();
+        toast(esconder.length ? esconder.length + ' aba(s) escondida(s).' : 'Todas as abas estão à mostra.');
+      }
+    };
+  }, [
+    { label: 'Cancelar', fn: f => f() },
+    {
+      label: 'Salvar', primary: true, fn: () => {
+        const b = document.querySelector('.modalwrap:last-child .body');
+        if (b && b.__salvar) b.__salvar();
+      }
+    }
+  ]);
+}
+
 function aplicarPermissoes() {
   const ed = podeEditar(), adm = ehAdmin(), nuvem = ST.comLogin;
   const naOrg = !!ST.orgId;
@@ -8229,6 +8396,9 @@ function aplicarPermissoes() {
     tp.hidden = !(nuvem && ST.perfil && ST.perfil.plataforma);
     if (tp.hidden && VIEW === 'plataforma') setView('overview');
   }
+  const ba = $('#btnAbas');
+  if (ba) ba.hidden = !(adm || !nuvem);
+  aplicarAbas();
   // sem empresa aberta não há projeto para mostrar: só a plataforma
   for (const b of document.querySelectorAll('.tab')) {
     if (['plataforma', 'users'].includes(b.dataset.view)) continue;
@@ -11767,6 +11937,7 @@ $('#btnBaseline').addEventListener('click', pedirLinhaDeBase);
 $('#btnDataStatus').addEventListener('click', janelaDataStatus);
 $('#btnDia').addEventListener('click', () => { abrirResumoDoDia(); });
 $('#btnHoras').addEventListener('click', alternarHoras);
+$('#btnAbas').addEventListener('click', janelaAbas);
 $('#btnReplanejar').addEventListener('click', janelaReplanejar);
 $('#zoom').addEventListener('click', ev => {
   const b = ev.target.closest('button'); if (!b) return;
