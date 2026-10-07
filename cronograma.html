@@ -8320,16 +8320,21 @@ async function gravarAbasOcultas(lista) {
     ST.perfil.abasOcultas = l;
   }
   gravarAbasOcultas.erro = '';
-  aplicarAbas();
+  /* `aplicarPermissoes` e não `aplicarAbas`: desmarcar uma aba precisa
+     DEVOLVÊ-LA, e quem devolve é o laço de lá. */
+  aplicarPermissoes();
   return true;
 }
 
+/* Só ESCONDE; nunca devolve. Quem devolve é o laço de `aplicarPermissoes`, e
+   há outras razões para uma aba estar fora: a aba Horas some junto com o
+   indicador de horas, a de Usuários depende do papel. Se esta função também
+   mostrasse, ela desfaria essas decisões ao passar por elas. */
 function aplicarAbas() {
   const fora = abasOcultas();
   for (const b of document.querySelectorAll('.tab[data-view]')) {
     const v = b.dataset.view;
-    if (!ABAS_ESCONDIVEIS.some(x => x.id === v)) continue;
-    b.hidden = fora.has(v);
+    if (fora.has(v)) b.hidden = true;
   }
   /* A aba aberta acabou de sumir: quem estava nela precisa ir a algum lugar,
      e o Portfólio é o único que nunca some. */
@@ -8417,7 +8422,6 @@ function aplicarPermissoes() {
   }
   const ba = $('#btnAbas');
   if (ba) ba.hidden = !(adm || !nuvem);
-  aplicarAbas();
   // sem empresa aberta não há projeto para mostrar: só a plataforma
   for (const b of document.querySelectorAll('.tab')) {
     if (['plataforma', 'users'].includes(b.dataset.view)) continue;
@@ -8430,6 +8434,13 @@ function aplicarPermissoes() {
     if (semHoras()) th.hidden = true;
     if (th.hidden && VIEW === 'horas') setView('schedule');
   }
+  /* POR ÚLTIMO, e não por capricho de ordem: o laço acima reabre todas as
+     abas a cada passagem por aqui — é ele quem as devolve quando a empresa
+     volta a ter projeto. Chamar isto antes dele era escrever e ser apagado no
+     mesmo instante, e o efeito na tela era pior do que não funcionar: a aba
+     continuava clicável, a pessoa clicava, e aí sim o desvio da aba escondida
+     a jogava para o Portfólio. Parecia que o sistema trocava de tela sozinho. */
+  aplicarAbas();
   atualizarBotaoHoras();
   const chip = $('#userRole');
   if (chip) {
