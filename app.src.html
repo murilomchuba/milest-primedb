@@ -5196,6 +5196,7 @@ function renderOverview() {
   carregarPortfolio().then(lista => {
     ST.portfolio = lista; ST.portfolioEm = Date.now(); cacheCarga = null;
     if (VIEW === 'overview') desenhar(lista);
+    checarAvisosHoras(lista);
   }).catch(() => { corpo.textContent = ''; corpo.appendChild(el('div', 'empty', 'Não consegui carregar os projetos.')); });
 }
 
@@ -8184,6 +8185,7 @@ async function carregarPerfil() {
         const org = oSnap.data() || {};
         perfil.nomeOrg = org.nome || '';
         perfil.abasOcultas = Array.isArray(org.abasOcultas) ? org.abasOcultas : [];
+        perfil.avisoHoras = (org.avisoHoras && typeof org.avisoHoras === 'object') ? org.avisoHoras : null;
         perfil.plano = org.plano || '';
         perfil.expiraEm = org.expiraEm || 0;
         perfil.expirado = !!(perfil.expiraEm && Date.now() >= perfil.expiraEm);
@@ -8511,6 +8513,7 @@ function renderUsuarios() {
     'Todos os cadastrados aqui enxergam os cronogramas desta empresa, e só desta. Nenhuma outra empresa vê os seus dados, ' +
     'e o suporte do MILEST só os abre quando você libera, no quadro abaixo. Suspender mantém o cadastro e corta o acesso na hora.'));
   host.appendChild(explica);
+  host.appendChild(painelAvisoHoras());
   host.appendChild(painelSuporteCliente());
 
   const desenhar = (lista) => {
@@ -13217,6 +13220,7 @@ function renderPainel() {
   carregarPortfolio().then(lista => {
     ST.portfolio = lista; ST.portfolioEm = Date.now(); cacheCarga = null;
     if (VIEW === 'kpi') desenhar(lista);
+    checarAvisosHoras(lista);
   }).catch(() => { corpo.textContent = ''; corpo.appendChild(el('div', 'empty', 'Não consegui carregar os projetos.')); });
 }
 
@@ -13873,6 +13877,363 @@ function recadoDecisao(r, estado) {
   if (!r.barrados || !r.barrados.length) return comPct;
   return comPct + ' O % de algum lançamento não entrou: ' + r.barrados.join('; ') + '.';
 }
+
+/* ============ aviso de consumo de horas ============
+   Quando um projeto passa de 50%, 70% ou 90% das horas previstas, quem precisa
+   saber não é quem abre o sistema — é quem não abre. O gestor descobre o
+   estouro no fechamento, e aí já era.
+
+   ONDE ISTO MORA, e por quê. IDP e IDC só existem no navegador: o servidor do
+   MILEST não calcula cronograma, e essa foi a decisão do status report por
+   e-mail — o servidor entrega, não monta. Refazer caminho crítico e valor
+   agregado lá dentro seria manter duas contas para a mesma pergunta, e no dia
+   em que discordassem ninguém saberia em qual acreditar.
+
+   A consequência prática é melhor do que parece. A faixa só é cruzada quando
+   uma hora entra, e hora entra com alguém na frente do sistema: lançada pelo
+   gestor, ou lançada por um analista e ACEITA pelo gestor. Além disso, a
+   carteira já calcula os indicadores de todos os projetos a cada abertura do
+   Portfólio — então até o projeto que ninguém abriu há uma semana é conferido.
+
+   O e-mail sai no cruzamento, ou na próxima vez que alguém abrir o sistema. */
+
+const FAIXAS_PADRAO = [50, 70, 90, 100];
+
+/** A configuração da empresa, com os padrões quando ela nunca foi mexida. */
+function avisoHorasConfig() {
+  const o = (ST.perfil && ST.perfil.avisoHoras) || {};
+  const f = Array.isArray(o.faixas) && o.faixas.length ? o.faixas : FAIXAS_PADRAO;
+  return {
+    ativo: o.ativo === true,
+    para: chaveEmail(o.para || ''),
+    faixas: [...new Set(f.map(x => Math.round(Number(x) || 0)).filter(x => x > 0 && x <= 500))].sort((a, b) => a - b)
+  };
+}
+
+/** Para quem vai o aviso deste projeto: a exceção dele, ou o padrão da empresa. */
+function avisoHorasPara(meta) {
+  const p = chaveEmail((meta && meta.avisoHorasPara) || '');
+  return p || avisoHorasConfig().para;
+}
+
+/* A faixa que acabou de ser cruzada, ou null. Devolve UMA só mesmo quando o
+   salto passou por várias: dois e-mails no mesmo segundo dizendo a mesma coisa
+   com números diferentes não ajudam ninguém a decidir nada. A que vale é a
+   mais alta, e o corpo menciona as que ficaram para trás. */
+function faixaCruzada(P, cfg) {
+  const meta = (P && P.meta) || {};
+  const h = horasDe(P);
+  if (!(h.prev > 0)) return null;                 // sem previsto não há porcentagem
+  if (meta.encerradoEm || meta.pausadoEm) return null;   // projeto parado não avisa
+  const pct = h.feitas / h.prev * 100;
+  const jaFoi = meta.avisosHoras || {};
+  const passadas = cfg.faixas.filter(f => pct >= f);
+  if (!passadas.length) return null;
+  const alvo = passadas[passadas.length - 1];
+  if (jaFoi[String(alvo)]) return null;           // esta já foi avisada
+  return { faixa: alvo, pct: pct, puladas: passadas.slice(0, -1).filter(f => !jaFoi[String(f)]) };
+}
+
+/** "Neste ritmo o projeto termina com X h" — a conta que faz um gestor agir. */
+function projecaoHoras(h, avancoReal) {
+  if (!(h.prev > 0) || !(avancoReal > 0.5)) return null;
+  return h.feitas / (avancoReal / 100);
+}
+
+const avisoNum = (v, d) => (v == null || !isFinite(v)) ? '—' : Number(v).toFixed(d == null ? 0 : d).replace('.', ',');
+
+/* O corpo. Mesmo tom do status report, e os mesmos números — quem recebe os
+   dois na mesma semana não pode encontrar contas diferentes. */
+function corpoAvisoHoras(P, ind, info) {
+  const meta = P.meta || {};
+  const h = horasDe(P);
+  const estouro = info.faixa >= 100;
+  const cor = estouro ? '#B3322B' : (info.faixa >= 90 ? '#8A5200' : '#123E6B');
+  const fundo = estouro ? '#FBE6E4' : (info.faixa >= 90 ? '#FFF1DC' : '#EAF1F8');
+  const proj = projecaoHoras(h, ind.real);
+
+  const linha = (rot, valor, nota) =>
+    '<tr>'
+    + '<td style="padding:9px 0;border-bottom:1px solid #E6ECF2;font-size:13px;color:#5A6B7B">' + rot + '</td>'
+    + '<td style="padding:9px 0;border-bottom:1px solid #E6ECF2;font-size:15px;font-weight:700;text-align:right;white-space:nowrap">' + valor + '</td>'
+    + '</tr>'
+    + (nota ? '<tr><td colspan="2" style="padding:0 0 9px;font-size:11.5px;color:#8A99A8">' + nota + '</td></tr>' : '');
+
+  const titulo = estouro
+    ? 'As horas passaram do previsto'
+    : 'O projeto chegou a ' + info.faixa + '% das horas previstas';
+
+  return '<div style="font-family:Arial,Helvetica,sans-serif;color:#17202A;background:#FFF;border:1px solid #E6ECF2;border-radius:10px;overflow:hidden">'
+    + '<div style="background:' + fundo + ';padding:16px 20px;border-bottom:1px solid #E6ECF2">'
+    + '<div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:' + cor + ';font-weight:700">'
+    + (estouro ? 'Estouro de horas' : 'Aviso de consumo') + '</div>'
+    + '<div style="font-size:19px;font-weight:700;margin-top:4px;color:' + cor + '">' + limparTexto(titulo) + '</div>'
+    + '<div style="font-size:14px;margin-top:6px">' + limparTexto(meta.client || '') + (meta.client && meta.name ? ' · ' : '') + limparTexto(meta.name || '') + '</div>'
+    + '</div>'
+    + '<div style="padding:4px 20px 18px">'
+    + '<table style="width:100%;border-collapse:collapse">'
+    + linha('Horas consumidas', avisoNum(info.pct, 1) + '%',
+      avisoNum(h.feitas) + ' h de ' + avisoNum(h.prev) + ' h previstas'
+      + (h.saldo < 0 ? ' · ' + avisoNum(Math.abs(h.saldo)) + ' h acima do previsto' : ' · saldo de ' + avisoNum(h.saldo) + ' h'))
+    + linha('Avanço físico', avisoNum(ind.real, 1) + '%',
+      'planejado ' + avisoNum(ind.plan && ind.plan.pct, 1) + '% até a data de status')
+    + linha('IDP — prazo', ind.IDP == null ? '—' : avisoNum(ind.IDP, 2),
+      ind.IDP == null ? 'sem avanço planejado para comparar' : (ind.IDP >= 0.995 ? 'no ritmo do plano ou à frente' : 'entregando menos do que o plano previa'))
+    + linha('IDC — custo', ind.IDC == null ? '—' : avisoNum(ind.IDC, 2),
+      ind.IDC == null ? 'precisa de horas previstas e lançadas' : (ind.IDC >= 0.995 ? 'rende mais do que consome' : 'consome mais horas do que entrega'))
+    + (proj ? linha('Projeção no ritmo atual', avisoNum(proj) + ' h',
+      proj > h.prev ? avisoNum(proj - h.prev) + ' h acima das ' + avisoNum(h.prev) + ' h previstas'
+        : avisoNum(h.prev - proj) + ' h abaixo do previsto') : '')
+    + '</table>'
+    + (info.puladas && info.puladas.length
+      ? '<div style="font-size:12px;color:#8A99A8;margin-top:14px">O consumo passou de uma vez também a faixa de '
+      + info.puladas.map(x => x + '%').join(' e ') + ', que não tinha sido avisada.</div>'
+      : '')
+    + '<div style="font-size:12px;color:#8A99A8;margin-top:14px;line-height:1.5">'
+    + 'Aviso automático do MILEST, enviado uma única vez por faixa. '
+    + 'Data de status: ' + limparTexto(fmtBR(dataStatus())) + '.</div>'
+    + '</div></div>';
+}
+
+/* Escapa o que vai para dentro do HTML. O nome do projeto e o do cliente são
+   digitados por gente, e gente digita "&", "<" e aspas. */
+function limparTexto(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+/* Marca primeiro, manda depois, e desmarca se não foi. Marcar depois do envio
+   abriria a janela para dois avisos iguais — duas abas abertas, dois renders.
+   Desmarcar no erro é o que faz a falha de rede virar "tenta de novo na
+   próxima", em vez de um aviso perdido em silêncio. */
+async function enviarAvisoHoras(alvo, info) {
+  const P = alvo.P, pid = alvo.id, meta = P.meta || {};
+  const para = avisoHorasPara(meta);
+  if (!para) return false;
+  const chave = String(info.faixa);
+  const antes = Object.assign({}, meta.avisosHoras || {});
+  const marca = { em: Date.now(), para: para, pct: Math.round(info.pct * 10) / 10 };
+
+  const gravarMarcas = async (mapa) => {
+    const base = dProjeto(pid);
+    const campos = { avisosHoras: mapa, updatedAt: Date.now() };
+    if (pid === ST.pid) { ST.P.meta.avisosHoras = mapa; dirty.meta = true; return await flushSave(); }
+    try { await ST.db.doc(base).set(campos, { merge: true }); } catch (e) { return false; }
+    return true;
+  };
+
+  meta.avisosHoras = Object.assign({}, antes, { [chave]: marca });
+  if (!(await gravarMarcas(meta.avisosHoras))) { meta.avisosHoras = antes; return false; }
+
+  const ind = alvo.ind || indicadoresDe(P);
+  const estouro = info.faixa >= 100;
+  const r = await chamarFuncao('enviarStatus', {
+    projetoId: pid,
+    destinatarios: [{ email: para }],
+    copia: ST.userEmail ? [{ email: chaveEmail(ST.userEmail) }] : [],
+    assunto: (estouro ? '[Estouro de horas] ' : '[' + info.faixa + '% das horas] ')
+      + ((meta.client ? meta.client + ' · ' : '') + (meta.name || 'Projeto')),
+    corpo: corpoAvisoHoras(P, ind, info),
+    pdf: '', nomeArquivo: ''
+  });
+  if (!r || !r.ok) {
+    meta.avisosHoras = antes;
+    await gravarMarcas(antes);
+    return false;
+  }
+  return true;
+}
+
+/* Roda sobre a carteira já calculada. Uma faixa por projeto por passagem: se
+   um projeto saltou duas, a segunda sai na próxima — e a próxima é daqui a
+   um instante, porque a carteira recarrega. */
+let avisoRodando = false;
+async function checarAvisosHoras(lista) {
+  if (avisoRodando) return 0;
+  if (ST.mode !== 'db' || !ST.comLogin || !ST.orgId || ST.suporte) return 0;
+  if (!podeEditar()) return 0;
+  const cfg = avisoHorasConfig();
+  if (!cfg.ativo || !cfg.para) return 0;
+  avisoRodando = true;
+  let n = 0;
+  try {
+    for (const alvo of (lista || [])) {
+      if (!alvo || !alvo.P || !alvo.P.meta) continue;
+      const info = faixaCruzada(alvo.P, cfg);
+      if (!info) continue;
+      if (await enviarAvisoHoras(alvo, info)) n++;
+    }
+  } finally { avisoRodando = false; }
+  if (n) {
+    esquecerCarteira();
+    toast(n === 1 ? 'Aviso de consumo de horas enviado ao gestor.' : n + ' avisos de consumo enviados.');
+  }
+  return n;
+}
+
+/** Desfaz as marcas de um projeto, para quando o consumo foi corrigido. */
+
+/* O painel da empresa, na aba Usuários — que é onde moram as decisões que
+   valem para todo mundo, e onde só o administrador chega. */
+function painelAvisoHoras() {
+  const p = el('div', 'panel');
+  const cab = el('h3', '', 'Aviso de consumo de horas');
+  cab.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap';
+  p.appendChild(cab);
+
+  if (ST.mode !== 'db' || !ST.comLogin || !ST.orgId) {
+    p.appendChild(el('div', 'empty', 'Disponível quando o sistema roda com login por conta.'));
+    return p;
+  }
+
+  const cfg = avisoHorasConfig();
+  const g = el('div', 'formgrid'); g.style.gridTemplateColumns = '1fr 1fr';
+
+  const fAtivo = el('div', 'field');
+  fAtivo.appendChild(el('label', '', 'Ligado'));
+  const sAtivo = el('select', 'inp');
+  for (const [v, r] of [['nao', 'Não envia nada'], ['sim', 'Envia quando passar das faixas']]) {
+    const o = el('option', '', r); o.value = v; sAtivo.appendChild(o);
+  }
+  sAtivo.value = cfg.ativo ? 'sim' : 'nao';
+  fAtivo.appendChild(sAtivo); g.appendChild(fAtivo);
+
+  const fPara = el('div', 'field');
+  fPara.appendChild(el('label', '', 'E-mail do gestor'));
+  const iPara = el('input', 'inp'); iPara.type = 'email'; iPara.value = cfg.para;
+  iPara.placeholder = 'gestor@empresa.com.br';
+  fPara.appendChild(iPara); g.appendChild(fPara);
+
+  const fFx = el('div', 'field'); fFx.style.gridColumn = '1 / -1';
+  fFx.appendChild(el('label', '', 'Faixas, em % das horas previstas'));
+  const iFx = el('input', 'inp'); iFx.value = cfg.faixas.join(', ');
+  iFx.placeholder = '50, 70, 90, 100';
+  fFx.appendChild(iFx);
+  fFx.appendChild(el('div', 'hint',
+    'Separadas por vírgula. A partir de 100% o aviso muda de tom — passa a ser estouro, com assunto e cor próprios.'));
+  g.appendChild(fFx);
+  p.appendChild(g);
+
+  const bSalvar = el('button', 'btn primary', 'Salvar');
+  bSalvar.addEventListener('click', async () => {
+    const para = chaveEmail(iPara.value);
+    const lig = sAtivo.value === 'sim';
+    if (lig && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(para)) { toast('Informe um e-mail válido para o gestor.'); iPara.focus(); return; }
+    const faixas = [...new Set(String(iFx.value).split(/[;,\s]+/).map(x => Math.round(Number(x) || 0)).filter(x => x > 0 && x <= 500))].sort((a, b) => a - b);
+    if (lig && !faixas.length) { toast('Informe ao menos uma faixa.'); iFx.focus(); return; }
+    bSalvar.disabled = true;
+    const okg = await gravarAvisoHoras({ ativo: lig, para: para, faixas: faixas.length ? faixas : FAIXAS_PADRAO });
+    bSalvar.disabled = false;
+    if (okg) { toast('Aviso de consumo salvo.'); renderUsuarios(); }
+  });
+  cab.appendChild(bSalvar);
+
+  const erro = el('div', 'recusa'); erro.hidden = true; erro.id = 'avisoHorasErro';
+  p.appendChild(erro);
+
+  p.appendChild(el('div', 'tagline',
+    'O e-mail sai uma única vez por faixa e por projeto, com o consumo, o avanço físico, o IDP, o IDC e a projeção no ritmo atual. '
+    + 'Você entra em cópia. Projeto pausado, encerrado ou sem horas previstas não dispara nada. '
+    + 'Um projeto pode ter outro destinatário: o campo fica na aba Horas dele.'));
+  return p;
+}
+
+async function gravarAvisoHoras(cfg) {
+  const erro = $('#avisoHorasErro');
+  try {
+    await ST.db.doc(dOrg(ST.orgId)).set({ avisoHoras: cfg, atualizadoEm: Date.now() }, { merge: true });
+  } catch (e) {
+    const t = String((e && e.code) || '') + ' ' + String((e && e.message) || '');
+    if (erro) {
+      erro.textContent = /permission|insufficient/i.test(t)
+        ? 'O banco recusou a gravação. Esta opção é nova e depende de uma atualização das regras do Firestore que ainda não foi publicada — publique com "firebase deploy --only firestore:rules" e tente de novo.'
+        : 'Não consegui gravar: ' + ((e && e.message) || 'erro');
+      erro.hidden = false;
+    }
+    return false;
+  }
+  if (!ST.perfil) ST.perfil = {};
+  ST.perfil.avisoHoras = cfg;
+  if (erro) erro.hidden = true;
+  return true;
+}
+
+/* A exceção do projeto, na aba Horas: é onde está o número que dispara o
+   aviso, e portanto onde a pergunta "quem fica sabendo" aparece sozinha. */
+function painelAvisoDoProjeto() {
+  const cfg = avisoHorasConfig();
+  const meta = ST.P.meta;
+  const p = el('div', 'panel');
+  const cab = el('h3', '', 'Quem é avisado sobre o consumo');
+  cab.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap';
+  p.appendChild(cab);
+
+  if (!cfg.ativo) {
+    p.appendChild(el('div', 'empty',
+      ST.comLogin && ehAdmin()
+        ? 'O aviso de consumo de horas está desligado. Ligue na aba Usuários para que os projetos passem a avisar quando cruzarem as faixas.'
+        : 'O aviso de consumo de horas está desligado para a sua empresa.'));
+    return p;
+  }
+
+  const g = el('div', 'formgrid'); g.style.gridTemplateColumns = '1fr';
+  const f = el('div', 'field');
+  f.appendChild(el('label', '', 'E-mail do gestor, só neste projeto'));
+  const i = el('input', 'inp'); i.type = 'email';
+  i.value = (meta.avisoHorasPara || '');
+  i.placeholder = cfg.para + '  (o padrão da empresa)';
+  i.disabled = !podeEditar();
+  i.addEventListener('change', () => {
+    if (semPermissao()) { i.value = meta.avisoHorasPara || ''; return; }
+    const v = chaveEmail(i.value);
+    if (v && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) { toast('E-mail inválido.'); i.focus(); return; }
+    meta.avisoHorasPara = v;
+    markMeta(); renderHoras();
+  });
+  f.appendChild(i);
+  f.appendChild(el('div', 'hint', 'Deixe em branco para usar o padrão da empresa.'));
+  g.appendChild(f);
+  p.appendChild(g);
+
+  /* O que já foi avisado, e o botão de rearmar. Sem esta lista, "por que o
+     gestor não recebeu o de 70%?" não tem resposta dentro do sistema. */
+  const jaFoi = meta.avisosHoras || {};
+  const chaves = Object.keys(jaFoi).map(Number).sort((a, b) => a - b);
+  const l = el('div'); l.style.cssText = 'margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center';
+  if (!chaves.length) {
+    l.appendChild(el('span', 'hint', 'Nenhuma faixa avisada ainda. As faixas valendo: ' + cfg.faixas.map(x => x + '%').join(' · ') + '.'));
+  } else {
+    l.appendChild(el('span', 'hint', 'Já avisado:'));
+    for (const k of chaves) {
+      const m = jaFoi[String(k)] || {};
+      const pill = el('span', 'pill on', k + '%');
+      pill.title = 'Enviado para ' + (m.para || '—') + (m.em ? ' em ' + new Date(m.em).toLocaleDateString('pt-BR') : '');
+      l.appendChild(pill);
+    }
+    const bR = el('button', 'btn reqedit', 'Rearmar');
+    bR.title = 'Apaga as marcas para que as faixas voltem a avisar — use quando o consumo foi corrigido';
+    bR.addEventListener('click', rearmarAvisosHoras);
+    l.appendChild(bR);
+  }
+  p.appendChild(l);
+
+  const h = horasDe(ST.P);
+  p.appendChild(el('div', 'tagline', h.prev > 0
+    ? 'Agora em ' + fmtNum(h.feitas / h.prev * 100, 1).replace('.', ',') + '% das horas previstas. '
+    + 'O aviso sai quando esse número cruzar uma faixa, no momento em que isso acontecer ou na próxima vez que alguém abrir o sistema.'
+    : 'Este projeto não tem horas previstas, então não há porcentagem para acompanhar e nenhum aviso sai dele.'));
+  return p;
+}
+
+function rearmarAvisosHoras() {
+  if (semPermissao()) return;
+  ST.P.meta.avisosHoras = {};
+  markMeta();
+  toast('Avisos rearmados: as faixas voltam a valer para este projeto.');
+  renderHoras();
+}
+
 const fmtH = v => fmtNum(v, (Math.abs(v) % 1) ? 1 : 0) + ' h';
 /** Data curta, do jeito que se lê em português. */
 const fmtData = s => {
@@ -14258,6 +14619,7 @@ function renderHoras() {
   }
 
   host.appendChild(painelEquipeHoras());
+  host.appendChild(painelAvisoDoProjeto());
 
   /* ---- o que já foi lançado ---- */
   const cols = el('div', 'cols2');
