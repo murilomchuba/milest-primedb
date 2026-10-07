@@ -819,8 +819,10 @@ body.embutido .view{height:100%}
 .ap .somas > div{background:var(--surface-1);padding:11px 10px;text-align:center}
 .ap .somas .k{font-family:var(--f-mono);font-size:9px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3)}
 .ap .somas .v{font-family:var(--f-mono);font-size:17px;font-weight:700;margin-top:3px}
-.ap .recusa{background:#FBE6E4;color:#8A2D26;border-radius:8px;padding:8px 10px;font-size:12px;margin-top:6px}
-:root[data-theme="dark"] .ap .recusa{background:#3A1A17;color:#F0A89F}
+/* Nasceu na tela do analista, para o motivo da recusa; agora qualquer janela
+   que precise mostrar "não deu, e foi por isto" usa a mesma caixa. */
+.recusa{background:#FBE6E4;color:#8A2D26;border-radius:8px;padding:8px 10px;font-size:12px;margin-top:6px;line-height:1.45}
+:root[data-theme="dark"] .recusa{background:#3A1A17;color:#F0A89F}
 @media (max-width:420px){
   .ap .apcorpo{padding:12px 12px 48px;gap:12px}
   .ap .card{padding:13px;border-radius:10px}
@@ -8292,13 +8294,23 @@ function abasOcultas() {
   return new Set((Array.isArray(l) ? l : []).filter(x => validas.has(x)));
 }
 
+/* Esta escolha mora no cadastro da empresa, e o cadastro da empresa é o
+   documento mais protegido do sistema — a regra lista, campo a campo, o que o
+   administrador pode escrever ali. Enquanto a regra que inclui `abasOcultas`
+   não estiver publicada, o banco recusa, e a recusa precisa aparecer: a
+   primeira versão disto mostrava um balão que sumia em dois segundos e deixava
+   a janela aberta, do jeito que estava. Quem clicou em Salvar via as caixas
+   desmarcadas e as abas no lugar, sem nada explicando a contradição. */
 async function gravarAbasOcultas(lista) {
   const l = [...new Set(lista)].filter(x => ABAS_ESCONDIVEIS.some(y => y.id === x));
   if (ST.comLogin && ST.mode === 'db' && ST.orgId && !ST.suporte) {
     try {
       await ST.db.doc(dOrg(ST.orgId)).set({ abasOcultas: l, atualizadoEm: Date.now() }, { merge: true });
     } catch (e) {
-      toast('Não consegui gravar: ' + ((e && e.message) || 'erro'));
+      const t = String((e && e.code) || '') + ' ' + String((e && e.message) || '');
+      gravarAbasOcultas.erro = /permission|insufficient/i.test(t)
+        ? 'O banco recusou a gravação. Esta opção é nova e depende de uma atualização das regras do Firestore que ainda não foi publicada — publique com "firebase deploy --only firestore:rules" e tente de novo.'
+        : 'Não consegui gravar: ' + ((e && e.message) || 'erro');
       return false;
     }
     if (ST.perfil) ST.perfil.abasOcultas = l;
@@ -8307,6 +8319,7 @@ async function gravarAbasOcultas(lista) {
     if (!ST.perfil) ST.perfil = {};
     ST.perfil.abasOcultas = l;
   }
+  gravarAbasOcultas.erro = '';
   aplicarAbas();
   return true;
 }
@@ -8352,12 +8365,18 @@ function janelaAbas() {
     body.appendChild(g);
     body.appendChild(el('div', 'tagline',
       'Portfólio e Cronograma não aparecem nesta lista: são a navegação mínima do sistema.'));
+    const aviso = el('div', 'recusa'); aviso.hidden = true; aviso.style.marginTop = '12px';
+    body.appendChild(aviso);
     body.__salvar = async () => {
       const esconder = [...caixas.entries()].filter(([, c]) => !c.checked).map(([k]) => k);
+      gravarAbasOcultas.erro = '';
       if (await gravarAbasOcultas(esconder)) {
         close();
         toast(esconder.length ? esconder.length + ' aba(s) escondida(s).' : 'Todas as abas estão à mostra.');
+        return;
       }
+      aviso.textContent = gravarAbasOcultas.erro || 'Não consegui gravar.';
+      aviso.hidden = false;
     };
   }, [
     { label: 'Cancelar', fn: f => f() },
