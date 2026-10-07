@@ -13899,21 +13899,37 @@ function recadoDecisao(r, estado) {
 
 const FAIXAS_PADRAO = [50, 70, 90, 100];
 
+const EMAIL_SOLTO = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/* Vírgula, ponto e vírgula, espaço ou linha nova — porque é assim que as
+   pessoas colam uma lista de endereços, e brigar com isso só gera suporte.
+   `para` era um texto só e passou a ser lista; a leitura aceita os dois para
+   que a configuração de quem salvou antes continue valendo. O teto de 20 é o
+   mesmo que o servidor aceita em destinatários de status. */
+function listaDeEmails(v) {
+  const bruto = Array.isArray(v) ? v : String(v == null ? '' : v).split(/[;,\s]+/);
+  const fora = [];
+  for (const x of bruto) {
+    const e = chaveEmail(x);
+    if (e && EMAIL_SOLTO.test(e) && !fora.includes(e)) fora.push(e);
+  }
+  return fora.slice(0, 20);
+}
+
 /** A configuração da empresa, com os padrões quando ela nunca foi mexida. */
 function avisoHorasConfig() {
   const o = (ST.perfil && ST.perfil.avisoHoras) || {};
   const f = Array.isArray(o.faixas) && o.faixas.length ? o.faixas : FAIXAS_PADRAO;
   return {
     ativo: o.ativo === true,
-    para: chaveEmail(o.para || ''),
+    para: listaDeEmails(o.para),
     faixas: [...new Set(f.map(x => Math.round(Number(x) || 0)).filter(x => x > 0 && x <= 500))].sort((a, b) => a - b)
   };
 }
 
-/** Para quem vai o aviso deste projeto: a exceção dele, ou o padrão da empresa. */
+/** Para quem vai o aviso deste projeto: a lista dele, ou a padrão da empresa. */
 function avisoHorasPara(meta) {
-  const p = chaveEmail((meta && meta.avisoHorasPara) || '');
-  return p || avisoHorasConfig().para;
+  const p = listaDeEmails(meta && meta.avisoHorasPara);
+  return p.length ? p : avisoHorasConfig().para;
 }
 
 /* A faixa que acabou de ser cruzada, ou null. Devolve UMA só mesmo quando o
@@ -14010,7 +14026,7 @@ function limparTexto(s) {
 async function enviarAvisoHoras(alvo, info) {
   const P = alvo.P, pid = alvo.id, meta = P.meta || {};
   const para = avisoHorasPara(meta);
-  if (!para) return false;
+  if (!para.length) return false;
   const chave = String(info.faixa);
   const antes = Object.assign({}, meta.avisosHoras || {});
   const marca = { em: Date.now(), para: para, pct: Math.round(info.pct * 10) / 10 };
@@ -14028,10 +14044,13 @@ async function enviarAvisoHoras(alvo, info) {
 
   const ind = alvo.ind || indicadoresDe(P);
   const estouro = info.faixa >= 100;
+  /* Você entra em cópia — a menos que já esteja entre os destinatários, e aí
+     aparecer nos dois campos só faria o seu e-mail chegar duplicado. */
+  const eu = chaveEmail(ST.userEmail || '');
   const r = await chamarFuncao('enviarStatus', {
     projetoId: pid,
-    destinatarios: [{ email: para }],
-    copia: ST.userEmail ? [{ email: chaveEmail(ST.userEmail) }] : [],
+    destinatarios: para.map(e => ({ email: e })),
+    copia: (eu && !para.includes(eu)) ? [{ email: eu }] : [],
     assunto: (estouro ? '[Estouro de horas] ' : '[' + info.faixa + '% das horas] ')
       + ((meta.client ? meta.client + ' · ' : '') + (meta.name || 'Projeto')),
     corpo: corpoAvisoHoras(P, ind, info),
@@ -14054,7 +14073,7 @@ async function checarAvisosHoras(lista) {
   if (ST.mode !== 'db' || !ST.comLogin || !ST.orgId || ST.suporte) return 0;
   if (!podeEditar()) return 0;
   const cfg = avisoHorasConfig();
-  if (!cfg.ativo || !cfg.para) return 0;
+  if (!cfg.ativo || !cfg.para.length) return 0;
   avisoRodando = true;
   let n = 0;
   try {
@@ -14067,7 +14086,7 @@ async function checarAvisosHoras(lista) {
   } finally { avisoRodando = false; }
   if (n) {
     esquecerCarteira();
-    toast(n === 1 ? 'Aviso de consumo de horas enviado ao gestor.' : n + ' avisos de consumo enviados.');
+    toast(n === 1 ? 'Aviso de consumo de horas enviado.' : n + ' avisos de consumo enviados.');
   }
   return n;
 }
@@ -14100,10 +14119,12 @@ function painelAvisoHoras() {
   fAtivo.appendChild(sAtivo); g.appendChild(fAtivo);
 
   const fPara = el('div', 'field');
-  fPara.appendChild(el('label', '', 'E-mail do gestor'));
-  const iPara = el('input', 'inp'); iPara.type = 'email'; iPara.value = cfg.para;
-  iPara.placeholder = 'gestor@empresa.com.br';
-  fPara.appendChild(iPara); g.appendChild(fPara);
+  fPara.appendChild(el('label', '', 'Para quem vai'));
+  const iPara = el('input', 'inp'); iPara.value = cfg.para.join(', ');
+  iPara.placeholder = 'gestor@empresa.com.br, diretoria@empresa.com.br';
+  fPara.appendChild(iPara);
+  fPara.appendChild(el('div', 'hint', 'Um ou mais endereços, separados por vírgula. Até 20.'));
+  g.appendChild(fPara);
 
   const fFx = el('div', 'field'); fFx.style.gridColumn = '1 / -1';
   fFx.appendChild(el('label', '', 'Faixas, em % das horas previstas'));
@@ -14117,9 +14138,15 @@ function painelAvisoHoras() {
 
   const bSalvar = el('button', 'btn primary', 'Salvar');
   bSalvar.addEventListener('click', async () => {
-    const para = chaveEmail(iPara.value);
+    const para = listaDeEmails(iPara.value);
     const lig = sAtivo.value === 'sim';
-    if (lig && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(para)) { toast('Informe um e-mail válido para o gestor.'); iPara.focus(); return; }
+    if (lig && !para.length) { toast('Informe ao menos um e-mail válido.'); iPara.focus(); return; }
+    /* Se a pessoa digitou cinco endereços e só três eram válidos, salvar os
+       três em silêncio esconde os dois que ela acha que salvou. */
+    const digitados = String(iPara.value).split(/[;,\s]+/).filter(x => x.trim()).length;
+    if (lig && digitados > para.length
+      && !confirm('Reconheci ' + para.length + ' endereço(s) de ' + digitados + ' digitado(s):\n\n'
+        + para.join('\n') + '\n\nSalvar assim?')) { iPara.focus(); return; }
     const faixas = [...new Set(String(iFx.value).split(/[;,\s]+/).map(x => Math.round(Number(x) || 0)).filter(x => x > 0 && x <= 500))].sort((a, b) => a - b);
     if (lig && !faixas.length) { toast('Informe ao menos uma faixa.'); iFx.focus(); return; }
     bSalvar.disabled = true;
@@ -14134,8 +14161,8 @@ function painelAvisoHoras() {
 
   p.appendChild(el('div', 'tagline',
     'O e-mail sai uma única vez por faixa e por projeto, com o consumo, o avanço físico, o IDP, o IDC e a projeção no ritmo atual. '
-    + 'Você entra em cópia. Projeto pausado, encerrado ou sem horas previstas não dispara nada. '
-    + 'Um projeto pode ter outro destinatário: o campo fica na aba Horas dele.'));
+    + 'Você entra em cópia, se não estiver na lista. Projeto pausado, encerrado ou sem horas previstas não dispara nada. '
+    + 'Um projeto pode ter a sua própria lista: o campo fica na aba Horas dele.'));
   return p;
 }
 
@@ -14179,20 +14206,23 @@ function painelAvisoDoProjeto() {
 
   const g = el('div', 'formgrid'); g.style.gridTemplateColumns = '1fr';
   const f = el('div', 'field');
-  f.appendChild(el('label', '', 'E-mail do gestor, só neste projeto'));
-  const i = el('input', 'inp'); i.type = 'email';
-  i.value = (meta.avisoHorasPara || '');
-  i.placeholder = cfg.para + '  (o padrão da empresa)';
+  f.appendChild(el('label', '', 'Para quem vai, só neste projeto'));
+  const i = el('input', 'inp');
+  i.value = listaDeEmails(meta.avisoHorasPara).join(', ');
+  i.placeholder = cfg.para.join(', ') + '   (o padrão da empresa)';
   i.disabled = !podeEditar();
   i.addEventListener('change', () => {
-    if (semPermissao()) { i.value = meta.avisoHorasPara || ''; return; }
-    const v = chaveEmail(i.value);
-    if (v && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) { toast('E-mail inválido.'); i.focus(); return; }
+    if (semPermissao()) { i.value = listaDeEmails(meta.avisoHorasPara).join(', '); return; }
+    const bruto = String(i.value).split(/[;,\s]+/).filter(x => x.trim());
+    const v = listaDeEmails(i.value);
+    if (bruto.length && !v.length) { toast('Nenhum e-mail válido na lista.'); i.focus(); return; }
     meta.avisoHorasPara = v;
+    i.value = v.join(', ');
     markMeta(); renderHoras();
   });
   f.appendChild(i);
-  f.appendChild(el('div', 'hint', 'Deixe em branco para usar o padrão da empresa.'));
+  f.appendChild(el('div', 'hint',
+    'Um ou mais endereços, separados por vírgula. Em branco usa a lista da empresa; preenchido, substitui ela por inteiro.'));
   g.appendChild(f);
   p.appendChild(g);
 
@@ -14208,7 +14238,8 @@ function painelAvisoDoProjeto() {
     for (const k of chaves) {
       const m = jaFoi[String(k)] || {};
       const pill = el('span', 'pill on', k + '%');
-      pill.title = 'Enviado para ' + (m.para || '—') + (m.em ? ' em ' + new Date(m.em).toLocaleDateString('pt-BR') : '');
+      const quem = Array.isArray(m.para) ? m.para.join(', ') : (m.para || '—');
+      pill.title = 'Enviado para ' + quem + (m.em ? ' em ' + new Date(m.em).toLocaleDateString('pt-BR') : '');
       l.appendChild(pill);
     }
     const bR = el('button', 'btn reqedit', 'Rearmar');
