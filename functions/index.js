@@ -281,7 +281,7 @@ exports.enviarStatus = onCall({ cors: ORIGENS, secrets: [RESEND_API_KEY], timeou
 
   const teste = d.teste === true;
   const v = decidirStatus({
-    idxQuem, membroQuem, org, projeto, teste,
+    quem, idxQuem, membroQuem, org, projeto, teste,
     destinatarios: d.destinatarios, copia: d.copia,
     corpo: d.corpo, pdf: d.pdf, agora: Date.now()
   });

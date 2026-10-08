@@ -68,7 +68,32 @@ service cloud.firestore {
     //
     // Escrito assim de propósito: um papel novo que aparecesse por engano no
     // cadastro entraria como quem NÃO vê, em vez de herdar a leitura total.
-    function veOrg(org) { return daOrg(org) && papelNa(org) != 'analista'; }
+    // O gerente de projetos entra aqui pelo mesmo motivo do analista: ele
+    // pertence à empresa, mas não enxerga a empresa inteira. A diferença é o
+    // tamanho do recorte — o analista vê a atividade em que trabalhou, o
+    // gerente vê o projeto inteiro, e só os projetos dele.
+    function veOrg(org) { return daOrg(org) && !(papelNa(org) in ['analista', 'gp']); }
+
+    // ---- a que projetos um gerente de projetos responde --------------------
+    // Fica no documento do PROJETO, e não numa subcoleção: é assim que a
+    // CONSULTA da carteira pode vir recortada por campo. Uma nomeação guardada
+    // em outro lugar obrigaria a tela a pedir todos os projetos e filtrar
+    // depois — e aí os dados dos colegas já teriam saído do banco.
+    //
+    // Dois campos: `gp` é o titular, um só, que responde pelo projeto e aparece
+    // no relatório; `gpExtra` são os substitutos, com o mesmo acesso, para que
+    // duas semanas de férias não tranquem o projeto.
+    function souGPna(org) { return daOrg(org) && papelNa(org) == 'gp'; }
+    function gpNesteDoc(org, d) {
+      return souGPna(org) && (d.get('gp', '') == eu() || eu() in d.get('gpExtra', []));
+    }
+    function docProjeto(org, projeto) {
+      return /databases/$(database)/documents/orgs/$(org)/projects/$(projeto);
+    }
+    function gpNoProjeto(org, projeto) {
+      return souGPna(org) && exists(docProjeto(org, projeto))
+          && gpNesteDoc(org, get(docProjeto(org, projeto)).data);
+    }
 
     // ---- a que projetos um analista pertence -------------------------------
     // Um documento por pessoa dentro do projeto. Quem o cria é quem edita o
@@ -141,7 +166,11 @@ service cloud.firestore {
         // dele; a lista da empresa (quem é quem, com que papel) não é dele.
         allow get: if veOrg(org) || souPlataforma()
                    || (daOrg(org) && email.lower() == eu());
-        allow list: if veOrg(org) || souPlataforma();
+        // O gerente de projetos lê a lista para nomear a equipe dos projetos
+        // dele — nomear por e-mail digitado era o caminho curto para o
+        // analista fantasma. Ler não é mexer: criar conta e trocar papel
+        // continuam presos a `mandaNaOrg`, logo abaixo.
+        allow list: if veOrg(org) || souPlataforma() || souGPna(org);
 
         // A plataforma cadastra UM administrador ao criar a empresa, e só
         // enquanto a empresa ainda não tem dono.
@@ -176,11 +205,31 @@ service cloud.firestore {
       // ---- cronogramas: SÓ membros da empresa ----------------------------
       // (a plataforma não aparece em nenhuma destas linhas, de propósito)
       match /projects/{projeto} {
-        allow read: if veOrg(org) || suporteAtivo(org);
-        allow write: if editaOrg(org) || suporteEdita(org);
+        allow get: if veOrg(org) || suporteAtivo(org) || gpNesteDoc(org, resource.data);
+
+        // A carteira do gerente de projetos sai daqui, e sai RECORTADA: a
+        // consulta precisa trazer o filtro por `gp` ou por `gpExtra`, senão
+        // ela é recusada inteira. Não é a tela que esconde os projetos dos
+        // colegas — eles não chegam a sair do banco.
+        allow list: if veOrg(org) || suporteAtivo(org)
+                    || (souGPna(org) && (resource.data.gp == eu() || eu() in resource.data.gpExtra));
+
+        // Criar e apagar projeto é do escritório. O gerente recebe a carteira
+        // que o PMO distribui; não abre projeto fora dela nem some com um.
+        allow create, delete: if editaOrg(org) || suporteEdita(org);
+
+        // Ele edita o projeto inteiro, MENOS de quem ele é. Sem estas duas
+        // linhas, o gerente poderia passar o próprio projeto para outro (ou
+        // tirar o substituto) — reatribuir é decisão do escritório.
+        allow update: if editaOrg(org) || suporteEdita(org)
+                      || (gpNesteDoc(org, resource.data) && orgNoPrazo(org)
+                          && request.resource.data.get('gp', '') == resource.data.get('gp', '')
+                          && request.resource.data.get('gpExtra', []) == resource.data.get('gpExtra', []));
+
         match /{documento=**} {
-          allow read: if veOrg(org) || suporteAtivo(org);
-          allow write: if editaOrg(org) || suporteEdita(org);
+          allow read: if veOrg(org) || suporteAtivo(org) || gpNoProjeto(org, projeto);
+          allow write: if editaOrg(org) || suporteEdita(org)
+                       || (gpNoProjeto(org, projeto) && orgNoPrazo(org));
         }
 
         /* Os três blocos abaixo ACRESCENTAM caminho, não tiram: no Firestore as
@@ -242,7 +291,10 @@ service cloud.firestore {
 
       // ---- equipe: cadastro único dentro da empresa -----------------------
       match /resources/{recurso} {
-        allow read: if veOrg(org) || suporteAtivo(org);
+        // O gerente de projetos LÊ o cadastro para alocar quem já existe, e
+        // não escreve: trazer gente nova para dentro da empresa continua sendo
+        // do escritório, que é quem paga o assento.
+        allow read: if veOrg(org) || suporteAtivo(org) || souGPna(org);
         allow write: if editaOrg(org) || suporteEdita(org);
       }
 

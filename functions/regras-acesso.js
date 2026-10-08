@@ -139,11 +139,22 @@ function decidirStatus(p) {
   const orgId = p.idxQuem && p.idxQuem.orgId;
   if (!orgId) return { ok: false, motivo: 'sua conta não está em nenhuma empresa.' };
   const m = p.membroQuem, org = p.org;
-  if (!m || m.ativo === false || !['admin', 'gerente'].includes(m.papel))
+  if (!m || m.ativo === false || !['admin', 'gerente', 'gp'].includes(m.papel))
     return { ok: false, motivo: 'só administradores e gerentes enviam o status report.' };
   if (!org || org.ativo === false) return { ok: false, motivo: 'empresa suspensa.' };
   if (org.expiraEm && p.agora >= org.expiraEm) return { ok: false, motivo: 'o prazo de acesso da empresa venceu.' };
   if (!p.projeto) return { ok: false, motivo: 'projeto não encontrado.' };
+  /* O gerente de projetos manda o status DOS PROJETOS DELE. A conferência é
+     aqui, no servidor, e não na tela: sem ela o papel que não enxerga o
+     projeto do colega poderia mandar um e-mail sobre ele mesmo assim — e o
+     corpo da mensagem vem do navegador, então bastaria montá-lo à mão. */
+  if (m.papel === 'gp') {
+    const eu = chave(p.quem || (p.idxQuem && p.idxQuem.email) || '');
+    const titular = chave(p.projeto.gp || '');
+    const subs = (Array.isArray(p.projeto.gpExtra) ? p.projeto.gpExtra : []).map(chave);
+    if (!eu || (eu !== titular && !subs.includes(eu)))
+      return { ok: false, motivo: 'este projeto não é seu.' };
+  }
   const dest = Array.isArray(p.destinatarios) ? p.destinatarios : [];
   if (!p.teste) {
     if (!dest.length) return { ok: false, motivo: 'informe ao menos um destinatário.' };

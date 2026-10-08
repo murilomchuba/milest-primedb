@@ -1603,6 +1603,10 @@ function newMeta(name) {
     statusDate: todayISO(), statusFixa: false, baselineAt: null, updatedAt: Date.now(),
     resumo: '', riscos: '', conquistas: '', andamento: '', statusManual: null, replanejamentos: [],
     horasPrev: 0, horas: [],
+    /* Os dois existem em TODO projeto, mesmo vazios: a regra que dá ao gerente
+       a lista dos projetos dele é uma consulta por estes campos, e consulta
+       não acha documento que não tem o campo. */
+    gp: '', gpExtra: [],
     encerradoEm: null, encerradoPor: '', encerramento: null,
     pausadoEm: null, pausadoPor: '', pausaMotivo: '', pausaRetomaEm: null, pausas: []
   };
@@ -1679,7 +1683,13 @@ const dOrg = id => 'orgs/' + id;
 const DONO = 'mmc.chuba@gmail.com';   // sempre administrador, para nunca ficar sem acesso
 const PAPEIS = {
   admin: { rot: 'Administrador', desc: 'Edita tudo e cadastra usuários.' },
-  gerente: { rot: 'Gerente', desc: 'Cria e edita cronogramas, recursos e status reports.' },
+  gerente: { rot: 'Gerente da carteira', desc: 'Cria e edita qualquer projeto da empresa, e o cadastro de recursos.' },
+  /* O escritório de projetos tem um PMO e vários gerentes. O PMO distribui;
+     cada gerente responde pelos projetos dele e não enxerga os dos colegas.
+     É o segundo papel recortado por PROJETO, e não por empresa — o primeiro
+     foi o analista. A diferença entre os dois é o tamanho do recorte: o
+     analista vê a atividade em que trabalhou, o gerente vê o projeto inteiro. */
+  gp: { rot: 'Gerente de projetos', desc: 'Monta o cronograma, aloca a equipe e manda o status dos projetos de que é responsável. Não vê os projetos dos outros gerentes.' },
   leitor: { rot: 'Leitor', desc: 'Apenas consulta e baixa os relatórios.' },
   /* O analista é o primeiro papel que NÃO enxerga a empresa. Os outros três se
      diferenciam pelo que podem escrever; este se diferencia pelo que pode ver:
@@ -1687,6 +1697,27 @@ const PAPEIS = {
      recebe não abre o MILEST — abre uma tela só de apontamento. */
   analista: { rot: 'Analista', desc: 'Lança só as próprias horas, nos projetos em que está na equipe. Não vê a carteira.' }
 };
+/** O gerente de projetos: vê a empresa, mas só a parte dela que é dele. */
+function souGP() {
+  return ST.comLogin && !ST.suporte && !!ST.perfil && ST.perfil.papel === 'gp';
+}
+
+/* Quem responde por um projeto: o titular primeiro, depois os substitutos.
+   Dois campos e não um porque duas semanas de férias do gerente não podem
+   trancar o projeto até alguém lembrar de reatribuir — mas o titular continua
+   sendo um só, que é quem aparece no relatório e quem recebe os avisos. */
+function gpsDoProjeto(m) {
+  const titular = chaveEmail((m && m.gp) || '');
+  const mais = listaDeEmails((m && m.gpExtra) || []).filter(x => x !== titular);
+  return titular ? [titular].concat(mais) : mais;
+}
+
+/** Este projeto é meu? Para quem não é gerente de projetos, todos são. */
+function meuProjeto(m) {
+  if (!souGP()) return true;
+  return gpsDoProjeto(m).indexOf(chaveEmail(ST.userEmail || '')) >= 0;
+}
+
 /** Quem entra para lançar hora e nada mais. */
 function souAnalista() {
   return ST.comLogin && !ST.suporte && !!ST.perfil && ST.perfil.papel === 'analista';
@@ -1704,7 +1735,23 @@ function podeEditar() {
   if (souAnalista()) return false;         // ele não edita projeto: só lança hora
   if (typeof embedSoLeitura !== 'undefined' && embedSoLeitura) return false;
   if (ST.perfil && ST.perfil.expirado) return false;   // prazo vencido: só leitura
-  const p = papelAtual(); return p === 'admin' || p === 'gerente';
+  const p = papelAtual();
+  /* O gerente de projetos edita, mas só o que é dele. Aqui o portão deixa de
+     ser uma pergunta sobre a PESSOA e passa a ser sobre a pessoa NESTE
+     projeto — e é por isso que ele lê `ST.P.meta`. */
+  if (p === 'gp') return meuProjeto(ST.P && ST.P.meta);
+  return p === 'admin' || p === 'gerente';
+}
+
+/* Criar e excluir projeto é do escritório, não do gerente. Sem este portão
+   separado, `podeEditar` diria sim ao gerente que está com um projeto dele
+   aberto — e ele abriria projeto fora da carteira que o PMO distribui. */
+function podeCriarProjeto() {
+  if (ARQUIVO) return false;
+  if (typeof embedSoLeitura !== 'undefined' && embedSoLeitura) return false;
+  if (ST.perfil && ST.perfil.expirado) return false;
+  const p = papelAtual();
+  return p === 'admin' || p === 'gerente';
 }
 /** Dias que faltam para o prazo da empresa. null quando não há prazo. */
 function diasDePrazo(expiraEm) {
@@ -1745,7 +1792,16 @@ function cronogramaTravado() {
 
 function markMeta() { if (!podeEditar()) return; ST.P.meta.updatedAt = Date.now(); dirty.meta = true; queueSave(); }
 function markTask(id) { if (!podeEditarCronograma()) return; ST.P.meta.updatedAt = Date.now(); dirty.meta = true; dirty.delT.delete(id); dirty.tasks.add(id); queueSave(); }
-function markRes(id) { if (!podeEditarCronograma()) return; dirty.delR.delete(id); dirty.res.add(id); queueSave(); }
+/* O cadastro de recursos vive FORA do projeto, em orgs/{org}/resources: é um
+   só para a empresa inteira. Por isso o gerente de projetos não o escreve —
+   ele aloca quem já existe. Sem este aviso a gravação sairia, seria recusada
+   pelas regras e a tela mostraria o valor novo até a próxima leitura: o pior
+   dos mundos, porque parece ter funcionado. */
+function markRes(id) {
+  if (souGP()) { toast('O cadastro de recursos é da empresa. Peça ao escritório para alterar.'); return; }
+  if (!podeEditarCronograma()) return;
+  dirty.delR.delete(id); dirty.res.add(id); queueSave();
+}
 function markDelTask(id) { if (!podeEditarCronograma()) return; ST.P.meta.updatedAt = Date.now(); dirty.meta = true; dirty.delT.add(id); dirty.tasks.delete(id); queueSave(); }
 function markDelRes(id) { if (!podeEditarCronograma()) return; dirty.delR.add(id); dirty.res.delete(id); queueSave(); }
 /* Salvar NÃO invalida mais a carteira lida. Cada tecla digitada zerava o
@@ -4520,6 +4576,37 @@ function congelarP(P) {
   };
 }
 
+/* A lista de projetos que esta conta alcança.
+
+   Para todo mundo é a coleção inteira. Para o gerente de projetos são duas
+   consultas — titular e substituto —, porque o Firestore não tem OU. E são
+   consultas de verdade, não um filtro na tela: a regra do banco só aceita a
+   leitura da coleção quando ela vem recortada por um destes dois campos, e um
+   pedido sem recorte é recusado inteiro. Esconder na tela deixaria os dados
+   passando pela rede; aqui eles não saem do banco. */
+async function lerProjetosVisiveis() {
+  const col = ST.db.collection(cProjetos());
+  if (!souGP()) return (await col.get()).docs;
+  const eu = chaveEmail(ST.userEmail || '');
+  if (!eu) return [];
+  const partes = []; let recusa = '';
+  for (const q of [col.where('gp', '==', eu), col.where('gpExtra', 'array-contains', eu)]) {
+    try { partes.push(await q.get()); }
+    catch (e) { recusa = (e && e.message) || 'recusado'; }
+  }
+  /* As duas recusadas quase sempre querem dizer a mesma coisa: as regras novas
+     ainda não foram publicadas. Uma carteira vazia em silêncio diria à pessoa
+     "você não tem projeto nenhum", que é a conclusão errada. */
+  if (!partes.length) {
+    toast('Não consegui ler os seus projetos. Se as regras do banco ainda não foram publicadas, '
+      + 'publique com "firebase deploy --only firestore:rules". (' + recusa + ')');
+    return [];
+  }
+  const vistos = new Map();
+  for (const snap of partes) for (const d of snap.docs) vistos.set(d.id, d);
+  return [...vistos.values()];
+}
+
 async function carregarPortfolio() {
   /* O projeto aberto nunca vem do cache — ele está em memória, já calculado.
      Deixo o retrato guardado assim mesmo: quando você troca de projeto, o que
@@ -4553,8 +4640,7 @@ async function carregarPortfolio() {
   // 1) um único ida-e-volta traz o cabeçalho de todos os projetos
   const cabecalhos = new Map();
   try {
-    const snap = await ST.db.collection(cProjetos()).get();
-    for (const d of snap.docs) cabecalhos.set(d.id, d.data() || {});
+    for (const d of await lerProjetosVisiveis()) cabecalhos.set(d.id, d.data() || {});
   } catch (e) { }
 
   const chave = pid => pre() + pid;
@@ -8415,7 +8501,7 @@ function aplicarPermissoes() {
     '#btnMilestone', '#btnLink', '#btnBaseline', '#btnDataStatus', '#btnReplanejar', '#btnImport']) {
     const n = $(sel); if (n) n.disabled = !edCron;
   }
-  { const n = $('#btnNewProj'); if (n) n.disabled = !ed; }
+  { const n = $('#btnNewProj'); if (n) n.disabled = !podeCriarProjeto(); }
   const tu = $('#tabUsers');
   if (tu) {
     tu.hidden = !(adm && nuvem && naOrg);
@@ -8462,6 +8548,113 @@ function aplicarPermissoes() {
   }
 }
 
+/* ============ a carteira distribuída ============
+   Quem pode receber um projeto: o gerente de projetos, e também quem manda na
+   empresa — o PMO toca projeto também, e obrigá-lo a criar uma segunda conta
+   para isso seria burocracia inventada pelo sistema. */
+const PAPEIS_RESPONSAVEL = ['gp', 'gerente', 'admin'];
+let MEMBROS_CACHE = null;
+
+async function membrosParaResponsavel() {
+  if (MEMBROS_CACHE) return MEMBROS_CACHE;
+  if (ST.mode !== 'db' || !ST.comLogin || !ST.orgId) return [];
+  let lista = [];
+  try { lista = await carregarUsuarios(); } catch (e) { return []; }
+  MEMBROS_CACHE = lista
+    .filter(m => m && m.ativo !== false && PAPEIS_RESPONSAVEL.indexOf(m.papel || 'leitor') >= 0)
+    .map(m => ({ email: chaveEmail(m.email || m.id), nome: m.nome || '', papel: m.papel || 'leitor' }))
+    .filter(m => m.email);
+  MEMBROS_CACHE.sort((a, b) => String(a.nome || a.email).localeCompare(String(b.nome || b.email), 'pt-BR'));
+  return MEMBROS_CACHE;
+}
+function esquecerMembros() { MEMBROS_CACHE = null; }
+
+/** Distribuir a carteira é do escritório. O gerente lê, não escolhe. */
+function podeDistribuir() { return podeCriarProjeto(); }
+
+const rotuloMembro = m => (m.nome ? m.nome + ' · ' : '') + m.email
+  + (m.papel === 'gp' ? '' : '  (' + (PAPEIS[m.papel] || PAPEIS.leitor).rot + ')');
+
+/* O e-mail que diz a alguém que um projeto passou a ser dele. Mesma moldura
+   dos avisos automáticos: chega na mesma caixa, do mesmo sistema. O que ele
+   precisa carregar não é número nenhum — é o combinado. */
+function corpoAtribuicao(meta, quem, link) {
+  const h = Math.max(0, Number(meta.horasPrev) || 0);
+  const tarefas = ['Montar o cronograma e a linha de base',
+    'Alocar os analistas na equipe do projeto',
+    'Aceitar as horas que eles lançarem',
+    'Manter o status report e mandar ao cliente'];
+  return molduraAviso({
+    selo: 'Atribuição de projeto',
+    titulo: 'Este projeto passou a ser seu',
+    sub: tituloProjeto(meta),
+    cor: '#123E6B', fundo: '#EAF1F8',
+    linhas: linhaAviso('Cliente', limparTexto(meta.client || '—'), '')
+      + linhaAviso('Início', limparTexto(fmtBR(meta.start)), meta.resumo ? limparTexto(String(meta.resumo).slice(0, 180)) : '')
+      + (h > 0 ? linhaAviso('Horas previstas', avisoNum(h) + ' h', 'é contra este número que o consumo é medido') : '')
+      + linhaAviso('Distribuído por', limparTexto(quem || '—'), ''),
+    extra: '<div style="margin-top:16px">'
+      + '<div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#5A6B7B;font-weight:700;margin-bottom:6px">O que fica com você</div>'
+      + '<ul style="margin:0;padding-left:18px;font-size:13px;line-height:1.7;color:#17202A">'
+      + tarefas.map(x => '<li>' + limparTexto(x) + '</li>').join('') + '</ul>'
+      + (link ? '<div style="margin-top:14px"><a href="' + limparTexto(link) + '" style="display:inline-block;background:#014479;color:#FFF;text-decoration:none;font-size:13px;font-weight:700;padding:9px 16px;border-radius:6px">Abrir no MILEST</a></div>' : '')
+      + '</div>',
+    rodape: 'Você vê e edita apenas os projetos de que é responsável. '
+      + 'Os projetos dos outros gerentes não aparecem para você.'
+  });
+}
+
+/* O seletor de responsável. Nasce já com o valor atual dentro, antes de a
+   lista de pessoas chegar do banco: sem isso, um projeto que JÁ tem gerente
+   aparece em branco por um instante, e quem estiver clicando rápido salva o
+   branco por cima. */
+function seletorResponsavel(atual, aoMudar) {
+  const sel = el('select', 'inp');
+  const vazio = el('option', '', '— sem responsável —'); vazio.value = '';
+  sel.appendChild(vazio);
+  const agora = chaveEmail(atual || '');
+  if (agora) { const o = el('option', '', agora); o.value = agora; sel.appendChild(o); }
+  sel.value = agora;
+  membrosParaResponsavel().then(lista => {
+    const antes = sel.value;
+    sel.textContent = '';
+    const v = el('option', '', '— sem responsável —'); v.value = ''; sel.appendChild(v);
+    let achou = false;
+    for (const m of lista) {
+      const o = el('option', '', rotuloMembro(m)); o.value = m.email;
+      if (m.email === antes) achou = true;
+      sel.appendChild(o);
+    }
+    /* Quem respondia pelo projeto e saiu da empresa (ou virou leitor) não pode
+       sumir da tela em silêncio: o projeto ficaria sem dono sem ninguém saber. */
+    if (antes && !achou) {
+      const o = el('option', '', antes + '  (fora da lista)'); o.value = antes; sel.appendChild(o);
+    }
+    sel.value = antes;
+    if (!lista.length) sel.title = 'Nenhuma conta com papel de gerente ainda. Cadastre na aba Usuários.';
+  }).catch(() => { });
+  if (aoMudar) sel.addEventListener('change', () => aoMudar(chaveEmail(sel.value)));
+  return sel;
+}
+
+async function avisarGerente(pid, meta, email) {
+  const para = chaveEmail(email || '');
+  if (!para || ST.mode !== 'db' || !ST.comLogin) return { ok: false, motivo: 'sem envio fora do banco' };
+  const quem = (ST.perfil && ST.perfil.nome) || chaveEmail(ST.userEmail || '') || '—';
+  const link = location.origin + location.pathname;
+  let r;
+  try {
+    r = await chamarFuncao('enviarStatus', {
+      projetoId: pid,
+      destinatarios: [{ email: para }],
+      copia: ST.userEmail && chaveEmail(ST.userEmail) !== para ? [{ email: chaveEmail(ST.userEmail) }] : [],
+      assunto: '[Projeto sob sua responsabilidade] ' + tituloProjeto(meta),
+      corpo: corpoAtribuicao(meta, quem, link), pdf: '', nomeArquivo: ''
+    });
+  } catch (e) { return { ok: false, motivo: (e && e.message) || 'erro no envio' }; }
+  return (r && r.ok) ? { ok: true } : { ok: false, motivo: (r && r.motivo) || 'não consegui enviar' };
+}
+
 /* ---- membros da empresa (aba Usuários) ---- */
 async function carregarUsuarios() {
   const snap = await ST.db.collection(cMembros()).get();
@@ -8474,6 +8667,7 @@ async function salvarUsuario(email, dados) {
   const chave = chaveEmail(email);
   try {
     await ST.db.doc(dMembro(chave)).set(Object.assign({ email: chave }, dados), { merge: true });
+    esquecerMembros();        // um papel que mudou muda quem pode receber projeto
     // o índice é o que permite a pessoa achar a própria empresa ao entrar
     if (dados.papel || dados.ativo !== undefined) {
       await ST.db.doc(dIndice(chave)).set({ email: chave, orgId: ST.orgId }, { merge: true }).catch(() => { });
@@ -8512,8 +8706,8 @@ function renderUsuarios() {
 
   const explica = el('div', 'panel');
   explica.appendChild(el('h3', '', 'Como funcionam os papéis'));
-  const ul = el('div', 'formgrid'); ul.style.gridTemplateColumns = 'repeat(4,1fr)';
-  for (const k of ['admin', 'gerente', 'leitor', 'analista']) {
+  const ul = el('div', 'formgrid'); ul.style.gridTemplateColumns = 'repeat(5,1fr)';
+  for (const k of ['admin', 'gerente', 'gp', 'leitor', 'analista']) {
     const f = el('div', 'field');
     f.appendChild(el('label', '', PAPEIS[k].rot));
     f.appendChild(el('div', 'hint', PAPEIS[k].desc));
@@ -8547,7 +8741,7 @@ function renderUsuarios() {
 
       const tdP = el('td');
       const selP = el('select', 'inp');
-      for (const k of ['admin', 'gerente', 'leitor', 'analista']) { const o = el('option', '', PAPEIS[k].rot); o.value = k; selP.appendChild(o); }
+      for (const k of ['admin', 'gerente', 'gp', 'leitor', 'analista']) { const o = el('option', '', PAPEIS[k].rot); o.value = k; selP.appendChild(o); }
       selP.value = PAPEIS[u.papel] ? u.papel : 'leitor';
       selP.disabled = unicoAdmin;
       selP.title = unicoAdmin ? 'A empresa precisa de pelo menos um administrador.' : '';
@@ -8678,7 +8872,7 @@ function modalUsuario(atual, sugestao) {
     }
     const f3 = el('div', 'field'); f3.appendChild(el('label', '', 'Papel'));
     const sel = el('select', 'inp');
-    for (const k of ['gerente', 'leitor', 'admin', 'analista']) { const o = el('option', '', PAPEIS[k].rot + ' — ' + PAPEIS[k].desc); o.value = k; sel.appendChild(o); }
+    for (const k of ['gp', 'gerente', 'leitor', 'admin', 'analista']) { const o = el('option', '', PAPEIS[k].rot + ' — ' + PAPEIS[k].desc); o.value = k; sel.appendChild(o); }
     sel.value = (atual && PAPEIS[atual.papel]) ? atual.papel : (sug.analista ? 'analista' : 'leitor');
     f3.appendChild(sel); body.appendChild(f3);
 
@@ -10267,6 +10461,62 @@ function painelBackup() {
 }
 
 /* ============ aba Calendário ============ */
+/* Quem responde pelo projeto, na aba Configurações. Dois campos e um aviso:
+   trocar o titular manda o e-mail na hora, porque uma atribuição que a pessoa
+   só descobre na próxima reunião não é uma atribuição. */
+function montarResponsavel(fld, m, painel) {
+  const pode = podeDistribuir();
+  const sel = seletorResponsavel(m.gp, async (novo) => {
+    if (!pode) { sel.value = chaveEmail(m.gp || ''); return; }
+    const antes = chaveEmail(m.gp || '');
+    if (novo === antes) return;
+    m.gp = novo; markMeta(); renderProjectList();
+    if (!novo) { toast('Projeto sem responsável.'); refresh(); return; }
+    toast('Avisando ' + novo + '…');
+    const r = await avisarGerente(ST.pid, m, novo);
+    toast(r.ok ? 'Responsável definido, e o e-mail saiu para ' + novo + '.'
+      : 'Responsável definido, mas o e-mail não saiu: ' + r.motivo);
+    refresh();
+  });
+  sel.disabled = !pode;
+  fld('Gerente responsável', sel);
+
+  const i2 = el('input', 'inp');
+  i2.value = listaDeEmails(m.gpExtra || []).join(', ');
+  i2.placeholder = 'outro@empresa.com.br  (férias, projeto grande)';
+  i2.disabled = !pode;
+  i2.addEventListener('change', () => {
+    if (!pode) { i2.value = listaDeEmails(m.gpExtra || []).join(', '); return; }
+    const titular = chaveEmail(m.gp || '');
+    const v = listaDeEmails(i2.value).filter(x => x !== titular);
+    m.gpExtra = v; i2.value = v.join(', ');
+    markMeta(); refresh();
+  });
+  fld('Substitutos', i2);
+
+  const cauda = el('div', 'tagline');
+  if (!chaveEmail(m.gp || '') && !listaDeEmails(m.gpExtra || []).length) {
+    cauda.textContent = pode
+      ? 'Sem responsável, este projeto só aparece para quem vê a carteira inteira — administrador, gerente da carteira e leitor.'
+      : 'Este projeto ainda não tem um gerente responsável.';
+  } else {
+    cauda.textContent = 'O responsável e os substitutos veem e editam este projeto. Os outros gerentes de projetos não.';
+    if (pode && chaveEmail(m.gp || '')) {
+      const bRe = el('button', 'btn reqedit', 'Reenviar o aviso');
+      bRe.style.marginLeft = '6px';
+      bRe.title = 'Manda de novo o e-mail de atribuição para ' + chaveEmail(m.gp);
+      bRe.addEventListener('click', async () => {
+        bRe.disabled = true;
+        const r = await avisarGerente(ST.pid, m, m.gp);
+        bRe.disabled = false;
+        toast(r.ok ? 'Aviso reenviado para ' + chaveEmail(m.gp) + '.' : 'Não consegui enviar: ' + r.motivo);
+      });
+      cauda.appendChild(bRe);
+    }
+  }
+  painel.appendChild(cauda);
+}
+
 function renderSettings() {
   const host = $('#setView'); host.textContent = '';
   const m = ST.P.meta;
@@ -10283,6 +10533,7 @@ function renderSettings() {
   };
   fld('Nome do projeto', mk('text', m.name, v => { m.name = v || 'Projeto'; renderProjectList(); }));
   fld('Cliente', mk('text', m.client || '', v => { m.client = v; renderProjectList(); }));
+  if (ST.comLogin && ST.orgId) montarResponsavel(fld, m, p);
   fld('Início do projeto', mk('date', m.start, v => { if (v) m.start = v.slice(0, 10); }));
   fld('Data de status', mk('date', dataStatus(), v => {
     m.statusDate = (v || todayISO()).slice(0, 10);
@@ -16689,6 +16940,11 @@ $('#btnNewProj').addEventListener('click', () => {
     fc.appendChild(ic); body.appendChild(fc);
     const f2 = el('div', 'field'); f2.appendChild(el('label', '', 'Início'));
     const i2 = el('input', 'inp'); i2.type = 'date'; i2.value = todayISO(); f2.appendChild(i2); body.appendChild(f2);
+    const fgp = el('div', 'field'); fgp.appendChild(el('label', '', 'Gerente responsável'));
+    const sgp = seletorResponsavel('');
+    fgp.appendChild(sgp);
+    fgp.appendChild(el('div', 'hint', 'Ele recebe um e-mail com o projeto, o cliente e o que fica com ele. Pode ficar em branco e ser definido depois, na aba Configurações.'));
+    body.appendChild(fgp);
     const fh = el('div', 'field'); fh.appendChild(el('label', '', 'Horas previstas'));
     const ih = el('input', 'inp'); ih.type = 'number'; ih.min = '0'; ih.step = '1'; ih.placeholder = 'quantas horas foram contratadas (opcional)';
     fh.appendChild(ih); body.appendChild(fh);
@@ -16701,19 +16957,31 @@ $('#btnNewProj').addEventListener('click', () => {
     body.appendChild(el('div', 'hint', 'O projeto nasce vazio. Use “＋ Atividade” ou o botão Importar para trazer a planilha.'));
     const b = el('button', 'btn primary', 'Criar');
     b.addEventListener('click', async () => {
-      const logo = fLogo.valor(); close();
-      await createProject(i.value, i2.value, ic.value.trim(), ir.value.trim(), Number(ih.value) || 0, logo || null);
+      const logo = fLogo.valor(); const gp = chaveEmail(sgp.value); close();
+      await createProject(i.value, i2.value, ic.value.trim(), ir.value.trim(), Number(ih.value) || 0, logo || null, gp);
+      /* O e-mail sai DEPOIS de o projeto existir no banco: um aviso com link
+         para um projeto que ainda não gravou é um link que não abre. */
+      if (gp) {
+        toast('Avisando ' + gp + '…');
+        const r = await avisarGerente(ST.pid, ST.P.meta, gp);
+        toast(r.ok ? 'Projeto criado, e o e-mail saiu para ' + gp + '.'
+          : 'Projeto criado, mas o e-mail não saiu: ' + r.motivo);
+      }
     });
     body.appendChild(b);
   }, []);
 });
-async function createProject(name, start, cliente, resumo, horasPrev, logo) {
-  if (ST.mode === 'db' && semPermissao()) return;
+async function createProject(name, start, cliente, resumo, horasPrev, logo, gp) {
+  if (ST.mode === 'db' && !podeCriarProjeto()) {
+    toast(souGP() ? 'Projetos novos são criados pelo escritório, não pelo gerente.' : 'Seu acesso é somente leitura.');
+    return;
+  }
   const pid = uid('p');
   const meta = newMeta(name); meta.start = (start || todayISO()).slice(0, 10);
   meta.client = cliente || '';
   meta.resumo = resumo || '';
   meta.horasPrev = Math.max(0, Number(horasPrev) || 0);
+  meta.gp = chaveEmail(gp || '');
   const tasks = [];
   ST.projects.push({ id: pid, name: meta.name, client: meta.client || '' });
   ST.pid = pid; ST.P = { meta, tasks, resources: ST.P.resources || [], logo: logo || null };
@@ -17742,10 +18010,9 @@ function zerarMemoria() {
   dirty.meta = false; dirty.tasks.clear(); dirty.res.clear(); dirty.delT.clear(); dirty.delR.clear();
 }
 async function adoptSharedDb() {
-  const db = ST.db;
-  const snap = await db.collection(cProjetos()).get();
-  if (snap.docs.length) {
-    ST.projects = snap.docs.map(d => ({ id: d.id, name: (d.data() || {}).name || 'Projeto', client: (d.data() || {}).client || '' }));
+  const docs = await lerProjetosVisiveis();
+  if (docs.length) {
+    ST.projects = docs.map(d => ({ id: d.id, name: (d.data() || {}).name || 'Projeto', client: (d.data() || {}).client || '' }));
     const keep = ST.projects.find(p => p.id === ST.pid);
     ST.pid = keep ? ST.pid : ST.projects[0].id;
     await loadProject(ST.pid);
@@ -17756,7 +18023,12 @@ async function adoptSharedDb() {
     // empresa). Era assim que um cronograma de um cliente aparecia numa
     // empresa recém-criada. Nada do que está na memória sobe mais por aqui.
     zerarMemoria();
-    if (!ST.suporte) { dirty.meta = true; await flushSave(); }   // o suporte não cria projeto em empresa alheia
+    /* Nem o suporte nem o gerente de projetos criam projeto em branco aqui: o
+       suporte porque a empresa não é dele, o gerente porque a carteira é
+       distribuída pelo escritório. Para o gerente sem nenhum projeto atribuído,
+       a tela certa é a de carteira vazia, não um projeto fantasma que ele
+       criaria sem querer ao entrar. */
+    if (!ST.suporte && podeCriarProjeto()) { dirty.meta = true; await flushSave(); }
     ST.projects = [{ id: ST.pid, name: ST.P.meta.name, client: '' }];
   }
   subscribeProject(ST.pid);

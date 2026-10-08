@@ -166,3 +166,27 @@ test('PDF acima do limite é recusado com motivo legível', () => {
 test('conta fora de empresa não envia', () => {
   assert.equal(decidirStatus(Object.assign(baseSt(), { idxQuem: {} })).ok, false);
 });
+
+test('o gerente de projetos manda o status do projeto dele', () => {
+  const { decidirStatus } = require('../regras-acesso');
+  const pedido = {
+    quem: 'gi@unimed.com.br',
+    idxQuem: { orgId: 'unimed' },
+    membroQuem: { papel: 'gp', ativo: true },
+    org: { ativo: true },
+    destinatarios: [{ email: 'cliente@x.com.br' }],
+    corpo: '<p>oi</p>', agora: Date.now()
+  };
+  const com = projeto => decidirStatus(Object.assign({}, pedido, { projeto }));
+  assert.equal(com({ gp: 'gi@unimed.com.br' }).ok, true);
+  assert.equal(com({ gp: 'GI@Unimed.com.BR' }).ok, true);                       // caixa não importa
+  assert.equal(com({ gp: 'helo@unimed.com.br', gpExtra: ['gi@unimed.com.br'] }).ok, true);  // substituta
+  const alheio = com({ gp: 'helo@unimed.com.br', gpExtra: [] });
+  assert.equal(alheio.ok, false);
+  assert.match(alheio.motivo, /não é seu/);
+  assert.equal(com({ gp: '', gpExtra: [] }).ok, false);                          // sem dono não é dele
+  // quem cuida da carteira inteira segue sem esta trava
+  assert.equal(decidirStatus(Object.assign({}, pedido, {
+    membroQuem: { papel: 'gerente', ativo: true }, projeto: { gp: 'helo@unimed.com.br' }
+  })).ok, true);
+});

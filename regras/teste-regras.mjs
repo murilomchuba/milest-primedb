@@ -22,6 +22,8 @@ const ELI = 'eli@unimed.com.br';       // analista da Unimed, na equipe do p1
 const IGOR = 'igor@unimed.com.br';     // analista da Unimed, fora de toda equipe
 const FORA = 'estranho@outra.com';
 const DORA = 'dora@teste.com.br';       // administradora de duas empresas de teste
+const GI = 'gi@unimed.com.br';          // gerente de projetos da Unimed: titular do p1, substituta no p3
+const HELO = 'helo@unimed.com.br';      // gerente de projetos da Unimed: titular do p2 e do p3
 
 const DIA = 86400000;
 
@@ -39,7 +41,7 @@ await env.withSecurityRulesDisabled(async ctx => {
   await setDoc(doc(db, 'orgs', 'unimed'), { nome: 'Unimed Uberaba', ativo: true, semDono: false });
   await setDoc(doc(db, 'orgs/unimed/members', ANA), { email: ANA, papel: 'admin', ativo: true });
   await setDoc(doc(db, 'orgs/unimed/members', CAIO), { email: CAIO, papel: 'leitor', ativo: true });
-  await setDoc(doc(db, 'orgs/unimed/projects', 'p1'), { name: 'Migração OIC' });
+  await setDoc(doc(db, 'orgs/unimed/projects', 'p1'), { name: 'Migração OIC', gp: GI, gpExtra: [] });
   await setDoc(doc(db, 'orgs/unimed/projects/p1/tasks', 't1'), { name: 'Levantamento' });
   await setDoc(doc(db, 'orgs/unimed/resources', 'r1'), { name: 'Ana Prado' });
 
@@ -59,8 +61,21 @@ await env.withSecurityRulesDisabled(async ctx => {
   await setDoc(doc(db, 'orgs/unimed/projects/p1/horas', 'hA'),
     { pessoaEmail: ANA, criadoPor: ANA, estado: 'aceito', data: '2026-10-01', h: 4 });
   // um segundo projeto da mesma empresa, em que o analista NÃO está
-  await setDoc(doc(db, 'orgs/unimed/projects', 'p2'), { name: 'Projeto alheio' });
+  await setDoc(doc(db, 'orgs/unimed/projects', 'p2'), { name: 'Projeto alheio', gp: HELO, gpExtra: [] });
   await setDoc(doc(db, 'orgs/unimed/projects/p2/tasks', 't2'), { name: 'Outra coisa' });
+  await setDoc(doc(db, 'orgs/unimed/projects/p2/horas', 'hH'),
+    { pessoaEmail: HELO, criadoPor: HELO, estado: 'aceito', data: '2026-10-01', h: 3 });
+  // um terceiro projeto, do Helo, em que a Gi é SUBSTITUTA — é o caso das férias
+  await setDoc(doc(db, 'orgs/unimed/projects', 'p3'), { name: 'Projeto com substituta', gp: HELO, gpExtra: [GI] });
+  await setDoc(doc(db, 'orgs/unimed/projects/p3/tasks', 't3'), { name: 'Alguma coisa' });
+  // um projeto sem dono nenhum: só quem vê a carteira inteira o alcança
+  await setDoc(doc(db, 'orgs/unimed/projects', 'p4'), { name: 'Ainda não distribuído', gp: '', gpExtra: [] });
+  await setDoc(doc(db, 'users', GI), { email: GI, orgId: 'unimed' });
+  await setDoc(doc(db, 'users', HELO), { email: HELO, orgId: 'unimed' });
+  await setDoc(doc(db, 'orgs/unimed/members', GI), { email: GI, papel: 'gp', ativo: true });
+  await setDoc(doc(db, 'orgs/unimed/members', HELO), { email: HELO, papel: 'gp', ativo: true });
+  // a mesma pessoa como gerente numa empresa de prazo vencido
+  await setDoc(doc(db, 'orgs/vencida/members', GI), { email: GI, papel: 'gp', ativo: true });
   // um analista na empresa de prazo vencido
   await setDoc(doc(db, 'orgs/vencida/members', ELI), { email: ELI, papel: 'analista', ativo: true });
   await setDoc(doc(db, 'orgs/vencida/projects/v1/equipe', ELI),
@@ -81,7 +96,7 @@ await env.withSecurityRulesDisabled(async ctx => {
   await setDoc(doc(db, 'users', DORA), { email: DORA, orgId: 'vencida' });
   await setDoc(doc(db, 'orgs', 'vencida'), { nome: 'Teste Vencido', ativo: true, semDono: false, expiraEm: Date.now() - DIA });
   await setDoc(doc(db, 'orgs/vencida/members', DORA), { email: DORA, papel: 'admin', ativo: true });
-  await setDoc(doc(db, 'orgs/vencida/projects', 'v1'), { name: 'Piloto' });
+  await setDoc(doc(db, 'orgs/vencida/projects', 'v1'), { name: 'Piloto', gp: GI, gpExtra: [] });
   await setDoc(doc(db, 'orgs', 'noprazo'), { nome: 'Teste Corrente', ativo: true, semDono: false, expiraEm: Date.now() + 7 * DIA });
   await setDoc(doc(db, 'orgs/noprazo/members', DORA), { email: DORA, papel: 'admin', ativo: true });
   await setDoc(doc(db, 'orgs/noprazo/projects', 'n1'), { name: 'Piloto' });
@@ -547,6 +562,82 @@ await caso('leitor NÃO apaga agenda', () =>
   assertFails(deleteDoc(doc(conta(CAIO), 'agendasStatus', 'unimed__p1'))));
 await caso('quem manda na empresa apaga a agenda', () =>
   assertSucceeds(deleteDoc(doc(conta(ANA), 'agendasStatus', 'unimed__p1'))));
+
+console.log('\nGERENTE DE PROJETOS: VÊ O QUE É DELE');
+await caso('Gi lê o projeto de que é titular', () =>
+  assertSucceeds(getDoc(doc(conta(GI), 'orgs/unimed/projects', 'p1'))));
+await caso('Gi NÃO lê o projeto do outro gerente', () =>
+  assertFails(getDoc(doc(conta(GI), 'orgs/unimed/projects', 'p2'))));
+await caso('Gi lê o projeto em que é substituta — é o caso das férias', () =>
+  assertSucceeds(getDoc(doc(conta(GI), 'orgs/unimed/projects', 'p3'))));
+await caso('Gi NÃO lê o projeto que ninguém distribuiu ainda', () =>
+  assertFails(getDoc(doc(conta(GI), 'orgs/unimed/projects', 'p4'))));
+await caso('Gi lê as atividades do projeto dela', () =>
+  assertSucceeds(getDoc(doc(conta(GI), 'orgs/unimed/projects/p1/tasks', 't1'))));
+await caso('Gi NÃO lê as atividades do projeto do outro', () =>
+  assertFails(getDoc(doc(conta(GI), 'orgs/unimed/projects/p2/tasks', 't2'))));
+await caso('Gi NÃO lê as horas do projeto do outro', () =>
+  assertFails(getDoc(doc(conta(GI), 'orgs/unimed/projects/p2/horas', 'hH'))));
+await caso('Gi lê as horas do projeto dela', () =>
+  assertSucceeds(getDoc(doc(conta(GI), 'orgs/unimed/projects/p1/horas', 'hA'))));
+await caso('Gi NÃO alcança a outra empresa', () =>
+  assertFails(getDoc(doc(conta(GI), 'orgs/varejo/projects', 'p9'))));
+
+console.log('\nGERENTE DE PROJETOS: A CARTEIRA SAI RECORTADA DO BANCO');
+await caso('Gi NÃO lista a coleção de projetos sem filtro', () =>
+  assertFails(getDocs(collection(conta(GI), 'orgs/unimed/projects'))));
+await caso('Gi lista os projetos em que é titular', () =>
+  assertSucceeds(getDocs(query(collection(conta(GI), 'orgs/unimed/projects'), where('gp', '==', GI)))));
+await caso('Gi lista os projetos em que é substituta', () =>
+  assertSucceeds(getDocs(query(collection(conta(GI), 'orgs/unimed/projects'), where('gpExtra', 'array-contains', GI)))));
+await caso('Gi NÃO pede a lista do colega pelo filtro dele', () =>
+  assertFails(getDocs(query(collection(conta(GI), 'orgs/unimed/projects'), where('gp', '==', HELO)))));
+await caso('Helo NÃO pede a lista da Gi pelo filtro dela', () =>
+  assertFails(getDocs(query(collection(conta(HELO), 'orgs/unimed/projects'), where('gpExtra', 'array-contains', GI)))));
+await caso('quem cuida da carteira inteira lista tudo, como antes', () =>
+  assertSucceeds(getDocs(collection(conta(ANA), 'orgs/unimed/projects'))));
+
+console.log('\nGERENTE DE PROJETOS: ESCREVE O DELE, E SÓ');
+await caso('Gi grava uma atividade no projeto dela', () =>
+  assertSucceeds(setDoc(doc(conta(GI), 'orgs/unimed/projects/p1/tasks', 'tNova'), { name: 'Desenho' })));
+await caso('Gi NÃO grava atividade no projeto do outro', () =>
+  assertFails(setDoc(doc(conta(GI), 'orgs/unimed/projects/p2/tasks', 'tNova'), { name: 'invasão' })));
+await caso('Gi nomeia alguém na equipe do projeto dela', () =>
+  assertSucceeds(setDoc(doc(conta(GI), 'orgs/unimed/projects/p1/equipe', IGOR), { email: IGOR, ativo: true })));
+await caso('Gi NÃO nomeia ninguém na equipe do projeto do outro', () =>
+  assertFails(setDoc(doc(conta(GI), 'orgs/unimed/projects/p2/equipe', IGOR), { email: IGOR, ativo: true })));
+await caso('Gi atualiza o cabeçalho do projeto dela', () =>
+  assertSucceeds(updateDoc(doc(conta(GI), 'orgs/unimed/projects', 'p1'), { name: 'Migração OIC — fase 2' })));
+await caso('Gi NÃO passa o próprio projeto para outro gerente', () =>
+  assertFails(updateDoc(doc(conta(GI), 'orgs/unimed/projects', 'p1'), { gp: HELO })));
+await caso('Gi NÃO se tira nem se põe como substituta', () =>
+  assertFails(updateDoc(doc(conta(GI), 'orgs/unimed/projects', 'p1'), { gpExtra: [HELO] })));
+await caso('Gi NÃO cria projeto novo: a carteira é distribuída pelo escritório', () =>
+  assertFails(setDoc(doc(conta(GI), 'orgs/unimed/projects', 'pGi'), { name: 'meu projeto', gp: GI, gpExtra: [] })));
+await caso('Gi NÃO apaga um projeto, nem o dela', () =>
+  assertFails(deleteDoc(doc(conta(GI), 'orgs/unimed/projects', 'p1'))));
+
+console.log('\nGERENTE DE PROJETOS: O CADASTRO DA EMPRESA NÃO É DELE');
+await caso('Gi lê o cadastro de recursos, para alocar quem já existe', () =>
+  assertSucceeds(getDoc(doc(conta(GI), 'orgs/unimed/resources', 'r1'))));
+await caso('Gi NÃO escreve o cadastro de recursos', () =>
+  assertFails(setDoc(doc(conta(GI), 'orgs/unimed/resources', 'r1'), { name: 'outro nome' })));
+await caso('Gi lista as contas da empresa, para nomear sem digitar e-mail', () =>
+  assertSucceeds(getDocs(collection(conta(GI), 'orgs/unimed/members'))));
+await caso('Gi NÃO cadastra conta nova', () =>
+  assertFails(setDoc(doc(conta(GI), 'orgs/unimed/members', 'novo@unimed.com.br'), { email: 'novo@unimed.com.br', papel: 'analista', ativo: true })));
+await caso('Gi NÃO muda o papel de ninguém, nem o dela', () =>
+  assertFails(updateDoc(doc(conta(GI), 'orgs/unimed/members', GI), { papel: 'admin' })));
+await caso('Gi lê o cadastro da própria empresa', () =>
+  assertSucceeds(getDoc(doc(conta(GI), 'orgs', 'unimed'))));
+await caso('Gi NÃO mexe no cadastro da empresa', () =>
+  assertFails(updateDoc(doc(conta(GI), 'orgs', 'unimed'), { nome: 'Outro nome' })));
+
+console.log('\nGERENTE DE PROJETOS: PRAZO DA EMPRESA');
+await caso('com o prazo vencido, a Gi ainda lê o projeto dela', () =>
+  assertSucceeds(getDoc(doc(conta(GI), 'orgs/vencida/projects', 'v1'))));
+await caso('mas não escreve nada nele', () =>
+  assertFails(setDoc(doc(conta(GI), 'orgs/vencida/projects/v1/tasks', 'tX'), { name: 'não' })));
 
 console.log('\n' + ok + ' passaram, ' + falhou + ' falharam.');
 await env.cleanup();
