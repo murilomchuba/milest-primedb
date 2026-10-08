@@ -2246,6 +2246,7 @@ function aplicarPct(t, raw) {
   else if (novo < 100) t.doneAt = null;
   t.pct = novo;
   markTask(t.id);
+  checarAvisosDaqui();          // o avanço acabou de mudar: a faixa pode ter sido cruzada
   return true;
 }
 
@@ -13703,6 +13704,9 @@ function atualizarResumoHoras() {
     pendentes: l.filter(x => x && x.estado === 'pendente').length,
     atualizadoEm: Date.now()
   };
+  /* Toda hora que entra, sai ou é decidida passa por aqui. É o ponto único
+     onde dá para conferir as faixas sem depender de alguém abrir a carteira. */
+  checarAvisosDaqui();
 }
 
 function lancarHora(reg) {
@@ -13954,6 +13958,16 @@ function avisoAvancoConfig() {
     ativo: o.ativo === true,
     faixas: [...new Set(f.map(x => Math.round(Number(x) || 0)).filter(x => x > 0 && x <= 100))].sort((a, b) => a - b)
   };
+}
+
+/* O vigia do servidor: avisos que dependem do relógio, não de alguém mexer.
+   Interruptor próprio porque é outro tipo de mensagem — os dois de cima
+   comemoram ou alertam sobre o que foi feito, este cobra o que não foi. E
+   quem cobra todo dia deixa de ser lido, daí o intervalo de repetição. */
+function avisoPrazoConfig() {
+  const o = (ST.perfil && ST.perfil.avisoPrazo) || {};
+  const d = Math.round(Number(o.dias) || 0);
+  return { ativo: o.ativo === true, dias: (d >= 1 && d <= 90) ? d : 7 };
 }
 
 /* Para quem vão os avisos DESTE projeto: a lista dele, ou a da empresa. O
@@ -14307,7 +14321,136 @@ async function checarAvisosAvanco(lista) {
 async function checarAvisos(lista) {
   const a = await checarAvisosHoras(lista);
   const b = await checarAvisosAvanco(lista);
+  retratosDaCarteira(lista);     // sem await: o vigia do servidor pode esperar
   return a + b;
+}
+
+/* ============ conferir aqui, sem esperar a carteira ============
+   A faixa é cruzada no instante em que alguém aceita uma hora ou mexe num %.
+   Mas a checagem só rodava depois de `carregarPortfolio`, e quem aceita horas
+   fica na aba Horas — a carteira não recarrega, e o aviso esperava a próxima
+   vez que alguém abrisse o Portfólio. Com alguém sentado na frente do sistema,
+   essa espera é a defasagem inteira.
+
+   O atraso de 1,2 s junta a rajada: aceitar doze lançamentos de uma vez, ou
+   arrastar um % pela grade, dispara uma conferência só. E os indicadores são
+   recalculados do zero (sem `ST.sch`) porque o cronograma que está em memória
+   pode ser o de antes da mudança que acabou de acontecer. */
+let avisoDaquiT = null;
+function checarAvisosDaqui() {
+  if (ST.mode !== 'db' || !ST.comLogin || !ST.pid || !ST.P || !podeEditar()) return;
+  clearTimeout(avisoDaquiT);
+  avisoDaquiT = setTimeout(async () => {
+    let ind;
+    try { ind = indicadoresDe(ST.P); } catch (e) { return; }
+    try { await checarAvisos([{ id: ST.pid, meta: ST.P.meta, P: ST.P, ind: ind }]); } catch (e) { }
+    agendarRetrato();
+  }, 1200);
+}
+
+/* ============ o retrato para o vigia do servidor ============
+   O servidor do MILEST não calcula nada: CPM, avanço planejado e os índices
+   vivem aqui, e duas cópias da mesma conta é como um sistema passa a dar dois
+   números diferentes para a mesma pergunta. Mas há avisos que só o servidor
+   pode dar, porque dependem do relógio e não de alguém mexer: a atividade que
+   venceu ontem, o projeto que passou do término previsto. Ninguém abre o
+   sistema para descobrir isso — é justamente o projeto esquecido.
+
+   A saída é o navegador deixar um retrato do PLANO, e o servidor comparar esse
+   plano com o calendário. O que entra no retrato obedece a uma regra: só o que
+   NÃO anda sozinho com o relógio. Avanço, horas e datas previstas só mudam
+   quando alguém mexe no projeto, então um retrato de três semanas atrás
+   continua exato. O IDP e o IDC andam (o % planejado sobe todo dia), então vão
+   carimbados com a data do retrato e o e-mail do servidor diz de quando são —
+   a diferença entre informar e mentir devagar. */
+const RETRATO_V = 1;
+const MAX_ABERTAS = 400;
+
+function montarRetrato(pid, P, ind) {
+  const meta = P.meta || {};
+  const sch = ind.sch;
+  const h = ind.horas || horasDe(P);
+  const abertas = [];
+  for (const t of P.tasks) {
+    const o = sch.out.get(t.id);
+    if (!o || o.sum) continue;                 // resumo não é atividade que atrasa
+    if ((o.pct || 0) >= 99.5) continue;        // concluída não atrasa
+    abertas.push({
+      id: t.id, nome: String(t.name || '').slice(0, 120),
+      fim: o.finish || '', pct: Math.round(o.pct || 0)
+    });
+    if (abertas.length >= MAX_ABERTAS) break;
+  }
+  return {
+    v: RETRATO_V, em: Date.now(), base: meta.updatedAt || 0,
+    orgId: ST.orgId || '', pid: pid,
+    nome: String(meta.name || '').slice(0, 160),
+    cliente: String(meta.client || '').slice(0, 160),
+    pausado: !!meta.pausadoEm, encerrado: !!meta.encerradoEm,
+    real: Math.round((ind.real || 0) * 10) / 10,
+    planPct: (ind.plan && isFinite(ind.plan.pct)) ? Math.round(ind.plan.pct * 10) / 10 : null,
+    IDP: ind.IDP == null ? null : Math.round(ind.IDP * 100) / 100,
+    IDC: ind.IDC == null ? null : Math.round(ind.IDC * 100) / 100,
+    horasPrev: h.prev || 0, horasFeitas: h.feitas || 0,
+    inicio: ind.inicio || '', fim: ind.fim || '',
+    horasEm: (meta.horasResumo && meta.horasResumo.atualizadoEm) || 0,
+    abertas: abertas, nAbertas: abertas.length,
+    avisoHorasPara: listaDeEmails(meta.avisoHorasPara)
+  };
+}
+
+/* A marca local do que já foi gravado. Fica no navegador de propósito: serve
+   só para não regravar o mesmo retrato, e errar aqui custa uma gravação a
+   mais, nunca um aviso a menos. */
+const chaveRetrato = pid => 'milest.retrato.' + pid;
+function retratoJaGravado(pid, base) {
+  try { return localStorage.getItem(chaveRetrato(pid)) === String(base); } catch (e) { return false; }
+}
+function anotarRetrato(pid, base) {
+  try { localStorage.setItem(chaveRetrato(pid), String(base)); } catch (e) { }
+}
+
+async function gravarRetrato(pid, P, ind) {
+  if (ST.mode !== 'db' || !ST.comLogin || !ST.orgId || !podeEditar()) return false;
+  let r;
+  try { r = montarRetrato(pid, P, ind); } catch (e) { return false; }
+  try { await ST.db.doc(dProjeto(pid) + '/vigia/retrato').set(r); }
+  catch (e) { return false; }
+  anotarRetrato(pid, r.base);
+  return true;
+}
+
+/* O retrato do projeto aberto espera mais do que a conferência das faixas: um
+   % arrastado pela grade muda o plano dez vezes em dez segundos, e o servidor
+   não perde nada por olhar o retrato de oito segundos atrás. */
+let retratoT = null;
+function agendarRetrato() {
+  if (ST.mode !== 'db' || !ST.pid || !ST.P || !podeEditar()) return;
+  clearTimeout(retratoT);
+  retratoT = setTimeout(() => {
+    try { gravarRetrato(ST.pid, ST.P, indicadoresDe(ST.P)); } catch (e) { }
+  }, 8000);
+}
+
+/* Os projetos que ninguém abre também precisam de retrato — e são justamente
+   os que o vigia existe para olhar. A carteira já traz todos calculados, então
+   aqui o custo é só a gravação: no dia a dia, zero, porque nada mudou. O teto
+   de 12 é para o primeiro carregamento depois de publicar, quando nenhum
+   projeto tem retrato ainda, não virar uma rajada de gravações. */
+const MAX_RETRATOS_POR_VEZ = 12;
+async function retratosDaCarteira(lista) {
+  if (ST.mode !== 'db' || !ST.comLogin || !ST.orgId || ST.suporte || !podeEditar()) return 0;
+  let n = 0;
+  for (const alvo of (lista || [])) {
+    if (n >= MAX_RETRATOS_POR_VEZ) break;
+    if (!alvo || !alvo.P || !alvo.P.meta || !alvo.id) continue;
+    const base = alvo.P.meta.updatedAt || 0;
+    if (retratoJaGravado(alvo.id, base)) continue;
+    const ind = alvo.ind || (() => { try { return indicadoresDe(alvo.P); } catch (e) { return null; } })();
+    if (!ind) continue;
+    if (await gravarRetrato(alvo.id, alvo.P, ind)) n++;
+  }
+  return n;
 }
 
 /** Desfaz as marcas de um projeto, para quando o consumo foi corrigido. */
@@ -14330,7 +14473,7 @@ function painelAvisos() {
     return p;
   }
 
-  const cfgH = avisoHorasConfig(), cfgA = avisoAvancoConfig();
+  const cfgH = avisoHorasConfig(), cfgA = avisoAvancoConfig(), cfgP = avisoPrazoConfig();
   const g = el('div', 'formgrid'); g.style.gridTemplateColumns = '1fr 1fr';
 
   const fPara = el('div', 'field'); fPara.style.gridColumn = '1 / -1';
@@ -14369,6 +14512,9 @@ function painelAvisos() {
   const bA = bloco('Avanço do projeto', cfgA.ativo, cfgA.faixas,
     'Faixas, em % de avanço físico', '25, 50, 75, 90, 100',
     'A faixa de 100% não é mais uma faixa: é o e-mail de entrega, com o retrato fechado do projeto.');
+  const bP = bloco('Prazo, conferido todo dia', cfgP.ativo, [cfgP.dias],
+    'Não repetir antes de, em dias', '7',
+    'Este é o único que roda no servidor, sem depender de alguém abrir o sistema: atividade que venceu e segue aberta, e projeto que passou do término previsto.');
   p.appendChild(g);
 
   const lerFaixas = (v, teto) => [...new Set(String(v).split(/[;,\s]+/)
@@ -14378,7 +14524,7 @@ function painelAvisos() {
   bSalvar.addEventListener('click', async () => {
     const para = listaDeEmails(iPara.value);
     const ligH = bH.sel.value === 'sim', ligA = bA.sel.value === 'sim';
-    const algum = ligH || ligA;
+    const algum = ligH || ligA || bP.sel.value === 'sim';
     if (algum && !para.length) { toast('Informe ao menos um e-mail válido.'); iPara.focus(); return; }
     /* Se a pessoa digitou cinco endereços e só três eram válidos, salvar os
        três em silêncio esconde os dois que ela acha que salvou. */
@@ -14389,10 +14535,12 @@ function painelAvisos() {
     const fxH = lerFaixas(bH.inp.value, 500), fxA = lerFaixas(bA.inp.value, 100);
     if (ligH && !fxH.length) { toast('Informe ao menos uma faixa de horas.'); bH.inp.focus(); return; }
     if (ligA && !fxA.length) { toast('Informe ao menos uma faixa de avanço.'); bA.inp.focus(); return; }
+    const dias = lerFaixas(bP.inp.value, 90)[0] || 7;
     bSalvar.disabled = true;
     const okg = await gravarAvisos(
       { ativo: ligH, para: para, faixas: fxH.length ? fxH : FAIXAS_PADRAO },
-      { ativo: ligA, faixas: fxA.length ? fxA : FAIXAS_AVANCO_PADRAO });
+      { ativo: ligA, faixas: fxA.length ? fxA : FAIXAS_AVANCO_PADRAO },
+      { ativo: bP.sel.value === 'sim', dias: dias });
     bSalvar.disabled = false;
     if (okg) { toast('Avisos automáticos salvos.'); renderUsuarios(); }
   });
@@ -14405,15 +14553,18 @@ function painelAvisos() {
     'Cada e-mail sai uma única vez por faixa e por projeto. O de horas traz o consumo, o avanço físico, o IDP, o IDC e a projeção no ritmo atual; '
     + 'o de avanço traz o avanço contra o planejado, o consumo de horas ao lado dele, os índices, o término previsto e as atividades concluídas. '
     + 'Projeto pausado não dispara nada; projeto encerrado só pode mandar o e-mail de entrega. '
+    + 'Os dois primeiros saem no momento em que o número muda, com alguém no sistema. '
+    + 'O de prazo é conferido todo dia de manhã pelo servidor, mesmo que ninguém abra o MILEST — '
+    + 'é o que alcança o projeto esquecido. '
     + 'Um projeto pode ter a sua própria lista de endereços: o campo fica na aba Horas dele.'));
   return p;
 }
 
-async function gravarAvisos(cfgH, cfgA) {
+async function gravarAvisos(cfgH, cfgA, cfgP) {
   const erro = $('#avisoHorasErro');
   try {
     await ST.db.doc(dOrg(ST.orgId)).set(
-      { avisoHoras: cfgH, avisoAvanco: cfgA, atualizadoEm: Date.now() }, { merge: true });
+      { avisoHoras: cfgH, avisoAvanco: cfgA, avisoPrazo: cfgP, atualizadoEm: Date.now() }, { merge: true });
   } catch (e) {
     const t = String((e && e.code) || '') + ' ' + String((e && e.message) || '');
     if (erro) {
@@ -14427,6 +14578,7 @@ async function gravarAvisos(cfgH, cfgA) {
   if (!ST.perfil) ST.perfil = {};
   ST.perfil.avisoHoras = cfgH;
   ST.perfil.avisoAvanco = cfgA;
+  ST.perfil.avisoPrazo = cfgP;
   if (erro) erro.hidden = true;
   return true;
 }
@@ -14829,6 +14981,7 @@ function renderHoras() {
     if (semPermissao()) return;
     ST.P.meta.horasPrev = Math.max(0, Number(iPrev.value) || 0);
     markMeta(); ST.portfolio = null; ST.portfolioEm = 0; esquecerCarteira(); renderHoras(); renderKPIs();
+    checarAvisosDaqui();        // mudar o previsto move a porcentagem sem ninguém lançar hora
   });
   const bCsv = el('button', 'btn', '⤓ CSV');
   bCsv.title = 'Baixa os lançamentos como planilha';
