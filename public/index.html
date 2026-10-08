@@ -5205,7 +5205,7 @@ function renderOverview() {
   carregarPortfolio().then(lista => {
     ST.portfolio = lista; ST.portfolioEm = Date.now(); cacheCarga = null;
     if (VIEW === 'overview') desenhar(lista);
-    checarAvisosHoras(lista);
+    checarAvisos(lista);
   }).catch(() => { corpo.textContent = ''; corpo.appendChild(el('div', 'empty', 'Não consegui carregar os projetos.')); });
 }
 
@@ -8522,7 +8522,7 @@ function renderUsuarios() {
     'Todos os cadastrados aqui enxergam os cronogramas desta empresa, e só desta. Nenhuma outra empresa vê os seus dados, ' +
     'e o suporte do MILEST só os abre quando você libera, no quadro abaixo. Suspender mantém o cadastro e corta o acesso na hora.'));
   host.appendChild(explica);
-  host.appendChild(painelAvisoHoras());
+  host.appendChild(painelAvisos());
   host.appendChild(painelSuporteCliente());
 
   const desenhar = (lista) => {
@@ -13229,7 +13229,7 @@ function renderPainel() {
   carregarPortfolio().then(lista => {
     ST.portfolio = lista; ST.portfolioEm = Date.now(); cacheCarga = null;
     if (VIEW === 'kpi') desenhar(lista);
-    checarAvisosHoras(lista);
+    checarAvisos(lista);
   }).catch(() => { corpo.textContent = ''; corpo.appendChild(el('div', 'empty', 'Não consegui carregar os projetos.')); });
 }
 
@@ -13907,6 +13907,7 @@ function recadoDecisao(r, estado) {
    O e-mail sai no cruzamento, ou na próxima vez que alguém abrir o sistema. */
 
 const FAIXAS_PADRAO = [50, 70, 90, 100];
+const FAIXAS_AVANCO_PADRAO = [25, 50, 75, 90, 100];
 
 const EMAIL_SOLTO = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 /* Vírgula, ponto e vírgula, espaço ou linha nova — porque é assim que as
@@ -13935,11 +13936,37 @@ function avisoHorasConfig() {
   };
 }
 
-/** Para quem vai o aviso deste projeto: a lista dele, ou a padrão da empresa. */
-function avisoHorasPara(meta) {
-  const p = listaDeEmails(meta && meta.avisoHorasPara);
-  return p.length ? p : avisoHorasConfig().para;
+/* A lista de endereços é UMA para os dois avisos — horas e avanço. Quem
+   recebe um recebe o outro, e manter dois cadastros só criaria o dia em que
+   um está atualizado e o outro não. Ela continua morando dentro de
+   avisoHoras.para porque foi lá que nasceu, e mudar o campo de lugar agora
+   obrigaria todo mundo a recadastrar; o nome da função é que diz a verdade. */
+function avisoListaEmpresa() { return avisoHorasConfig().para; }
+
+/* O aviso de avanço tem interruptor e faixas próprios. Faz diferença: o de
+   horas é um alerta, o de avanço é uma notícia — quem quer um pode não querer
+   o outro, e as faixas naturais não são as mesmas. Teto de 100, porque avanço
+   acima de 100% não existe (o de horas vai a 500, porque estouro existe). */
+function avisoAvancoConfig() {
+  const o = (ST.perfil && ST.perfil.avisoAvanco) || {};
+  const f = Array.isArray(o.faixas) && o.faixas.length ? o.faixas : FAIXAS_AVANCO_PADRAO;
+  return {
+    ativo: o.ativo === true,
+    faixas: [...new Set(f.map(x => Math.round(Number(x) || 0)).filter(x => x > 0 && x <= 100))].sort((a, b) => a - b)
+  };
 }
+
+/* Para quem vão os avisos DESTE projeto: a lista dele, ou a da empresa. O
+   campo gravado continua chamado avisoHorasPara por compatibilidade, mas
+   vale para os dois avisos — é a lista do projeto, não a lista de horas. */
+function avisoPara(meta) {
+  const p = listaDeEmails(meta && meta.avisoHorasPara);
+  return p.length ? p : avisoListaEmpresa();
+}
+const avisoHorasPara = avisoPara;   // o nome antigo, que a verificação ainda usa
+
+/** O cabeçalho de todo aviso: cliente e projeto, do jeito que o gestor lê. */
+const tituloProjeto = meta => ((meta && meta.client) ? meta.client + ' · ' : '') + ((meta && meta.name) || 'Projeto');
 
 /* A faixa que acabou de ser cruzada, ou null. Devolve UMA só mesmo quando o
    salto passou por várias: dois e-mails no mesmo segundo dizendo a mesma coisa
@@ -13959,6 +13986,29 @@ function faixaCruzada(P, cfg) {
   return { faixa: alvo, pct: pct, puladas: passadas.slice(0, -1).filter(f => !jaFoi[String(f)]) };
 }
 
+/* A mesma ideia para o avanço físico, com duas diferenças que importam.
+
+   A primeira: avanço não estoura. O teto é 100, e a faixa de 100 não é "mais
+   uma faixa" — é a entrega, e ganha um e-mail diferente.
+
+   A segunda: um projeto ENCERRADO não deve mandar o aviso de 50%, mas deve
+   poder mandar o de 100%. Encerrar é o ato que normalmente acontece junto com
+   a última atividade virando 100% — bloquear os dois do mesmo jeito faria o
+   e-mail de entrega, que é justamente o que vale guardar, nunca sair. */
+function faixaCruzadaAvanco(P, cfg, ind) {
+  const meta = (P && P.meta) || {};
+  if (meta.pausadoEm) return null;                 // projeto parado não avança
+  const pct = (ind && isFinite(ind.real)) ? ind.real : 0;
+  if (!(pct > 0)) return null;
+  const jaFoi = meta.avisosAvanco || {};
+  const passadas = cfg.faixas.filter(f => pct + 1e-6 >= f);
+  if (!passadas.length) return null;
+  const alvo = passadas[passadas.length - 1];
+  if (meta.encerradoEm && alvo < 100) return null; // encerrado: só a entrega
+  if (jaFoi[String(alvo)]) return null;
+  return { faixa: alvo, pct: pct, puladas: passadas.slice(0, -1).filter(f => !jaFoi[String(f)]) };
+}
+
 /** "Neste ritmo o projeto termina com X h" — a conta que faz um gestor agir. */
 function projecaoHoras(h, avancoReal) {
   if (!(h.prev > 0) || !(avancoReal > 0.5)) return null;
@@ -13967,57 +14017,169 @@ function projecaoHoras(h, avancoReal) {
 
 const avisoNum = (v, d) => (v == null || !isFinite(v)) ? '—' : Number(v).toFixed(d == null ? 0 : d).replace('.', ',');
 
+/* ---- a moldura ----
+   Os avisos automáticos chegam na mesma caixa, do mesmo sistema, para a mesma
+   pessoa. Ter uma função só para a casca é o que garante que continuem com a
+   mesma cara quando o terceiro aviso aparecer; boa vontade não garante. */
+function linhaAviso(rot, valor, nota) {
+  return '<tr>'
+    + '<td style="padding:9px 0;border-bottom:1px solid #E6ECF2;font-size:13px;color:#5A6B7B">' + rot + '</td>'
+    + '<td style="padding:9px 0;border-bottom:1px solid #E6ECF2;font-size:15px;font-weight:700;text-align:right;white-space:nowrap">' + valor + '</td>'
+    + '</tr>'
+    + (nota ? '<tr><td colspan="2" style="padding:0 0 9px;font-size:11.5px;color:#8A99A8">' + nota + '</td></tr>' : '');
+}
+
+function notaAviso(txt) {
+  return '<div style="font-size:12px;color:#8A99A8;margin-top:14px;line-height:1.5">' + txt + '</div>';
+}
+
+/* Quando o número saltou mais de uma faixa de uma vez, a que não foi avisada
+   precisa aparecer — senão o gestor olha o histórico e acha que falhou. */
+function puladasAviso(info, sujeito) {
+  if (!info.puladas || !info.puladas.length) return '';
+  return notaAviso(sujeito + ' passou de uma vez também a faixa de '
+    + info.puladas.map(x => x + '%').join(' e ') + ', que não tinha sido avisada.');
+}
+
+function molduraAviso(o) {
+  return '<div style="font-family:Arial,Helvetica,sans-serif;color:#17202A;background:#FFF;border:1px solid #E6ECF2;border-radius:10px;overflow:hidden">'
+    + '<div style="background:' + o.fundo + ';padding:16px 20px;border-bottom:1px solid #E6ECF2">'
+    + '<div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:' + o.cor + ';font-weight:700">'
+    + limparTexto(o.selo) + '</div>'
+    + '<div style="font-size:19px;font-weight:700;margin-top:4px;color:' + o.cor + '">' + limparTexto(o.titulo) + '</div>'
+    + '<div style="font-size:14px;margin-top:6px">' + limparTexto(o.sub || '') + '</div>'
+    + '</div>'
+    + '<div style="padding:4px 20px 18px">'
+    + '<table style="width:100%;border-collapse:collapse">' + o.linhas + '</table>'
+    + (o.extra || '')
+    + notaAviso(o.rodape)
+    + '</div></div>';
+}
+
+/** As duas linhas de índice, iguais nos três e-mails. */
+function linhasIndices(ind, finais) {
+  const r = finais ? ' final' : '';
+  return linhaAviso('IDP' + r + ' — prazo', ind.IDP == null ? '—' : avisoNum(ind.IDP, 2),
+    ind.IDP == null ? 'sem avanço planejado para comparar'
+      : (ind.IDP >= 0.995 ? 'no ritmo do plano ou à frente' : 'entregando menos do que o plano previa'))
+    + linhaAviso('IDC' + r + ' — custo', ind.IDC == null ? '—' : avisoNum(ind.IDC, 2),
+      ind.IDC == null ? 'precisa de horas previstas e lançadas'
+        : (ind.IDC >= 0.995 ? 'rende mais do que consome' : 'consome mais horas do que entrega'));
+}
+
+/** O desvio contra a linha de base, em palavras. null quando não há base. */
+function frasePrazo(varDias) {
+  if (varDias == null) return 'sem linha de base para comparar';
+  if (varDias > 0) return varDias + ' dia(s) além da linha de base';
+  if (varDias < 0) return Math.abs(varDias) + ' dia(s) antes da linha de base';
+  return 'exatamente na data da linha de base';
+}
+
+const rodapeAviso = () => 'Aviso automático do MILEST, enviado uma única vez por faixa. '
+  + 'Data de status: ' + limparTexto(fmtBR(dataStatus())) + '.';
+
 /* O corpo. Mesmo tom do status report, e os mesmos números — quem recebe os
    dois na mesma semana não pode encontrar contas diferentes. */
 function corpoAvisoHoras(P, ind, info) {
   const meta = P.meta || {};
   const h = horasDe(P);
   const estouro = info.faixa >= 100;
-  const cor = estouro ? '#B3322B' : (info.faixa >= 90 ? '#8A5200' : '#123E6B');
-  const fundo = estouro ? '#FBE6E4' : (info.faixa >= 90 ? '#FFF1DC' : '#EAF1F8');
   const proj = projecaoHoras(h, ind.real);
-
-  const linha = (rot, valor, nota) =>
-    '<tr>'
-    + '<td style="padding:9px 0;border-bottom:1px solid #E6ECF2;font-size:13px;color:#5A6B7B">' + rot + '</td>'
-    + '<td style="padding:9px 0;border-bottom:1px solid #E6ECF2;font-size:15px;font-weight:700;text-align:right;white-space:nowrap">' + valor + '</td>'
-    + '</tr>'
-    + (nota ? '<tr><td colspan="2" style="padding:0 0 9px;font-size:11.5px;color:#8A99A8">' + nota + '</td></tr>' : '');
-
-  const titulo = estouro
-    ? 'As horas passaram do previsto'
-    : 'O projeto chegou a ' + info.faixa + '% das horas previstas';
-
-  return '<div style="font-family:Arial,Helvetica,sans-serif;color:#17202A;background:#FFF;border:1px solid #E6ECF2;border-radius:10px;overflow:hidden">'
-    + '<div style="background:' + fundo + ';padding:16px 20px;border-bottom:1px solid #E6ECF2">'
-    + '<div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:' + cor + ';font-weight:700">'
-    + (estouro ? 'Estouro de horas' : 'Aviso de consumo') + '</div>'
-    + '<div style="font-size:19px;font-weight:700;margin-top:4px;color:' + cor + '">' + limparTexto(titulo) + '</div>'
-    + '<div style="font-size:14px;margin-top:6px">' + limparTexto(meta.client || '') + (meta.client && meta.name ? ' · ' : '') + limparTexto(meta.name || '') + '</div>'
-    + '</div>'
-    + '<div style="padding:4px 20px 18px">'
-    + '<table style="width:100%;border-collapse:collapse">'
-    + linha('Horas consumidas', avisoNum(info.pct, 1) + '%',
+  return molduraAviso({
+    selo: estouro ? 'Estouro de horas' : 'Aviso de consumo',
+    titulo: estouro ? 'As horas passaram do previsto'
+      : 'O projeto chegou a ' + info.faixa + '% das horas previstas',
+    sub: tituloProjeto(meta),
+    cor: estouro ? '#B3322B' : (info.faixa >= 90 ? '#8A5200' : '#123E6B'),
+    fundo: estouro ? '#FBE6E4' : (info.faixa >= 90 ? '#FFF1DC' : '#EAF1F8'),
+    linhas: linhaAviso('Horas consumidas', avisoNum(info.pct, 1) + '%',
       avisoNum(h.feitas) + ' h de ' + avisoNum(h.prev) + ' h previstas'
       + (h.saldo < 0 ? ' · ' + avisoNum(Math.abs(h.saldo)) + ' h acima do previsto' : ' · saldo de ' + avisoNum(h.saldo) + ' h'))
-    + linha('Avanço físico', avisoNum(ind.real, 1) + '%',
+      + linhaAviso('Avanço físico', avisoNum(ind.real, 1) + '%',
+        'planejado ' + avisoNum(ind.plan && ind.plan.pct, 1) + '% até a data de status')
+      + linhasIndices(ind, false)
+      + (proj ? linhaAviso('Projeção no ritmo atual', avisoNum(proj) + ' h',
+        proj > h.prev ? avisoNum(proj - h.prev) + ' h acima das ' + avisoNum(h.prev) + ' h previstas'
+          : avisoNum(h.prev - proj) + ' h abaixo do previsto') : ''),
+    extra: puladasAviso(info, 'O consumo'),
+    rodape: rodapeAviso()
+  });
+}
+
+/* O aviso de avanço, nas faixas de 25 a 90.
+
+   A ordem das linhas não é decorativa. Avanço sozinho é uma notícia; avanço
+   ao lado do consumo de horas é uma decisão. "Entreguei 50% e gastei 50%"
+   e "entreguei 50% e gastei 80%" são o mesmo 50% e dois projetos diferentes,
+   e é por isso que o consumo entra neste e-mail mesmo não sendo o assunto. */
+function corpoAvisoAvanco(P, ind, info) {
+  const meta = P.meta || {};
+  const h = ind.horas || horasDe(P);
+  const atras = ind.IDP != null && ind.IDP < 0.995;
+  const hPct = h.prev > 0 ? h.feitas / h.prev * 100 : null;
+  return molduraAviso({
+    selo: 'Avanço do projeto',
+    titulo: 'O projeto chegou a ' + info.faixa + '% de avanço',
+    sub: tituloProjeto(meta),
+    cor: atras ? '#8A5200' : '#1C6B4A',
+    fundo: atras ? '#FFF1DC' : '#E7F4EE',
+    linhas: linhaAviso('Avanço físico', avisoNum(info.pct, 1) + '%',
       'planejado ' + avisoNum(ind.plan && ind.plan.pct, 1) + '% até a data de status')
-    + linha('IDP — prazo', ind.IDP == null ? '—' : avisoNum(ind.IDP, 2),
-      ind.IDP == null ? 'sem avanço planejado para comparar' : (ind.IDP >= 0.995 ? 'no ritmo do plano ou à frente' : 'entregando menos do que o plano previa'))
-    + linha('IDC — custo', ind.IDC == null ? '—' : avisoNum(ind.IDC, 2),
-      ind.IDC == null ? 'precisa de horas previstas e lançadas' : (ind.IDC >= 0.995 ? 'rende mais do que consome' : 'consome mais horas do que entrega'))
-    + (proj ? linha('Projeção no ritmo atual', avisoNum(proj) + ' h',
-      proj > h.prev ? avisoNum(proj - h.prev) + ' h acima das ' + avisoNum(h.prev) + ' h previstas'
-        : avisoNum(h.prev - proj) + ' h abaixo do previsto') : '')
-    + '</table>'
-    + (info.puladas && info.puladas.length
-      ? '<div style="font-size:12px;color:#8A99A8;margin-top:14px">O consumo passou de uma vez também a faixa de '
-      + info.puladas.map(x => x + '%').join(' e ') + ', que não tinha sido avisada.</div>'
-      : '')
-    + '<div style="font-size:12px;color:#8A99A8;margin-top:14px;line-height:1.5">'
-    + 'Aviso automático do MILEST, enviado uma única vez por faixa. '
-    + 'Data de status: ' + limparTexto(fmtBR(dataStatus())) + '.</div>'
-    + '</div></div>';
+      + linhaAviso('Horas consumidas', hPct == null ? '—' : avisoNum(hPct, 1) + '%',
+        hPct == null ? 'este projeto não tem horas previstas'
+          : avisoNum(h.feitas) + ' h de ' + avisoNum(h.prev) + ' h previstas')
+      + linhasIndices(ind, false)
+      + linhaAviso('Término previsto', ind.fim ? limparTexto(fmtBR(ind.fim)) : '—', frasePrazo(ind.varDias))
+      + linhaAviso('Atividades concluídas', ind.feitas + ' de ' + ind.folhas,
+        ind.andando + ' em andamento · ' + ind.paradas + ' sem começar'),
+    extra: puladasAviso(info, 'O avanço'),
+    rodape: rodapeAviso()
+  });
+}
+
+/* A faixa de 100% do avanço não é uma faixa — é a entrega, e merece o único
+   e-mail desta série que alguém vai querer guardar. Por isso ele não repete o
+   formato de acompanhamento: traz o retrato fechado (prazo contra a linha de
+   base, horas contra o previsto, índices finais) e uma frase que diz, sem
+   rodeio, se o projeto entregou no prazo e dentro das horas. */
+function corpoEntrega(P, ind) {
+  const meta = P.meta || {};
+  const h = ind.horas || horasDe(P);
+  const hPct = h.prev > 0 ? h.feitas / h.prev * 100 : null;
+  const noPrazo = ind.varDias == null ? null : ind.varDias <= 0;
+  /* Zero hora apontada num projeto com horas previstas não é eficiência — é
+     apontamento que ninguém fez. Dizer "entregue dentro das horas previstas"
+     ali seria o sistema afirmando algo que não sabe, num e-mail que a pessoa
+     vai guardar e mostrar. Sem lançamento, o veredito se cala. */
+  const nasHoras = (h.prev > 0 && h.feitas > 0) ? hPct <= 100.5 : null;
+  const parte = (bom, bomTxt, ruimTxt, semTxt) => bom == null ? semTxt : (bom ? bomTxt : ruimTxt);
+  const veredito = 'Entregue ' + parte(noPrazo, 'no prazo', 'com atraso', 'sem linha de base para julgar o prazo')
+    + ' e ' + parte(nasHoras, 'dentro das horas previstas', 'acima das horas previstas',
+      h.prev > 0 ? 'sem horas apontadas para comparar' : 'sem horas previstas para comparar') + '.';
+  return molduraAviso({
+    selo: 'Projeto entregue',
+    titulo: 'As atividades deste projeto chegaram a 100%',
+    sub: tituloProjeto(meta),
+    cor: '#1C6B4A', fundo: '#E7F4EE',
+    linhas: linhaAviso('Período executado',
+      limparTexto(fmtBR(ind.inicio)) + ' a ' + limparTexto(fmtBR(ind.fim)),
+      ind.dur + ' dia(s) de duração')
+      + linhaAviso('Prazo contra a linha de base',
+        ind.varDias == null ? '—' : (ind.varDias > 0 ? '+' + ind.varDias + ' d' : (ind.varDias < 0 ? ind.varDias + ' d' : 'em cima')),
+        frasePrazo(ind.varDias))
+      + linhaAviso('Horas gastas', avisoNum(h.feitas) + ' h',
+        hPct == null ? 'sem horas previstas para comparar'
+          : 'de ' + avisoNum(h.prev) + ' h previstas · ' + avisoNum(hPct, 1) + '%'
+          + (h.saldo < 0 ? ' · ' + avisoNum(Math.abs(h.saldo)) + ' h acima' : ' · sobraram ' + avisoNum(h.saldo) + ' h'))
+      + linhasIndices(ind, true)
+      + linhaAviso('Atividades', ind.folhas + ' concluídas', 'todas as atividades do cronograma'),
+    extra: '<div style="margin-top:14px;padding:11px 13px;background:#F4F8F6;border-left:3px solid #1C6B4A;font-size:13.5px;font-weight:700;color:#14543A">'
+      + limparTexto(veredito) + '</div>',
+    rodape: 'Retrato do dia em que o cronograma fechou, enviado uma única vez. '
+      + 'Encerrar o projeto na carteira crava estes números para sempre; enquanto ele ficar aberto, '
+      + 'a data de status continua andando e o IDP vai cair sozinho. '
+      + 'Data de status: ' + limparTexto(fmtBR(dataStatus())) + '.'
+  });
 }
 
 /* Escapa o que vai para dentro do HTML. O nome do projeto e o do cliente são
@@ -14032,27 +14194,25 @@ function limparTexto(s) {
    abriria a janela para dois avisos iguais — duas abas abertas, dois renders.
    Desmarcar no erro é o que faz a falha de rede virar "tenta de novo na
    próxima", em vez de um aviso perdido em silêncio. */
-async function enviarAvisoHoras(alvo, info) {
+async function dispararAviso(alvo, info, campo, assunto, corpo) {
   const P = alvo.P, pid = alvo.id, meta = P.meta || {};
-  const para = avisoHorasPara(meta);
+  const para = avisoPara(meta);
   if (!para.length) return false;
   const chave = String(info.faixa);
-  const antes = Object.assign({}, meta.avisosHoras || {});
+  const antes = Object.assign({}, meta[campo] || {});
   const marca = { em: Date.now(), para: para, pct: Math.round(info.pct * 10) / 10 };
 
   const gravarMarcas = async (mapa) => {
-    const base = dProjeto(pid);
-    const campos = { avisosHoras: mapa, updatedAt: Date.now() };
-    if (pid === ST.pid) { ST.P.meta.avisosHoras = mapa; dirty.meta = true; return await flushSave(); }
-    try { await ST.db.doc(base).set(campos, { merge: true }); } catch (e) { return false; }
+    const campos = { updatedAt: Date.now() };
+    campos[campo] = mapa;
+    if (pid === ST.pid) { ST.P.meta[campo] = mapa; dirty.meta = true; return await flushSave(); }
+    try { await ST.db.doc(dProjeto(pid)).set(campos, { merge: true }); } catch (e) { return false; }
     return true;
   };
 
-  meta.avisosHoras = Object.assign({}, antes, { [chave]: marca });
-  if (!(await gravarMarcas(meta.avisosHoras))) { meta.avisosHoras = antes; return false; }
+  meta[campo] = Object.assign({}, antes, { [chave]: marca });
+  if (!(await gravarMarcas(meta[campo]))) { meta[campo] = antes; return false; }
 
-  const ind = alvo.ind || indicadoresDe(P);
-  const estouro = info.faixa >= 100;
   /* Você entra em cópia — a menos que já esteja entre os destinatários, e aí
      aparecer nos dois campos só faria o seu e-mail chegar duplicado. */
   const eu = chaveEmail(ST.userEmail || '');
@@ -14060,17 +14220,32 @@ async function enviarAvisoHoras(alvo, info) {
     projetoId: pid,
     destinatarios: para.map(e => ({ email: e })),
     copia: (eu && !para.includes(eu)) ? [{ email: eu }] : [],
-    assunto: (estouro ? '[Estouro de horas] ' : '[' + info.faixa + '% das horas] ')
-      + ((meta.client ? meta.client + ' · ' : '') + (meta.name || 'Projeto')),
-    corpo: corpoAvisoHoras(P, ind, info),
-    pdf: '', nomeArquivo: ''
+    assunto: assunto, corpo: corpo, pdf: '', nomeArquivo: ''
   });
   if (!r || !r.ok) {
-    meta.avisosHoras = antes;
+    meta[campo] = antes;
     await gravarMarcas(antes);
     return false;
   }
   return true;
+}
+
+async function enviarAvisoHoras(alvo, info) {
+  const meta = alvo.P.meta || {};
+  const ind = alvo.ind || indicadoresDe(alvo.P);
+  const estouro = info.faixa >= 100;
+  return await dispararAviso(alvo, info, 'avisosHoras',
+    (estouro ? '[Estouro de horas] ' : '[' + info.faixa + '% das horas] ') + tituloProjeto(meta),
+    corpoAvisoHoras(alvo.P, ind, info));
+}
+
+async function enviarAvisoAvanco(alvo, info) {
+  const meta = alvo.P.meta || {};
+  const ind = alvo.ind || indicadoresDe(alvo.P);
+  const entrega = info.faixa >= 100;
+  return await dispararAviso(alvo, info, 'avisosAvanco',
+    (entrega ? '[Projeto entregue] ' : '[' + info.faixa + '% de avanço] ') + tituloProjeto(meta),
+    entrega ? corpoEntrega(alvo.P, ind) : corpoAvisoAvanco(alvo.P, ind, info));
 }
 
 /* Roda sobre a carteira já calculada. Uma faixa por projeto por passagem: se
@@ -14100,13 +14275,53 @@ async function checarAvisosHoras(lista) {
   return n;
 }
 
+let avisoAvancoRodando = false;
+async function checarAvisosAvanco(lista) {
+  if (avisoAvancoRodando) return 0;
+  if (ST.mode !== 'db' || !ST.comLogin || !ST.orgId || ST.suporte) return 0;
+  if (!podeEditar()) return 0;
+  const cfg = avisoAvancoConfig();
+  if (!cfg.ativo || !avisoListaEmpresa().length) return 0;
+  avisoAvancoRodando = true;
+  let n = 0;
+  try {
+    for (const alvo of (lista || [])) {
+      if (!alvo || !alvo.P || !alvo.P.meta) continue;
+      const ind = alvo.ind || indicadoresDe(alvo.P);
+      const info = faixaCruzadaAvanco(alvo.P, cfg, ind);
+      if (!info) continue;
+      if (await enviarAvisoAvanco(alvo, info)) n++;
+    }
+  } finally { avisoAvancoRodando = false; }
+  if (n) {
+    esquecerCarteira();
+    toast(n === 1 ? 'Aviso de avanço do projeto enviado.' : n + ' avisos de avanço enviados.');
+  }
+  return n;
+}
+
+/* Os dois avisos, um depois do outro e nunca ao mesmo tempo: eles gravam
+   marcas no MESMO documento de projeto, e em paralelo o segundo a gravar
+   apagaria a marca do primeiro — o aviso sairia e o sistema esqueceria que
+   saiu, que é exatamente o jeito de mandar o mesmo e-mail duas vezes. */
+async function checarAvisos(lista) {
+  const a = await checarAvisosHoras(lista);
+  const b = await checarAvisosAvanco(lista);
+  return a + b;
+}
+
 /** Desfaz as marcas de um projeto, para quando o consumo foi corrigido. */
 
 /* O painel da empresa, na aba Usuários — que é onde moram as decisões que
-   valem para todo mundo, e onde só o administrador chega. */
-function painelAvisoHoras() {
+   valem para todo mundo, e onde só o administrador chega.
+
+   UM painel para os dois avisos, com uma lista de endereços e dois
+   interruptores. A alternativa era dois painéis com dois cadastros de e-mail,
+   e a consequência disso aparece no mês em que o gestor troca de endereço e
+   alguém atualiza só um dos dois. */
+function painelAvisos() {
   const p = el('div', 'panel');
-  const cab = el('h3', '', 'Aviso de consumo de horas');
+  const cab = el('h3', '', 'Avisos automáticos por e-mail');
   cab.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap';
   p.appendChild(cab);
 
@@ -14115,53 +14330,71 @@ function painelAvisoHoras() {
     return p;
   }
 
-  const cfg = avisoHorasConfig();
+  const cfgH = avisoHorasConfig(), cfgA = avisoAvancoConfig();
   const g = el('div', 'formgrid'); g.style.gridTemplateColumns = '1fr 1fr';
 
-  const fAtivo = el('div', 'field');
-  fAtivo.appendChild(el('label', '', 'Ligado'));
-  const sAtivo = el('select', 'inp');
-  for (const [v, r] of [['nao', 'Não envia nada'], ['sim', 'Envia quando passar das faixas']]) {
-    const o = el('option', '', r); o.value = v; sAtivo.appendChild(o);
-  }
-  sAtivo.value = cfg.ativo ? 'sim' : 'nao';
-  fAtivo.appendChild(sAtivo); g.appendChild(fAtivo);
-
-  const fPara = el('div', 'field');
-  fPara.appendChild(el('label', '', 'Para quem vai'));
-  const iPara = el('input', 'inp'); iPara.value = cfg.para.join(', ');
+  const fPara = el('div', 'field'); fPara.style.gridColumn = '1 / -1';
+  fPara.appendChild(el('label', '', 'Para quem vão os avisos'));
+  const iPara = el('input', 'inp'); iPara.value = cfgH.para.join(', ');
   iPara.placeholder = 'gestor@empresa.com.br, diretoria@empresa.com.br';
   fPara.appendChild(iPara);
-  fPara.appendChild(el('div', 'hint', 'Um ou mais endereços, separados por vírgula. Até 20.'));
+  fPara.appendChild(el('div', 'hint',
+    'Um ou mais endereços, separados por vírgula. Até 20. Esta lista vale para os dois avisos abaixo, e você entra em cópia.'));
   g.appendChild(fPara);
 
-  const fFx = el('div', 'field'); fFx.style.gridColumn = '1 / -1';
-  fFx.appendChild(el('label', '', 'Faixas, em % das horas previstas'));
-  const iFx = el('input', 'inp'); iFx.value = cfg.faixas.join(', ');
-  iFx.placeholder = '50, 70, 90, 100';
-  fFx.appendChild(iFx);
-  fFx.appendChild(el('div', 'hint',
-    'Separadas por vírgula. A partir de 100% o aviso muda de tom — passa a ser estouro, com assunto e cor próprios.'));
-  g.appendChild(fFx);
+  /* Cada aviso tem o seu interruptor e as suas faixas, lado a lado, porque é
+     assim que a pessoa decide: "este eu quero, aquele não". */
+  const bloco = (rot, ligado, faixas, rotFaixas, ph, dica) => {
+    const fA = el('div', 'field');
+    fA.appendChild(el('label', '', rot));
+    const sel = el('select', 'inp');
+    for (const [v, r] of [['nao', 'Não envia'], ['sim', 'Envia nas faixas']]) {
+      const o = el('option', '', r); o.value = v; sel.appendChild(o);
+    }
+    sel.value = ligado ? 'sim' : 'nao';
+    fA.appendChild(sel); g.appendChild(fA);
+
+    const fF = el('div', 'field');
+    fF.appendChild(el('label', '', rotFaixas));
+    const inp = el('input', 'inp'); inp.value = faixas.join(', '); inp.placeholder = ph;
+    fF.appendChild(inp);
+    fF.appendChild(el('div', 'hint', dica));
+    g.appendChild(fF);
+    return { sel: sel, inp: inp };
+  };
+
+  const bH = bloco('Consumo de horas', cfgH.ativo, cfgH.faixas,
+    'Faixas, em % das horas previstas', '50, 70, 90, 100',
+    'A partir de 100% o aviso muda de tom — passa a ser estouro, com assunto e cor próprios.');
+  const bA = bloco('Avanço do projeto', cfgA.ativo, cfgA.faixas,
+    'Faixas, em % de avanço físico', '25, 50, 75, 90, 100',
+    'A faixa de 100% não é mais uma faixa: é o e-mail de entrega, com o retrato fechado do projeto.');
   p.appendChild(g);
+
+  const lerFaixas = (v, teto) => [...new Set(String(v).split(/[;,\s]+/)
+    .map(x => Math.round(Number(x) || 0)).filter(x => x > 0 && x <= teto))].sort((a, b) => a - b);
 
   const bSalvar = el('button', 'btn primary', 'Salvar');
   bSalvar.addEventListener('click', async () => {
     const para = listaDeEmails(iPara.value);
-    const lig = sAtivo.value === 'sim';
-    if (lig && !para.length) { toast('Informe ao menos um e-mail válido.'); iPara.focus(); return; }
+    const ligH = bH.sel.value === 'sim', ligA = bA.sel.value === 'sim';
+    const algum = ligH || ligA;
+    if (algum && !para.length) { toast('Informe ao menos um e-mail válido.'); iPara.focus(); return; }
     /* Se a pessoa digitou cinco endereços e só três eram válidos, salvar os
        três em silêncio esconde os dois que ela acha que salvou. */
     const digitados = String(iPara.value).split(/[;,\s]+/).filter(x => x.trim()).length;
-    if (lig && digitados > para.length
+    if (algum && digitados > para.length
       && !confirm('Reconheci ' + para.length + ' endereço(s) de ' + digitados + ' digitado(s):\n\n'
         + para.join('\n') + '\n\nSalvar assim?')) { iPara.focus(); return; }
-    const faixas = [...new Set(String(iFx.value).split(/[;,\s]+/).map(x => Math.round(Number(x) || 0)).filter(x => x > 0 && x <= 500))].sort((a, b) => a - b);
-    if (lig && !faixas.length) { toast('Informe ao menos uma faixa.'); iFx.focus(); return; }
+    const fxH = lerFaixas(bH.inp.value, 500), fxA = lerFaixas(bA.inp.value, 100);
+    if (ligH && !fxH.length) { toast('Informe ao menos uma faixa de horas.'); bH.inp.focus(); return; }
+    if (ligA && !fxA.length) { toast('Informe ao menos uma faixa de avanço.'); bA.inp.focus(); return; }
     bSalvar.disabled = true;
-    const okg = await gravarAvisoHoras({ ativo: lig, para: para, faixas: faixas.length ? faixas : FAIXAS_PADRAO });
+    const okg = await gravarAvisos(
+      { ativo: ligH, para: para, faixas: fxH.length ? fxH : FAIXAS_PADRAO },
+      { ativo: ligA, faixas: fxA.length ? fxA : FAIXAS_AVANCO_PADRAO });
     bSalvar.disabled = false;
-    if (okg) { toast('Aviso de consumo salvo.'); renderUsuarios(); }
+    if (okg) { toast('Avisos automáticos salvos.'); renderUsuarios(); }
   });
   cab.appendChild(bSalvar);
 
@@ -14169,56 +14402,61 @@ function painelAvisoHoras() {
   p.appendChild(erro);
 
   p.appendChild(el('div', 'tagline',
-    'O e-mail sai uma única vez por faixa e por projeto, com o consumo, o avanço físico, o IDP, o IDC e a projeção no ritmo atual. '
-    + 'Você entra em cópia, se não estiver na lista. Projeto pausado, encerrado ou sem horas previstas não dispara nada. '
-    + 'Um projeto pode ter a sua própria lista: o campo fica na aba Horas dele.'));
+    'Cada e-mail sai uma única vez por faixa e por projeto. O de horas traz o consumo, o avanço físico, o IDP, o IDC e a projeção no ritmo atual; '
+    + 'o de avanço traz o avanço contra o planejado, o consumo de horas ao lado dele, os índices, o término previsto e as atividades concluídas. '
+    + 'Projeto pausado não dispara nada; projeto encerrado só pode mandar o e-mail de entrega. '
+    + 'Um projeto pode ter a sua própria lista de endereços: o campo fica na aba Horas dele.'));
   return p;
 }
 
-async function gravarAvisoHoras(cfg) {
+async function gravarAvisos(cfgH, cfgA) {
   const erro = $('#avisoHorasErro');
   try {
-    await ST.db.doc(dOrg(ST.orgId)).set({ avisoHoras: cfg, atualizadoEm: Date.now() }, { merge: true });
+    await ST.db.doc(dOrg(ST.orgId)).set(
+      { avisoHoras: cfgH, avisoAvanco: cfgA, atualizadoEm: Date.now() }, { merge: true });
   } catch (e) {
     const t = String((e && e.code) || '') + ' ' + String((e && e.message) || '');
     if (erro) {
       erro.textContent = /permission|insufficient/i.test(t)
-        ? 'O banco recusou a gravação. Esta opção é nova e depende de uma atualização das regras do Firestore que ainda não foi publicada — publique com "firebase deploy --only firestore:rules" e tente de novo.'
+        ? 'O banco recusou a gravação. Estas opções são novas e dependem de uma atualização das regras do Firestore que ainda não foi publicada — publique com "firebase deploy --only firestore:rules" e tente de novo.'
         : 'Não consegui gravar: ' + ((e && e.message) || 'erro');
       erro.hidden = false;
     }
     return false;
   }
   if (!ST.perfil) ST.perfil = {};
-  ST.perfil.avisoHoras = cfg;
+  ST.perfil.avisoHoras = cfgH;
+  ST.perfil.avisoAvanco = cfgA;
   if (erro) erro.hidden = true;
   return true;
 }
 
 /* A exceção do projeto, na aba Horas: é onde está o número que dispara o
-   aviso, e portanto onde a pergunta "quem fica sabendo" aparece sozinha. */
+   aviso de horas, e portanto onde a pergunta "quem fica sabendo" aparece
+   sozinha. A lista é a mesma para os dois avisos, então o histórico dos dois
+   mora aqui — inclusive o do avanço, que não tem aba própria. */
 function painelAvisoDoProjeto() {
-  const cfg = avisoHorasConfig();
+  const cfgH = avisoHorasConfig(), cfgA = avisoAvancoConfig();
   const meta = ST.P.meta;
   const p = el('div', 'panel');
-  const cab = el('h3', '', 'Quem é avisado sobre o consumo');
+  const cab = el('h3', '', 'Avisos automáticos deste projeto');
   cab.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap';
   p.appendChild(cab);
 
-  if (!cfg.ativo) {
+  if (!cfgH.ativo && !cfgA.ativo) {
     p.appendChild(el('div', 'empty',
       ST.comLogin && ehAdmin()
-        ? 'O aviso de consumo de horas está desligado. Ligue na aba Usuários para que os projetos passem a avisar quando cruzarem as faixas.'
-        : 'O aviso de consumo de horas está desligado para a sua empresa.'));
+        ? 'Os avisos automáticos estão desligados. Ligue na aba Usuários para que os projetos passem a avisar quando cruzarem as faixas.'
+        : 'Os avisos automáticos estão desligados para a sua empresa.'));
     return p;
   }
 
   const g = el('div', 'formgrid'); g.style.gridTemplateColumns = '1fr';
   const f = el('div', 'field');
-  f.appendChild(el('label', '', 'Para quem vai, só neste projeto'));
+  f.appendChild(el('label', '', 'Para quem vão os avisos, só neste projeto'));
   const i = el('input', 'inp');
   i.value = listaDeEmails(meta.avisoHorasPara).join(', ');
-  i.placeholder = cfg.para.join(', ') + '   (o padrão da empresa)';
+  i.placeholder = avisoListaEmpresa().join(', ') + '   (o padrão da empresa)';
   i.disabled = !podeEditar();
   i.addEventListener('change', () => {
     if (semPermissao()) { i.value = listaDeEmails(meta.avisoHorasPara).join(', '); return; }
@@ -14231,19 +14469,21 @@ function painelAvisoDoProjeto() {
   });
   f.appendChild(i);
   f.appendChild(el('div', 'hint',
-    'Um ou mais endereços, separados por vírgula. Em branco usa a lista da empresa; preenchido, substitui ela por inteiro.'));
+    'Vale para os dois avisos. Em branco usa a lista da empresa; preenchido, substitui ela por inteiro.'));
   g.appendChild(f);
   p.appendChild(g);
 
   /* O que já foi avisado, e o botão de rearmar. Sem esta lista, "por que o
      gestor não recebeu o de 70%?" não tem resposta dentro do sistema. */
-  const jaFoi = meta.avisosHoras || {};
-  const chaves = Object.keys(jaFoi).map(Number).sort((a, b) => a - b);
-  const l = el('div'); l.style.cssText = 'margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center';
-  if (!chaves.length) {
-    l.appendChild(el('span', 'hint', 'Nenhuma faixa avisada ainda. As faixas valendo: ' + cfg.faixas.map(x => x + '%').join(' · ') + '.'));
-  } else {
-    l.appendChild(el('span', 'hint', 'Já avisado:'));
+  const grupo = (rot, mapa, faixas, rearmar, quando) => {
+    const jaFoi = mapa || {};
+    const chaves = Object.keys(jaFoi).map(Number).sort((a, b) => a - b);
+    const l = el('div'); l.style.cssText = 'margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center';
+    l.appendChild(el('span', 'hint', rot + ':'));
+    if (!chaves.length) {
+      l.appendChild(el('span', 'hint', 'nada avisado ainda — faixas valendo ' + faixas.map(x => x + '%').join(' · ') + '.'));
+      return l;
+    }
     for (const k of chaves) {
       const m = jaFoi[String(k)] || {};
       const pill = el('span', 'pill on', k + '%');
@@ -14252,17 +14492,26 @@ function painelAvisoDoProjeto() {
       l.appendChild(pill);
     }
     const bR = el('button', 'btn reqedit', 'Rearmar');
-    bR.title = 'Apaga as marcas para que as faixas voltem a avisar — use quando o consumo foi corrigido';
-    bR.addEventListener('click', rearmarAvisosHoras);
+    bR.title = 'Apaga as marcas para que as faixas voltem a avisar — use quando ' + quando;
+    bR.addEventListener('click', rearmar);
     l.appendChild(bR);
-  }
-  p.appendChild(l);
+    return l;
+  };
+
+  if (cfgH.ativo) p.appendChild(grupo('Horas já avisadas', meta.avisosHoras, cfgH.faixas,
+    rearmarAvisosHoras, 'o consumo foi corrigido'));
+  if (cfgA.ativo) p.appendChild(grupo('Avanço já avisado', meta.avisosAvanco, cfgA.faixas,
+    rearmarAvisosAvanco, 'o avanço foi recalculado ou o projeto foi replanejado'));
 
   const h = horasDe(ST.P);
-  p.appendChild(el('div', 'tagline', h.prev > 0
-    ? 'Agora em ' + fmtNum(h.feitas / h.prev * 100, 1).replace('.', ',') + '% das horas previstas. '
-    + 'O aviso sai quando esse número cruzar uma faixa, no momento em que isso acontecer ou na próxima vez que alguém abrir o sistema.'
-    : 'Este projeto não tem horas previstas, então não há porcentagem para acompanhar e nenhum aviso sai dele.'));
+  const ind = indicadoresDe(ST.P, ST.sch);
+  const onde = [];
+  if (cfgH.ativo) onde.push(h.prev > 0
+    ? 'Horas: ' + fmtNum(h.feitas / h.prev * 100, 1).replace('.', ',') + '% das previstas.'
+    : 'Horas: este projeto não tem horas previstas, então nenhum aviso de horas sai dele.');
+  if (cfgA.ativo) onde.push('Avanço: ' + fmtNum(ind.real, 1).replace('.', ',') + '% físico.');
+  p.appendChild(el('div', 'tagline', onde.join(' ')
+    + ' O aviso sai quando o número cruzar uma faixa — no momento em que isso acontecer, ou na próxima vez que alguém abrir o sistema.'));
   return p;
 }
 
@@ -14270,7 +14519,15 @@ function rearmarAvisosHoras() {
   if (semPermissao()) return;
   ST.P.meta.avisosHoras = {};
   markMeta();
-  toast('Avisos rearmados: as faixas voltam a valer para este projeto.');
+  toast('Avisos de horas rearmados: as faixas voltam a valer para este projeto.');
+  renderHoras();
+}
+
+function rearmarAvisosAvanco() {
+  if (semPermissao()) return;
+  ST.P.meta.avisosAvanco = {};
+  markMeta();
+  toast('Avisos de avanço rearmados: as faixas voltam a valer para este projeto.');
   renderHoras();
 }
 
