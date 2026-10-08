@@ -391,3 +391,86 @@ exports.backupAgora = onCall({ cors: ORIGENS, timeoutSeconds: 540, memory: '1GiB
   console.log('backupAgora', { quem, r });
   return r;
 });
+
+/* ---- o vigia, toda manhã ----
+   Os avisos de horas e de avanço saem do navegador, no instante em que o
+   número muda. Funciona porque o número só muda com alguém no sistema. Mas há
+   aviso que depende do RELÓGIO e não de alguém mexer: a atividade que venceu
+   ontem, o projeto que passou do término previsto. Esses nunca sairiam de
+   dentro do navegador, porque ninguém abre o sistema para descobri-los — é
+   justamente o projeto esquecido.
+
+   O servidor continua sem calcular nada: ele lê o retrato do plano que o
+   navegador deixou em `vigia/retrato` e compara com o calendário. A decisão
+   inteira mora em `vigia.js`, sem rede nem banco, conferida por `npm test`.
+
+   Publicar: firebase deploy --only functions:vigiaDiaria
+   Rodar na mão:  firebase functions:shell  →  vigiaAgora({})                 */
+const { corpoVigia, assuntoVigia } = require('./vigia');
+
+/** Hoje em São Paulo, como data ISO — o servidor roda em UTC. */
+function hojeSP(quando) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit'
+  }).format(quando || new Date());
+}
+
+const { rodarVigia } = require('./vigia-runner');
+
+/* As peças que o executor precisa do mundo de fora. Ficam aqui porque é aqui
+   que moram o Resend, o Admin SDK e o remetente; o executor em si não conhece
+   nenhum dos três, e é por isso que ele tem teste. */
+function pecasDoVigia(o) {
+  return {
+    db: o.db, hoje: hojeSP(), agora: Date.now(),
+    apagar: () => admin.firestore.FieldValue.delete(),
+    caminho: (a, b) => new admin.firestore.FieldPath(a, b),
+    ler: ref => ler(ref),
+    mandar: (msg) => mandarStatus(String(o.chaveApi || '').trim(), Object.assign({
+      cc: [], remetente: REMETENTE_STATUS, pdf: '', nomeArquivo: ''
+    }, msg)),
+    corpo: corpoVigia, assunto: assuntoVigia,
+    erro: (...a) => console.error(...a)
+  };
+}
+
+exports.vigiaDiaria = onSchedule({
+  schedule: '12 8 * * *',
+  timeZone: 'America/Sao_Paulo',
+  secrets: [RESEND_API_KEY],
+  memory: '512MiB',
+  timeoutSeconds: 540,
+  retryCount: 1
+}, async () => {
+  let r;
+  try {
+    r = await rodarVigia(pecasDoVigia({ db: admin.firestore(), chaveApi: RESEND_API_KEY.value() }));
+  } catch (e) {
+    // sem isto a manhã falha em silêncio e só se descobre quando o aviso faz falta
+    console.error('vigiaDiaria NÃO rodou:', comoTexto(e));
+    throw e;
+  }
+  // esta linha é o que se procura no console quando a dúvida é "rodou hoje?"
+  console.log('vigiaDiaria', JSON.stringify(r));
+});
+
+/* A mesma conferência, pedida na hora. Existe pelo mesmo motivo do
+   `backupAgora`: não há jeito bom de disparar uma função agendada de 2ª
+   geração pela linha de comando, e sem isto a única forma de testar seria
+   esperar as 8h12. Só a plataforma chama. */
+exports.vigiaAgora = onCall({ cors: ORIGENS, secrets: [RESEND_API_KEY], timeoutSeconds: 540, memory: '512MiB' }, async (req) => {
+  const tok = req.auth && req.auth.token;
+  if (!tok || !tok.email || tok.email_verified !== true)
+    throw new HttpsError('unauthenticated', 'entre com uma conta confirmada.');
+  const db = admin.firestore();
+  const quem = chave(tok.email);
+  const idxQuem = await ler(db.doc('users/' + quem));
+  /* Mesma porta do backup na mão, e de propósito: é a mesma pergunta — quem
+     opera a plataforma? Repetir a regra aqui seria criar um segundo lugar
+     para ela divergir. */
+  const v = decidirBackup({ quem, idxQuem });
+  if (!v.ok) throw new HttpsError('permission-denied', 'a conferência na mão é de quem opera a plataforma.');
+  const r = await rodarVigia(pecasDoVigia({ db, chaveApi: RESEND_API_KEY.value() }));
+  console.log('vigiaAgora', quem, JSON.stringify(r));
+  return r;
+});

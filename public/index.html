@@ -9830,6 +9830,50 @@ function painelBackupTotal() {
     bAg.disabled = false;
   });
   p.appendChild(bAg);
+
+  /* A conferência de prazos que roda às 8h12. Mesmo motivo do botão acima:
+     sem ele, a única forma de saber se o agendamento está de pé é esperar a
+     manhã seguinte e torcer. O resultado volta em número, não em "ok". */
+  p.appendChild(el('h3', '', 'Conferência diária de prazos'));
+  p.appendChild(el('div', 'tagline',
+    'Todo dia às 8h12 o servidor lê o retrato de cada projeto e cobra o que venceu — atividade que '
+    + 'passou da data e segue aberta, projeto que passou do término previsto —, mesmo que ninguém abra o '
+    + 'MILEST. É a parte dos avisos que não depende de alguém estar no sistema. '
+    + 'Cada empresa liga a sua na aba Usuários.'));
+  const avisoV = el('div', 'hint');
+  avisoV.style.cssText = 'margin:2px 0 10px;line-height:1.5';
+  avisoV.textContent = 'Rodar agora manda os e-mails de verdade, para os endereços cadastrados de cada empresa.';
+  p.appendChild(avisoV);
+  const bVig = el('button', 'btn', '⟳ Conferir os prazos agora');
+  bVig.addEventListener('click', async () => {
+    if (!confirm('Isto roda a conferência de todas as empresas e manda os e-mails de verdade agora. Continuar?')) return;
+    bVig.disabled = true;
+    avisoV.style.color = '';
+    avisoV.textContent = 'Conferindo… isso pode levar até um minuto.';
+    try {
+      const r = await chamarFuncao('vigiaAgora', {});
+      if (r.indisponivel) {
+        avisoV.style.color = 'var(--critical)';
+        avisoV.textContent = 'O servidor não tem essa rotina publicada ainda. '
+          + 'Ela sobe com “firebase deploy --only functions”.';
+      } else if (!r.ok && r.motivo) {
+        avisoV.style.color = 'var(--critical)';
+        avisoV.textContent = 'Não consegui: ' + r.motivo;
+      } else {
+        avisoV.style.color = r.falhas ? 'var(--critical)' : 'var(--ok)';
+        avisoV.textContent = fmtNum(r.retratos || 0) + ' projeto(s) conferido(s), '
+          + fmtNum(r.enviados || 0) + ' aviso(s) enviado(s)'
+          + (r.semLista ? ', ' + fmtNum(r.semLista) + ' sem lista de destinatários' : '')
+          + (r.falhas ? ', ' + fmtNum(r.falhas) + ' falha(s) — veja o console das funções' : '')
+          + (r.cortado ? '. A rodada foi cortada no teto de envios.' : '.');
+      }
+    } catch (e) {
+      avisoV.style.color = 'var(--critical)';
+      avisoV.textContent = 'Não consegui: ' + ((e && e.message) || 'erro');
+    }
+    bVig.disabled = false;
+  });
+  p.appendChild(bVig);
   return p;
 }
 
