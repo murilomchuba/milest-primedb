@@ -317,6 +317,9 @@ table.data th{
 table.data td{padding:6px 12px;border-bottom:1px solid var(--line);font-size:12.5px}
 table.data tr:last-child td{border-bottom:0}
 table.data td.num,table.data th.num{text-align:right;font-family:var(--f-mono);font-size:11.5px;white-space:nowrap}
+/* tabela do usuário: coluna do tamanho do texto, em vez de repartir a folha */
+table.data.justa{width:auto;max-width:100%}
+table.data th.ctr,table.data td.ctr{text-align:center}
 table.data td .inp{padding:4px 6px}
 .inp{
   border:1px solid var(--line);background:var(--surface);border-radius:5px;padding:5px 8px;font-size:12.5px;width:100%;
@@ -10643,6 +10646,33 @@ function novaTabelaDiario() {
 }
 /** Deixa toda linha com exatamente o número de colunas do cabeçalho: colar do
  *  Excel traz linhas irregulares, e uma célula a mais desalinha a tabela toda. */
+/* Como cada coluna se alinha. UMA regra, usada na tela, no e-mail e no PDF —
+   alinhar diferente em cada lugar faria a mesma tabela parecer três.
+
+   Conteúdo curto (número, código, data, status) centraliza: o olho compara
+   coluna abaixo, e numa coluna larga por causa do cabeçalho o valor para de
+   ficar perdido na borda esquerda. Texto longo fica à esquerda, porque
+   centralizar parágrafo deixa as duas margens irregulares e a leitura mais
+   lenta. A decisão olha os VALORES, não o cabeçalho: "Aguardando go-live"
+   acima de uma coluna de zeros é uma coluna de números, não de texto. */
+const DI_CURTO = 12;
+function diAlinhamentos(t) {
+  const cols = (t && t.colunas) || [];
+  const linhas = (t && t.linhas) || [];
+  return cols.map((c, i) => {
+    let curto = true, temAlgo = false;
+    for (const l of linhas) {
+      const v = String((l && l[i]) == null ? '' : l[i]).trim();
+      if (!v) continue;
+      temAlgo = true;
+      if (v.length > DI_CURTO || v.indexOf('\n') >= 0) { curto = false; break; }
+    }
+    // coluna ainda sem valor nenhum segue o próprio cabeçalho
+    if (!temAlgo) curto = String(c == null ? '' : c).trim().length <= DI_CURTO;
+    return curto ? 'c' : 'l';
+  });
+}
+
 function diNormalizarTabela(t) {
   t.colunas = (t.colunas || []).slice(0, DI_MAX_COLS).map(c => String(c == null ? '' : c));
   if (!t.colunas.length) t.colunas = ['Item'];
@@ -11133,15 +11163,16 @@ function painelTabelasDiario() {
        uma tabela de 6 linhas parecer uma tabela que perdeu uma linha. */
     const LIM_PREVIA = 12;
     const sc = el('div', 'tscroll');
-    const tb = el('table', 'data');
+    const tb = el('table', 'data justa');
+    const al = diAlinhamentos(t);
     const th = el('thead'); const hr = el('tr');
-    for (const c of (t.colunas || [])) hr.appendChild(el('th', '', c));
+    (t.colunas || []).forEach((c, i) => hr.appendChild(el('th', al[i] === 'c' ? 'ctr' : '', c)));
     th.appendChild(hr); tb.appendChild(th);
     const tbo = el('tbody');
     const todas = t.linhas || [];
     todas.forEach((l, i) => {
       const tr = el('tr');
-      for (const v of l) tr.appendChild(el('td', '', v));
+      l.forEach((v, j) => tr.appendChild(el('td', al[j] === 'c' ? 'ctr' : '', v)));
       if (i >= LIM_PREVIA) tr.hidden = true;
       tbo.appendChild(tr);
     });
@@ -11535,14 +11566,18 @@ function diTabelasHTML() {
   if (!tabs.length) return '';
   return tabs.map(t => {
     const nc = t.colunas.length;
-    const th = t.colunas.map(c => '<th style="' + F + 'background:#014479;color:#ffffff;font-size:12px;font-weight:bold;text-align:left;padding:8px 10px;border:1px solid #013A68;">' + diEscapar(c) + '</th>').join('');
+    const al = diAlinhamentos(t);
+    const lado = i => 'text-align:' + (al[i] === 'c' ? 'center' : 'left') + ';';
+    const th = t.colunas.map((c, i) => '<th style="' + F + 'background:#014479;color:#ffffff;font-size:12px;font-weight:bold;' + lado(i) + 'padding:8px 10px;border:1px solid #013A68;white-space:nowrap;">' + diEscapar(c) + '</th>').join('');
     const corpo = t.linhas.filter(l => l.some(c => String(c || '').trim())).map((l, i) => {
       const bg = i % 2 ? 'background:#F6F8F9;' : 'background:#ffffff;';
-      return '<tr>' + l.map(v => '<td style="' + F + 'font-size:12px;color:#1b2a33;padding:7px 10px;border:1px solid #D5DCE0;vertical-align:top;' + bg + '">'
+      return '<tr>' + l.map((v, j) => '<td style="' + F + 'font-size:12px;color:#1b2a33;padding:7px 10px;border:1px solid #D5DCE0;vertical-align:top;' + lado(j) + bg + '">'
         + diEscapar(v).replace(/\n/g, '<br>') + '</td>').join('') + '</tr>';
     }).join('');
+    /* Sem largura de 100%: a tabela fica do tamanho do conteúdo, como na tela.
+       É o padrão do HTML, e o que Outlook e Gmail fazem sem precisar de truque. */
     return '<div style="height:22px;line-height:22px;">&nbsp;</div>'
-      + '<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;' + F + '">'
+      + '<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;max-width:100%;' + F + '">'
       + '<tr><td colspan="' + nc + '" style="' + F + 'background:#12202E;color:#ffffff;padding:11px 12px;font-size:14px;font-weight:bold;letter-spacing:.3px;">'
       + diEscapar(String(t.nome || '').toUpperCase()) + '</td></tr>'
       + '<tr>' + th + '</tr>' + corpo + '</table>';
@@ -11713,15 +11748,27 @@ function diMontarFolhas(dia, escopo, modo, soTabelas) {
      coluna de texto longo nao engolir as outras. */
   const medirTabela = t => {
     const peso = t.colunas.map((c, i) => {
-      let mx = medirTexto(String(c == null ? '' : c), 7, 700, FONTE_ST);
+      /* o cabeçalho é desenhado em MAIÚSCULAS, que são mais largas — medir o
+         texto como foi digitado quebrava "MÁQUINAS" no meio da palavra */
+      let mx = medirTexto(String(c == null ? '' : c).toUpperCase(), 7, 700, FONTE_ST);
       for (const ln of t.linhas) mx = Math.max(mx, medirTexto(String(ln[i] == null ? '' : ln[i]).slice(0, 180), 7.5, 400, FONTE_ST));
       return Math.max(34, Math.min(300, mx + 12));
     });
     const soma = peso.reduce((a, b) => a + b, 0) || 1;
-    const w = peso.map(x => Math.max(30, Math.round(x / soma * LARG_UTIL)));
-    /* a sobra do arredondamento vai para a coluna mais larga, que aguenta */
-    const maior = w.indexOf(Math.max.apply(null, w));
-    w[maior] += LARG_UTIL - w.reduce((a, b) => a + b, 0);
+    /* Cabe na folha: largura natural, e a tabela termina onde o conteúdo
+       termina. Não cabe: reparte em proporção, como antes. Esticar uma tabela
+       de números até a margem era o que deixava cada valor sozinho no meio de
+       um campo vazio, longe do cabeçalho a que pertence. */
+    const coube = soma <= LARG_UTIL;
+    const w = coube
+      ? peso.map(x => Math.max(30, Math.round(x)))
+      : peso.map(x => Math.max(30, Math.round(x / soma * LARG_UTIL)));
+    if (!coube) {
+      /* a sobra do arredondamento vai para a coluna mais larga, que aguenta */
+      const maior = w.indexOf(Math.max.apply(null, w));
+      w[maior] += LARG_UTIL - w.reduce((a, b) => a + b, 0);
+    }
+    const larg = w.reduce((a, b) => a + b, 0);
     const xs = []; let ac = 0;
     for (const ww of w) { xs.push(ac); ac += ww; }
     const cab = t.colunas.map((c, i) => envolver(String(c == null ? '' : c).toUpperCase(), w[i] - 8, 7, 700));
@@ -11730,8 +11777,12 @@ function diMontarFolhas(dia, escopo, modo, soTabelas) {
       const cel = w.map((ww, i) => envolver(String(ln[i] == null ? '' : ln[i]).replace(/\n+/g, ' \u00b7 ').trim(), ww - 8, 7.5, 400));
       return { cel: cel, alt: Math.max.apply(null, [1].concat(cel.map(x => x.length))) * PASSO + 7 };
     });
+    /* a faixa do nome nunca fica menor que o próprio nome */
+    const largNome = Math.min(LARG_UTIL,
+      Math.max(larg, medirTexto(String(t.nome || 'Tabela').toUpperCase(), 8.5, 700, FONTE_ST) + 16));
     return {
       nome: t.nome, w: w, xs: xs, cab: cab, altCab: altCab, corpo: corpo,
+      larg: larg, largNome: largNome, al: diAlinhamentos(t),
       alt: 20 + altCab + corpo.reduce((a, r) => a + r.alt, 0) + 10
     };
   };
@@ -11809,11 +11860,15 @@ function diMontarFolhas(dia, escopo, modo, soTabelas) {
   if (!linhas.length && !soTabelas) { T(M + 10, y + 6, 'Nenhuma atividade registrada em ' + fmtBR(dia) + '.', 9, 400, CORES_ST.tinta3); y += 18; }
   if (soTabelas && !tabs.length) T(M + 10, y + 6, 'Nenhuma tabela marcada para sair no relatório.', 9, 400, CORES_ST.tinta3);
 
+  /* Centralizado: o texto nasce no meio da coluna. À esquerda: a 4 do início,
+     como sempre. Mesma regra da tela e do e-mail, pela mesma função. */
+  const colX = (tb, i) => tb.al[i] === 'c' ? (M + tb.xs[i] + tb.w[i] / 2) : (M + tb.xs[i] + 4);
+  const colAnc = (tb, i) => tb.al[i] === 'c' ? 'middle' : null;
   const cabTabela = tb => {
-    R(M, y - 9, LARG_UTIL, tb.altCab, '#014479');
+    R(M, y - 9, tb.larg, tb.altCab, '#014479');
     tb.cab.forEach((ls, i) => {
       let yy = y;
-      for (const ln of ls) { T(M + tb.xs[i] + 4, yy, ln, 7, 700, '#FFFFFF'); yy += PASSO; }
+      for (const ln of ls) { T(colX(tb, i), yy, ln, 7, 700, '#FFFFFF', colAnc(tb, i)); yy += PASSO; }
     });
     y += tb.altCab;
   };
@@ -11823,19 +11878,19 @@ function diMontarFolhas(dia, escopo, modo, soTabelas) {
     const minimo = 20 + tb.altCab + tb.corpo.slice(0, 2).reduce((a, r) => a + r.alt, 0);
     if (modo === 'a4' && y + minimo > H - RODAPE) nova(ALT_A4);
     y += 10;
-    R(M, y - 9, LARG_UTIL, 18, '#12202E');
+    R(M, y - 9, tb.largNome, 18, '#12202E');
     T(M + 8, y + 3, String(tb.nome || 'Tabela').toUpperCase(), 8.5, 700, '#FFFFFF');
     y += 20;
     cabTabela(tb);
     tb.corpo.forEach((r, idx) => {
       if (modo === 'a4' && y + r.alt > H - RODAPE) { nova(ALT_A4); cabTabela(tb); }
-      if (idx % 2) R(M, y - 9, LARG_UTIL, r.alt, '#F6F8F9');
+      if (idx % 2) R(M, y - 9, tb.larg, r.alt, '#F6F8F9');
       r.cel.forEach((ls, i) => {
         let yy = y;
-        for (const ln of ls) { T(M + tb.xs[i] + 4, yy, ln, 7.5, 400, CORES_ST.tinta); yy += PASSO; }
+        for (const ln of ls) { T(colX(tb, i), yy, ln, 7.5, 400, CORES_ST.tinta, colAnc(tb, i)); yy += PASSO; }
       });
       y += r.alt;
-      L(M, y - 7, W - M, y - 7, '#E3E9ED', 0.5);
+      L(M, y - 7, M + tb.larg, y - 7, '#E3E9ED', 0.5);
     });
   });
   return { folhas: folhas, W: W, H: H };
