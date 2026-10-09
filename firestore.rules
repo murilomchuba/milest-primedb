@@ -84,15 +84,21 @@ service cloud.firestore {
     // no relatório; `gpExtra` são os substitutos, com o mesmo acesso, para que
     // duas semanas de férias não tranquem o projeto.
     function souGPna(org) { return daOrg(org) && papelNa(org) == 'gp'; }
-    function gpNesteDoc(org, d) {
-      return souGPna(org) && (d.get('gp', '') == eu() || eu() in d.get('gpExtra', []));
+
+    // Só a pergunta sobre os DADOS do projeto. Ela NÃO reconfere o papel, de
+    // propósito: quem chama já conferiu. A primeira versão reconferia, e o
+    // emulador mostrou a conta — as regras têm teto de MIL expressões por
+    // pedido, e `gpNoProjeto` sozinho expandia a cadeia de `daOrg` duas vezes
+    // e estourava. O sintoma não foi um erro de sintaxe: foi a leitura certa
+    // sendo recusada, que é o pior jeito de descobrir.
+    function meuProjeto(d) {
+      return d.get('gp', '') == eu() || eu() in d.get('gpExtra', []);
     }
     function docProjeto(org, projeto) {
       return /databases/$(database)/documents/orgs/$(org)/projects/$(projeto);
     }
     function gpNoProjeto(org, projeto) {
-      return souGPna(org) && exists(docProjeto(org, projeto))
-          && gpNesteDoc(org, get(docProjeto(org, projeto)).data);
+      return souGPna(org) && meuProjeto(get(docProjeto(org, projeto)).data);
     }
 
     // ---- a que projetos um analista pertence -------------------------------
@@ -205,7 +211,8 @@ service cloud.firestore {
       // ---- cronogramas: SÓ membros da empresa ----------------------------
       // (a plataforma não aparece em nenhuma destas linhas, de propósito)
       match /projects/{projeto} {
-        allow get: if veOrg(org) || suporteAtivo(org) || gpNesteDoc(org, resource.data);
+        allow get: if veOrg(org) || suporteAtivo(org)
+                   || (souGPna(org) && meuProjeto(resource.data));
 
         // A carteira do gerente de projetos sai daqui, e sai RECORTADA: a
         // consulta precisa trazer o filtro por `gp` ou por `gpExtra`, senão
@@ -222,11 +229,17 @@ service cloud.firestore {
         // linhas, o gerente poderia passar o próprio projeto para outro (ou
         // tirar o substituto) — reatribuir é decisão do escritório.
         allow update: if editaOrg(org) || suporteEdita(org)
-                      || (gpNesteDoc(org, resource.data) && orgNoPrazo(org)
+                      || (souGPna(org) && orgNoPrazo(org) && meuProjeto(resource.data)
                           && request.resource.data.get('gp', '') == resource.data.get('gp', '')
                           && request.resource.data.get('gpExtra', []) == resource.data.get('gpExtra', []));
 
-        match /{documento=**} {
+        /* `{documento=**}` sozinho casaria TAMBÉM o documento do projeto: na
+           versão 2 das regras o curinga recursivo aceita zero segmentos. Era
+           por aí que o gerente conseguia passar o próprio projeto para outro
+           — a linha de cima barrava e esta liberava por baixo, em silêncio.
+           Exigir um segmento antes (`{sub}`) prende este bloco às
+           SUBCOLEÇÕES, que é o que ele sempre quis dizer. */
+        match /{sub}/{documento=**} {
           allow read: if veOrg(org) || suporteAtivo(org) || gpNoProjeto(org, projeto);
           allow write: if editaOrg(org) || suporteEdita(org)
                        || (gpNoProjeto(org, projeto) && orgNoPrazo(org));

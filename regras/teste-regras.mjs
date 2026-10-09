@@ -616,6 +616,15 @@ await caso('Gi NÃO cria projeto novo: a carteira é distribuída pelo escritór
   assertFails(setDoc(doc(conta(GI), 'orgs/unimed/projects', 'pGi'), { name: 'meu projeto', gp: GI, gpExtra: [] })));
 await caso('Gi NÃO apaga um projeto, nem o dela', () =>
   assertFails(deleteDoc(doc(conta(GI), 'orgs/unimed/projects', 'p1'))));
+/* O curinga das subcoleções já casou o próprio documento do projeto uma vez
+   (versão 2 das regras: `{documento=**}` aceita zero segmentos), e foi por ali
+   que a troca de responsável passou por baixo da regra que a barrava. Estes
+   dois casos ficam para que a subcoleção continue alcançável sem que o
+   documento do projeto volte a ser. */
+await caso('Gi grava na subcoleção do projeto dela (o retrato do vigia)', () =>
+  assertSucceeds(setDoc(doc(conta(GI), 'orgs/unimed/projects/p1/vigia', 'retrato'), { v: 1, real: 40 })));
+await caso('Gi NÃO grava na subcoleção do projeto do outro', () =>
+  assertFails(setDoc(doc(conta(GI), 'orgs/unimed/projects/p2/vigia', 'retrato'), { v: 1, real: 40 })));
 
 console.log('\nGERENTE DE PROJETOS: O CADASTRO DA EMPRESA NÃO É DELE');
 await caso('Gi lê o cadastro de recursos, para alocar quem já existe', () =>
