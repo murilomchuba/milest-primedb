@@ -14777,6 +14777,10 @@ function agendarRetrato() {
   if (ST.mode !== 'db' || !ST.pid || !ST.P || !podeEditar()) return;
   clearTimeout(retratoT);
   retratoT = setTimeout(() => {
+    /* Abrir um projeto sem mexer em nada não precisa de retrato novo: o
+       anterior continua exato, porque nada do que ele guarda anda sozinho.
+       Sem esta linha, toda abertura de projeto virava uma gravação. */
+    if (retratoJaGravado(ST.pid, (ST.P.meta && ST.P.meta.updatedAt) || 0)) return;
     try { gravarRetrato(ST.pid, ST.P, indicadoresDe(ST.P)); } catch (e) { }
   }, 8000);
 }
@@ -16999,9 +17003,18 @@ async function excluirProjeto(pid) {
   try {
     if (ST.mode === 'db') {
       const base = dProjeto(pid);
-      // docs e docsData entram aqui: sem isso o projeto some e os anexos ficam
-      // ocupando o banco para sempre, sem tela que os alcance
-      for (const sub of ['tasks', 'versions', 'versionsData', 'resources', 'docs', 'docsData']) {
+      /* Apagar um documento no Firestore NÃO apaga o que está dentro dele:
+         cada subcoleção precisa ser varrida à mão. Faltavam três, e a pior
+         era `equipe`: a tela do analista acha os projetos dele por uma
+         consulta de grupo nessa subcoleção, então um projeto apagado
+         continuava na lista dele — e abria num erro. `horas` guardava
+         lançamento de gente, e `vigia` faria o servidor ler o retrato de um
+         projeto que não existe mais.
+
+         docs e docsData: sem eles os anexos ficam ocupando o banco para
+         sempre, sem tela que os alcance. */
+      for (const sub of ['tasks', 'versions', 'versionsData', 'resources', 'docs', 'docsData',
+        'equipe', 'horas', 'vigia', 'vigiaMarcas']) {
         let snap; try { snap = await ST.db.collection(base + '/' + sub).get(); } catch (e) { continue; }
         for (let i = 0; i < snap.docs.length; i += 20) {
           await Promise.all(snap.docs.slice(i, i + 20).map(d => ST.db.doc(base + '/' + sub + '/' + d.id).delete()));
