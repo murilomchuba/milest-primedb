@@ -79,6 +79,17 @@ function destinatarios(retrato, org) {
   return listaDeEmails(org && org.avisoHoras && org.avisoHoras.para);
 }
 
+/* Algum aviso ligado nesta empresa? Serve para o executor parar ANTES de ler
+   o projeto e as marcas: sem isto, uma empresa que nunca ligou nada pagaria
+   três leituras por projeto todo dia de manhã para o vigia concluir que não
+   tem nada a fazer. */
+function avisoLigado(org) {
+  const o = org || {};
+  return !!(o.avisoPrazo && o.avisoPrazo.ativo === true)
+      || !!(o.avisoHoras && o.avisoHoras.ativo === true)
+      || !!(o.avisoAvanco && o.avisoAvanco.ativo === true);
+}
+
 /* A decisão.
 
    Entra: o retrato (navegador), as marcas do próprio vigia, o documento do
@@ -307,5 +318,5 @@ function corpoVigia(d, ret) {
     + '</div></div>';
 }
 
-module.exports = { decidirVigia, diasEntre, listaDeEmails, faixaEscapada, faixasDe, destinatarios, corpoVigia, assuntoVigia, tituloVigia };
+module.exports = { decidirVigia, avisoLigado, diasEntre, listaDeEmails, faixaEscapada, faixasDe, destinatarios, corpoVigia, assuntoVigia, tituloVigia };
 

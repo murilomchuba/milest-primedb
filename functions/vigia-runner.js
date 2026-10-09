@@ -9,7 +9,7 @@
    verificar lendo: a marca só entra DEPOIS do envio dar certo. Um "já avisei"
    falso é pior do que avisar duas vezes — o aviso simplesmente nunca mais
    sai. */
-const { decidirVigia } = require('./vigia');
+const { decidirVigia, avisoLigado } = require('./vigia');
 
 const TETO = 300;
 
@@ -17,7 +17,7 @@ async function rodarVigia(o) {
   const db = o.db, hoje = o.hoje, agora = o.agora || Date.now();
   const teto = o.teto || TETO;
   const erro = o.erro || (() => { });
-  const r = { hoje, retratos: 0, olhados: 0, enviados: 0, falhas: 0, semLista: 0, cortado: false };
+  const r = { hoje, retratos: 0, olhados: 0, desligados: 0, enviados: 0, falhas: 0, semLista: 0, cortado: false };
 
   const snap = await db.collectionGroup('vigia').get();
   const cadastros = new Map();          // um get por empresa, não um por projeto
@@ -37,6 +37,10 @@ async function rodarVigia(o) {
     if (!cadastros.has(orgId)) cadastros.set(orgId, await o.ler(db.doc('orgs/' + orgId)));
     const org = cadastros.get(orgId);
     if (!org) continue;
+    /* Nada ligado nesta empresa: não há decisão a tomar, e ler o projeto e as
+       marcas para descobrir isso seriam duas leituras por projeto, todo dia,
+       de uma empresa que não pediu nada. */
+    if (!avisoLigado(org)) { r.desligados++; continue; }
     r.olhados++;
 
     const marcasRef = projRef.collection('vigiaMarcas').doc('atual');

@@ -184,3 +184,34 @@ test('sem lista de destinatários, conta separado e não marca nada', async () =
   a.equal(r.enviados, 0);
   a.equal(b.escritas.length, 0);
 });
+
+test('empresa com tudo desligado não custa leitura nenhuma', async () => {
+  const desligada = {
+    acme: {
+      nome: 'ACME', avisoPrazo: { ativo: false, dias: 7 },
+      avisoHoras: { ativo: false, para: 'g@acme.com.br', faixas: [50] },
+      avisoAvanco: { ativo: false, faixas: [25] }
+    }
+  };
+  const b = banco([{ pid: 'p1', orgId: 'acme', retrato: RET(), projeto: {}, marcas: null }], desligada);
+  let leuProjeto = false;
+  const pecas = b.pecas();
+  const r = await rodarVigia(Object.assign({ db: b.db }, pecas, {
+    mandar: async () => { leuProjeto = true; return { enviado: true }; }
+  }));
+  a.equal(r.retratos, 1);
+  a.equal(r.desligados, 1);
+  a.equal(r.olhados, 0);        // nem chegou a ler o projeto e as marcas
+  a.equal(r.enviados, 0);
+  a.equal(leuProjeto, false);
+  a.equal(b.escritas.length, 0);
+});
+
+test('basta UM aviso ligado para a empresa voltar a ser conferida', async () => {
+  const { avisoLigado } = require('../vigia');
+  a.equal(avisoLigado({}), false);
+  a.equal(avisoLigado({ avisoPrazo: { ativo: true } }), true);
+  a.equal(avisoLigado({ avisoHoras: { ativo: true } }), true);
+  a.equal(avisoLigado({ avisoAvanco: { ativo: true } }), true);
+  a.equal(avisoLigado({ avisoPrazo: { ativo: false }, avisoHoras: { ativo: false }, avisoAvanco: { ativo: false } }), false);
+});
