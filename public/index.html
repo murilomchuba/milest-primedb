@@ -5423,11 +5423,21 @@ function envolver(txt, larg, fs, peso) {
   return saida;
 }
 
-function desenharStatusReport() {
-  const W = 960, H = 540, M = 26;
-  const meta = ST.P.meta, sch = ST.sch;
-  const est = statusDoProjeto(), ind = est.ind;
-  const pg = sv('svg', { xmlns: SVGNS, viewBox: '0 0 ' + W + ' ' + H, width: W, height: H });
+/* ---------- a folha de status, bloco a bloco ----------
+
+   O desenho é um SVG de 960x540 em coordenadas absolutas. Cada bloco é uma
+   função que recebe o CONTEXTO — as primitivas de desenho e os números do
+   projeto — e o RETÂNGULO onde tem de caber. Quem decide os retângulos é
+   `desenharStatusReport`, no fim deste trecho.
+
+   Antes era uma função só, de 255 linhas, em que cada bloco desenhava direto
+   nas coordenadas que a cascata ia calculando. Separar NÃO muda um pixel: a
+   comparação em `folha/` prova isso cenário por cenário. O ganho é que a
+   cascata pode ser trocada por uma grade configurável sem reescrever o
+   desenho de nenhum bloco. */
+
+/** As primitivas de desenho, amarradas ao SVG de uma folha. */
+function contextoFolha(pg, W, H, M, meta, sch, est, ind) {
   const T = (x, y, t, fs, peso, cor, anc) => {
     const e = sv('text', { x: x, y: y, 'font-size': fs, 'font-weight': peso || 400, fill: cor, 'font-family': FONTE_ST });
     if (anc) e.setAttribute('text-anchor', anc);
@@ -5449,18 +5459,47 @@ function desenharStatusReport() {
   };
   const R = (x, y, w, h, f, rx, op) => pg.appendChild(sv('rect', Object.assign({ x: x, y: y, width: Math.max(0, w), height: Math.max(0, h), fill: f }, rx ? { rx: rx } : {}, op != null ? { opacity: op } : {})));
   const L = (x1, y1, x2, y2, c, w) => pg.appendChild(sv('line', { x1: x1, y1: y1, x2: x2, y2: y2, stroke: c, 'stroke-width': w || 1 }));
+  return { pg: pg, W: W, H: H, M: M, meta: meta, sch: sch, est: est, ind: ind, T: T, TFit: TFit, R: R, L: L };
+}
 
-  R(0, 0, W, H, CORES_ST.fundo);
+/* ---- medida de texto dos quadros de lista ----
+   Ficam fora dos blocos porque quem decide o tamanho da fonte muitas vezes é
+   o VIZINHO: dois quadros lado a lado têm de usar a mesma, senão um sai
+   visivelmente menor que o outro. */
+const ESCALAS_BL = [10, 9.5, 9, 8.5, 8, 7.5, 7];
+function linhasDoBloco(itens, w, f) {
+  const linhas = [];
+  for (const it of (itens || [])) envolver(it, w - 30, f).forEach((ln, i) => linhas.push({ txt: ln, primeira: i === 0 }));
+  return linhas;
+}
+function alturaUtilBloco(h) { return h - 10 - 7 - 6; }
+/** A maior fonte em que a lista inteira cabe na caixa. */
+function fonteQueCabe(itens, w, h) {
+  const disp = alturaUtilBloco(h);
+  for (const f of ESCALAS_BL) {
+    if (linhasDoBloco(itens, w, f).length * (f * 1.5) <= disp) return f;
+  }
+  return ESCALAS_BL[ESCALAS_BL.length - 1];
+}
+function listarLinhas(t) { return String(t || '').split(/\n/).map(x => x.trim()).filter(Boolean); }
 
-  // ---- cabeçalho
-  T(M, 34, meta.client || meta.name || 'Projeto', 21, 700, CORES_ST.tinta);
-  if (meta.client) T(M, 54, meta.name || '', 12.5, 600, CORES_ST.planejado);
+/* ---- o fundo ---- */
+function flFundo(cx) { cx.R(0, 0, cx.W, cx.H, CORES_ST.fundo); }
+
+/* ---- cabeçalho: cliente, projeto, selo, resumo e os avisos ----
+   É o bloco ELÁSTICO da folha: cresce com o resumo, com a faixa de pausa e
+   com o motivo do selo ajustado à mão. Devolve o y da linha que o separa do
+   corpo — é dele que todo o resto da folha pendura. */
+function flCabecalho(cx) {
+  const M = cx.M, W = cx.W, meta = cx.meta, est = cx.est;
+  cx.T(M, 34, meta.client || meta.name || 'Projeto', 21, 700, CORES_ST.tinta);
+  if (meta.client) cx.T(M, 54, meta.name || '', 12.5, 600, CORES_ST.planejado);
   const larguraSelo = Math.max(96, est.rot.length * 9 + 30);
-  R(W - M - larguraSelo, 18, larguraSelo, 26, est.cor, 4);
-  T(W - M - larguraSelo / 2, 36, est.rot, 13.5, 700, '#FFFFFF', 'middle');
+  cx.R(W - M - larguraSelo, 18, larguraSelo, 26, est.cor, 4);
+  cx.T(W - M - larguraSelo / 2, 36, est.rot, 13.5, 700, '#FFFFFF', 'middle');
   let yr = meta.client ? 74 : 60;
   const resumo = envolver(meta.resumo ? 'Resumo: ' + meta.resumo : '', W - 2 * M, 10.5).slice(0, 2);
-  for (const ln of resumo) { T(M, yr, ln, 10.5, 400, CORES_ST.tinta2); yr += 14; }
+  for (const ln of resumo) { cx.T(M, yr, ln, 10.5, 400, CORES_ST.tinta2); yr += 14; }
   /* O cliente precisa ler a pausa em palavras, não só deduzir do selo cinza
      no canto. É esta linha que transforma o relatório no documento da parada. */
   if (ehPausado(meta)) {
@@ -5470,7 +5509,7 @@ function desenharStatusReport() {
       + (meta.pausaMotivo ? '. ' + meta.pausaMotivo : '')
       + (meta.pausaRetomaEm ? ' Retomada prevista: ' + fmtBR(meta.pausaRetomaEm) + '.' : '');
     for (const ln of envolver(aviso, W - 2 * M, 10.5).slice(0, 2)) {
-      T(M, yr, ln, 10.5, 700, CORES_ST.pausado); yr += 14;
+      cx.T(M, yr, ln, 10.5, 700, CORES_ST.pausado); yr += 14;
     }
   }
   /* O ajuste manual é dito em palavras, pelo mesmo motivo da pausa: o selo
@@ -5481,156 +5520,122 @@ function desenharStatusReport() {
       + ' (pela aderência seria ' + est.autoRot + ')'
       + (est.motivo ? ' — ' + est.motivo : '');
     for (const ln of envolver(frase, W - 2 * M, 10.5).slice(0, 2)) {
-      T(M, yr, ln, 10.5, 700, est.cor); yr += 14;
+      cx.T(M, yr, ln, 10.5, 700, est.cor); yr += 14;
     }
   }
   const yLinha = Math.max(96, yr + 6);
-  L(M, yLinha, W - M, yLinha, CORES_ST.linha, 1.4);
+  cx.L(M, yLinha, W - M, yLinha, CORES_ST.linha, 1.4);
+  return yLinha;
+}
 
-  // ---- KPIs
-  const yk = yLinha + 14, hk = 60, colE = 470, larg3 = (colE - M - 16) / 3;
+/* ---- os três indicadores ---- */
+function flKpis(cx, r) {
+  const ind = cx.ind, est = cx.est;
+  const larg3 = (r.w - 16) / 3;
   const kpis = [
     ['Planejado', fmtNum(ind.plan.pct, 0) + '%', CORES_ST.planejado],
     ['Realizado', fmtNum(ind.real, 0) + '%', CORES_ST.realizado],
     ['Aderência', est.ader == null ? '—' : fmtNum(est.ader, 0) + '%', est.cor]
   ];
   kpis.forEach((k, i) => {
-    const x = M + i * (larg3 + 8);
-    R(x, yk, larg3, hk, k[2], 3);
-    T(x + larg3 / 2, yk + 22, k[0], 12.5, 600, '#FFFFFF', 'middle');
-    T(x + larg3 / 2, yk + 47, k[1], 20, 700, '#FFFFFF', 'middle');
+    const x = r.x + i * (larg3 + 8);
+    cx.R(x, r.y, larg3, r.h, k[2], 3);
+    cx.T(x + larg3 / 2, r.y + 22, k[0], 12.5, 600, '#FFFFFF', 'middle');
+    cx.T(x + larg3 / 2, r.y + 47, k[1], 20, 700, '#FFFFFF', 'middle');
   });
+}
 
-  // ---- blocos de texto
-  /* O bloco aperta a fonte até o texto inteiro caber, em vez de cortar no meio
-     de uma frase. Um risco anotado que não aparece no status report é pior do
-     que um risco escrito miúdo: quem lê a folha precisa ver a lista toda.
+/* ---- um quadro de lista ----
+   O bloco aperta a fonte até o texto inteiro caber, em vez de cortar no meio
+   de uma frase. Um risco anotado que não aparece no status report é pior do
+   que um risco escrito miúdo: quem lê a folha precisa ver a lista toda.
 
-     A mesma ideia que a coluna da direita já usava para as entregas. O piso é
-     7pt — abaixo disso não se lê num 16:9 projetado, e aí sim o resto vira "…",
-     que é o sinal de que aquele campo virou texto corrido demais para um
-     quadro de uma folha só. */
-  const ESCALAS_BL = [10, 9.5, 9, 8.5, 8, 7.5, 7];
-  const linhasDoBloco = (itens, w, f) => {
-    const linhas = [];
-    for (const it of (itens || [])) envolver(it, w - 30, f).forEach((ln, i) => linhas.push({ txt: ln, primeira: i === 0 }));
-    return linhas;
+   O piso é 7pt — abaixo disso não se lê num 16:9 projetado, e aí sim o resto
+   vira "…", que é o sinal de que aquele campo virou texto corrido demais
+   para um quadro de uma folha só. */
+function flLista(cx, r, titulo, itens, vazio, fonte) {
+  const x = r.x, y = r.y, w = r.w, h = r.h;
+  cx.T(x, y, titulo.toUpperCase(), 9.5, 700, CORES_ST.planejado);
+  cx.L(x, y + 5, x + w, y + 5, CORES_ST.linha, 1);
+  cx.R(x, y + 10, w, h - 10, CORES_ST.caixa, 3);
+  const f = fonte || fonteQueCabe(itens, w, h);
+  const passo = f * 1.5;
+  let yy = y + 17 + f;
+  const limite = y + h - 6;
+  const linhas = linhasDoBloco(itens, w, f);
+  if (!linhas.length) { cx.T(x + 12, yy, vazio || 'Nada registrado.', f, 400, CORES_ST.tinta3); return; }
+  const lado = Math.max(3, f * 0.4);
+  for (const ln of linhas) {
+    if (yy > limite) { cx.T(x + 12, yy, '…', f, 400, CORES_ST.tinta3); break; }
+    if (ln.primeira && ln.txt) { cx.R(x + 12, yy - f * 0.55, lado, lado, CORES_ST.realizado, 1); cx.T(x + 22, yy, ln.txt, f, 400, CORES_ST.tinta); }
+    else cx.T(x + 22, yy, ln.txt, f, 400, CORES_ST.tinta);
+    yy += passo;
+  }
+}
+
+/* ---- a curva S dentro da folha ---- */
+function flCurva(cx, r) {
+  const x = r.x, y = r.y, w = r.w, h = r.h;
+  cx.T(x, y, 'CURVA S — AVANÇO FÍSICO', 9.5, 700, CORES_ST.planejado);
+  const d = progData();
+  const leg = [];
+  if (d && d.hasBL) leg.push(['Base', CORES_ST.planejado, true]);
+  if (d) { leg.push(['Previsto', CORES_ST.planejado, false]); leg.push(['Realizado', CORES_ST.realizado, false]); }
+  let lx = x + w;
+  for (let i = leg.length - 1; i >= 0; i--) {
+    const rot = leg[i][0], larg = rot.length * 4.6;
+    cx.T(lx, y, rot, 8.5, 600, CORES_ST.tinta2, 'end');
+    const ls = sv('line', { x1: lx - larg - 15, y1: y - 3, x2: lx - larg - 3, y2: y - 3, stroke: leg[i][1], 'stroke-width': 2 });
+    if (leg[i][2]) ls.setAttribute('stroke-dasharray', '4 3');
+    cx.pg.appendChild(ls);
+    lx -= larg + 24;
+  }
+  cx.L(x, y + 5, x + w, y + 5, CORES_ST.linha, 1);
+  cx.R(x, y + 10, w, h - 10, CORES_ST.caixa, 3);
+  if (!d || !d.xs.length) { cx.T(x + 12, y + 32, 'Cadastre atividades para gerar a curva.', 10, 400, CORES_ST.tinta3); return; }
+  const gx = x + 36, gy = y + 10 + 16, gw = w - 36 - 14, gh = h - 10 - 16 - 22;
+  if (gw < 40 || gh < 30) return;
+  const n = d.xs.length;
+  const X = i => gx + (n <= 1 ? gw / 2 : gw * i / (n - 1));
+  const Y = v => gy + gh - gh * clamp(v, 0, 100) / 100;
+  for (const v of [0, 50, 100]) {
+    cx.L(gx, Y(v), gx + gw, Y(v), CORES_ST.linha, 1);
+    cx.T(gx - 5, Y(v) + 3, v + '%', 8, 400, CORES_ST.tinta3, 'end');
+  }
+  const iSd = d.xs.indexOf(d.sd);
+  if (iSd >= 0) cx.pg.appendChild(sv('line', { x1: X(iSd), y1: gy, x2: X(iSd), y2: gy + gh, stroke: CORES_ST.tinta3, 'stroke-width': 1, 'stroke-dasharray': '3 3' }));
+  const traco = (ys, cor, tracejada) => {
+    const pts = [];
+    ys.forEach((v, i) => { if (v != null) pts.push(X(i).toFixed(1) + ',' + Y(v).toFixed(1)); });
+    if (pts.length < 2) return;
+    const e = sv('polyline', { points: pts.join(' '), fill: 'none', stroke: cor, 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' });
+    if (tracejada) e.setAttribute('stroke-dasharray', '5 4');
+    cx.pg.appendChild(e);
   };
-  const alturaUtilBloco = h => h - 10 - 7 - 6;
-  /** A maior fonte em que a lista inteira cabe na caixa. */
-  const fonteQueCabe = (itens, w, h) => {
-    const disp = alturaUtilBloco(h);
-    for (const f of ESCALAS_BL) {
-      if (linhasDoBloco(itens, w, f).length * (f * 1.5) <= disp) return f;
-    }
-    return ESCALAS_BL[ESCALAS_BL.length - 1];
-  };
-  const bloco = (x, y, w, h, titulo, itens, vazio, fonte) => {
-    T(x, y, titulo.toUpperCase(), 9.5, 700, CORES_ST.planejado);
-    L(x, y + 5, x + w, y + 5, CORES_ST.linha, 1);
-    R(x, y + 10, w, h - 10, CORES_ST.caixa, 3);
-    const f = fonte || fonteQueCabe(itens, w, h);
-    const passo = f * 1.5;
-    let yy = y + 17 + f;
-    const limite = y + h - 6;
-    const linhas = linhasDoBloco(itens, w, f);
-    if (!linhas.length) { T(x + 12, yy, vazio || 'Nada registrado.', f, 400, CORES_ST.tinta3); return; }
-    const lado = Math.max(3, f * 0.4);
-    for (const ln of linhas) {
-      if (yy > limite) { T(x + 12, yy, '…', f, 400, CORES_ST.tinta3); break; }
-      if (ln.primeira && ln.txt) { R(x + 12, yy - f * 0.55, lado, lado, CORES_ST.realizado, 1); T(x + 22, yy, ln.txt, f, 400, CORES_ST.tinta); }
-      else T(x + 22, yy, ln.txt, f, 400, CORES_ST.tinta);
-      yy += passo;
-    }
-  };
-  const listar = t => String(t || '').split(/\n/).map(x => x.trim()).filter(Boolean);
+  if (d.hasBL) traco(d.pvB, CORES_ST.planejado, true);
+  traco(d.pvC, CORES_ST.planejado, false);
+  traco(d.ev, CORES_ST.realizado, false);
+  // ponto do realizado na data de status, que é o número do KPI
+  const iUlt = d.ev.reduce((a, v, i) => v == null ? a : i, -1);
+  if (iUlt >= 0) cx.pg.appendChild(sv('circle', { cx: X(iUlt), cy: Y(d.ev[iUlt]), r: 3, fill: CORES_ST.realizado }));
+  // a data de status tem prioridade: as datas das pontas só entram se não colidirem
+  const xSd = iSd >= 0 ? X(iSd) : null;
+  const cabe = x2 => xSd == null || Math.abs(x2 - xSd) > 40;
+  if (cabe(gx)) cx.T(gx, gy + gh + 14, fmtBR(d.xs[0]), 8, 400, CORES_ST.tinta3);
+  if (xSd != null) cx.T(xSd, gy + gh + 14, fmtBR(d.sd), 8, 600, CORES_ST.tinta2, 'middle');
+  if (cabe(gx + gw)) cx.T(gx + gw, gy + gh + 14, fmtBR(d.xs[n - 1]), 8, 400, CORES_ST.tinta3, 'end');
+}
 
-  // ---- curva S dentro da folha
-  const curvaNaFolha = (x, y, w, h) => {
-    T(x, y, 'CURVA S — AVANÇO FÍSICO', 9.5, 700, CORES_ST.planejado);
-    const d = progData();
-    const leg = [];
-    if (d && d.hasBL) leg.push(['Base', CORES_ST.planejado, true]);
-    if (d) { leg.push(['Previsto', CORES_ST.planejado, false]); leg.push(['Realizado', CORES_ST.realizado, false]); }
-    let lx = x + w;
-    for (let i = leg.length - 1; i >= 0; i--) {
-      const rot = leg[i][0], larg = rot.length * 4.6;
-      T(lx, y, rot, 8.5, 600, CORES_ST.tinta2, 'end');
-      const ls = sv('line', { x1: lx - larg - 15, y1: y - 3, x2: lx - larg - 3, y2: y - 3, stroke: leg[i][1], 'stroke-width': 2 });
-      if (leg[i][2]) ls.setAttribute('stroke-dasharray', '4 3');
-      pg.appendChild(ls);
-      lx -= larg + 24;
-    }
-    L(x, y + 5, x + w, y + 5, CORES_ST.linha, 1);
-    R(x, y + 10, w, h - 10, CORES_ST.caixa, 3);
-    if (!d || !d.xs.length) { T(x + 12, y + 32, 'Cadastre atividades para gerar a curva.', 10, 400, CORES_ST.tinta3); return; }
-    const gx = x + 36, gy = y + 10 + 16, gw = w - 36 - 14, gh = h - 10 - 16 - 22;
-    if (gw < 40 || gh < 30) return;
-    const n = d.xs.length;
-    const X = i => gx + (n <= 1 ? gw / 2 : gw * i / (n - 1));
-    const Y = v => gy + gh - gh * clamp(v, 0, 100) / 100;
-    for (const v of [0, 50, 100]) {
-      L(gx, Y(v), gx + gw, Y(v), CORES_ST.linha, 1);
-      T(gx - 5, Y(v) + 3, v + '%', 8, 400, CORES_ST.tinta3, 'end');
-    }
-    const iSd = d.xs.indexOf(d.sd);
-    if (iSd >= 0) pg.appendChild(sv('line', { x1: X(iSd), y1: gy, x2: X(iSd), y2: gy + gh, stroke: CORES_ST.tinta3, 'stroke-width': 1, 'stroke-dasharray': '3 3' }));
-    const traco = (ys, cor, tracejada) => {
-      const pts = [];
-      ys.forEach((v, i) => { if (v != null) pts.push(X(i).toFixed(1) + ',' + Y(v).toFixed(1)); });
-      if (pts.length < 2) return;
-      const e = sv('polyline', { points: pts.join(' '), fill: 'none', stroke: cor, 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' });
-      if (tracejada) e.setAttribute('stroke-dasharray', '5 4');
-      pg.appendChild(e);
-    };
-    if (d.hasBL) traco(d.pvB, CORES_ST.planejado, true);
-    traco(d.pvC, CORES_ST.planejado, false);
-    traco(d.ev, CORES_ST.realizado, false);
-    // ponto do realizado na data de status, que é o número do KPI
-    const iUlt = d.ev.reduce((a, v, i) => v == null ? a : i, -1);
-    if (iUlt >= 0) pg.appendChild(sv('circle', { cx: X(iUlt), cy: Y(d.ev[iUlt]), r: 3, fill: CORES_ST.realizado }));
-    // a data de status tem prioridade: as datas das pontas só entram se não colidirem
-    const xSd = iSd >= 0 ? X(iSd) : null;
-    const cabe = x => xSd == null || Math.abs(x - xSd) > 40;
-    if (cabe(gx)) T(gx, gy + gh + 14, fmtBR(d.xs[0]), 8, 400, CORES_ST.tinta3);
-    if (xSd != null) T(xSd, gy + gh + 14, fmtBR(d.sd), 8, 600, CORES_ST.tinta2, 'middle');
-    if (cabe(gx + gw)) T(gx + gw, gy + gh + 14, fmtBR(d.xs[n - 1]), 8, 400, CORES_ST.tinta3, 'end');
-  };
-
-  // a curva vem logo abaixo dos indicadores; os textos ficam no rodapé da coluna
-  const yBlocos = yk + hk + 20;
-  const altCurva = 150;
-  const yTextos = yBlocos + altCurva + 18;
-  const altTexto = H - 34 - yTextos;
-  const meia = (colE - M - 14) / 2;
-  curvaNaFolha(M, yBlocos, colE - M, altCurva);
-  const rpl = ultimoReplano();
-  const itensRisco = (rpl ? [fraseReplano(rpl)] : []).concat(listar(meta.riscos));
-  const itensFeito = listar(meta.conquistas).length ? listar(meta.conquistas) : sugestaoConquistas();
-  /* Os dois quadros ficam lado a lado: se cada um escolhesse a própria fonte,
-     um sairia visivelmente menor que o vizinho. Ganha a menor das duas. */
-  const fBlocos = Math.min(fonteQueCabe(itensRisco, meia, altTexto), fonteQueCabe(itensFeito, meia, altTexto));
-  bloco(M, yTextos, meia, altTexto, 'Riscos / Pontos de Atenção', itensRisco, 'Nenhum risco registrado.', fBlocos);
-  bloco(M + meia + 14, yTextos, meia, altTexto, 'Atividades Realizadas', itensFeito,
-    'Nenhuma entrega concluída na última semana.', fBlocos);
-
-  // ---- direita: entregas (fases) e atividades em andamento
-  const xd = colE + 20, wd = W - M - xd;
-  const fases = fasesDoProjeto();
-  const yFases = yLinha + 14;
-  const fimDir = H - 34;                       // onde a coluna da direita termina
-
-  /* As entregas ficam com o espaço que precisarem, contanto que sobre o
-     suficiente para o bloco de baixo. Apertando a altura da linha (e a fonte
-     junto), o quadro cabe inteiro na folha em vez de virar "e mais N fases". */
-  const itensAnd = listar(meta.andamento).length ? listar(meta.andamento) : sugestaoAndamento();
+/* ---- quanto espaço as entregas pedem ----
+   Fica separado do desenho porque a conta é uma NEGOCIAÇÃO entre dois blocos:
+   as entregas têm prioridade até o quadro de baixo chegar no mínimo dele. É
+   esta função que a grade, mais adiante, vai substituir. */
+function flEntregasMedida(fases, itensAnd, wd, espacoDir) {
   const linhasAnd = (itensAnd || []).reduce((n, it) => n + envolver(it, wd - 30, 10).length, 0) || 1;
   const CAB = 41, PASSO_MAX = 22, PASSO_MIN = 13;
   const nF = fases.length;
-  const espacoDir = fimDir - yFases - 20;
   const querAnd = clamp(27 + Math.min(linhasAnd, 7) * 15 + 10, 76, 145);   // o que o bloco de baixo pede
   const precisaF = CAB + nF * PASSO_MAX;                                   // o que as entregas pediriam sem apertar
-  // as entregas têm prioridade até o bloco de baixo chegar no seu mínimo
   const reservaAnd = Math.max(90, Math.min(querAnd, espacoDir - precisaF));
   const tetoF = Math.max(110, Math.min(320, espacoDir - reservaAnd));
   let passo = PASSO_MAX;
@@ -5640,11 +5645,16 @@ function desenharStatusReport() {
   const sobramF = nF - cabem;
   const hFases = CAB + cabem * passo + (sobramF > 0 ? 14 : 0);
   const fsNome = clamp(7.8 + (passo - PASSO_MIN) * 2.2 / (PASSO_MAX - PASSO_MIN), 7.8, 10);
-  const fsSit = fsNome - 0.8, fsPeso = fsNome - 0.3;
+  return { passo: passo, cabem: cabem, sobramF: sobramF, h: hFases, fsNome: fsNome };
+}
 
-  T(xd, yFases, 'ENTREGAS', 9.5, 700, CORES_ST.planejado);
-  L(xd, yFases + 5, xd + wd, yFases + 5, CORES_ST.linha, 1);
-  R(xd, yFases + 10, wd, hFases - 10, CORES_ST.caixa, 3);
+/* ---- as entregas (fases) ---- */
+function flEntregas(cx, r, fases, md) {
+  const xd = r.x, wd = r.w, yFases = r.y;
+  const fsNome = md.fsNome, fsSit = fsNome - 0.8, fsPeso = fsNome - 0.3;
+  cx.T(xd, yFases, 'ENTREGAS', 9.5, 700, CORES_ST.planejado);
+  cx.L(xd, yFases + 5, xd + wd, yFases + 5, CORES_ST.linha, 1);
+  cx.R(xd, yFases + 10, wd, r.h - 10, CORES_ST.caixa, 3);
   let yf = yFases + 26;
   // a coluna de situação ocupa só o que o rótulo mais largo precisa; o que
   // sobra é do nome da fase, que é o que interessa ler
@@ -5652,29 +5662,83 @@ function desenharStatusReport() {
     (m, f) => Math.max(m, medirTexto(f.st.ic + ' ' + f.st.rot, fsSit, 600, FONTE_ST)), 0)) + 10));
   const xPeso = xd + wd - 12, xStatus = xPeso - 34 - largSit;
   const largNome = xStatus - (xd + 12) - 10;
-  T(xd + 12, yf, 'Fase', 8.5, 700, CORES_ST.tinta3);
-  T(xStatus, yf, 'Situação', 8.5, 700, CORES_ST.tinta3);
-  T(xPeso, yf, 'Peso', 8.5, 700, CORES_ST.tinta3, 'end');
-  yf += 6; L(xd + 12, yf, xd + wd - 12, yf, CORES_ST.linha, 1); yf += 15;
-  for (const f of fases.slice(0, cabem)) {
-    TFit(xd + 12, yf, f.nome, largNome, fsNome, 400, CORES_ST.tinta);
-    T(xStatus, yf, f.st.ic + ' ' + f.st.rot, fsSit, 600, f.st.cor);
-    T(xPeso, yf, f.peso + '%', fsPeso, 600, CORES_ST.tinta2, 'end');
-    yf += passo;
+  cx.T(xd + 12, yf, 'Fase', 8.5, 700, CORES_ST.tinta3);
+  cx.T(xStatus, yf, 'Situação', 8.5, 700, CORES_ST.tinta3);
+  cx.T(xPeso, yf, 'Peso', 8.5, 700, CORES_ST.tinta3, 'end');
+  yf += 6; cx.L(xd + 12, yf, xd + wd - 12, yf, CORES_ST.linha, 1); yf += 15;
+  for (const f of fases.slice(0, md.cabem)) {
+    cx.TFit(xd + 12, yf, f.nome, largNome, fsNome, 400, CORES_ST.tinta);
+    cx.T(xStatus, yf, f.st.ic + ' ' + f.st.rot, fsSit, 600, f.st.cor);
+    cx.T(xPeso, yf, f.peso + '%', fsPeso, 600, CORES_ST.tinta2, 'end');
+    yf += md.passo;
   }
-  if (sobramF > 0) T(xd + 12, yf, 'e mais ' + sobramF + ' fase(s)…', fsNome - 0.5, 400, CORES_ST.tinta3);
+  if (md.sobramF > 0) cx.T(xd + 12, yf, 'e mais ' + md.sobramF + ' fase(s)…', fsNome - 0.5, 400, CORES_ST.tinta3);
+}
 
-  const yAnd = yFases + hFases + 20;
-  bloco(xd, yAnd, wd, H - 34 - yAnd, 'Em Andamento e a Iniciar', itensAnd,
-    'Nenhuma atividade em andamento ou prevista para a próxima semana.');
-
-  // ---- rodapé
-  L(M, H - 26, W - M, H - 26, CORES_ST.linha, 1);
-  T(M, H - 12, fmtBR(sch.startISO) + ' a ' + fmtBR(sch.finishISO) + '  ·  ' + fmtNum(sch.durDays) + ' dias úteis  ·  ' +
+/* ---- rodapé: o período, a medida e as marcas ---- */
+function flRodape(cx) {
+  const M = cx.M, W = cx.W, H = cx.H, sch = cx.sch, ind = cx.ind;
+  cx.L(M, H - 26, W - M, H - 26, CORES_ST.linha, 1);
+  cx.T(M, H - 12, fmtBR(sch.startISO) + ' a ' + fmtBR(sch.finishISO) + '  ·  ' + fmtNum(sch.durDays) + ' dias úteis  ·  ' +
     fmtNum(ind.feitas) + '/' + fmtNum(ind.folhas) + ' atividades concluídas  ·  Data de status: ' + fmtBR(dataStatus()) +
     '  ·  Gerado em ' + fmtBR(todayISO()),
     9, 400, CORES_ST.tinta3);
-  marcasNoSVG(pg, W - M, H - 25, 20, CORES_ST.linha);
+  marcasNoSVG(cx.pg, W - M, H - 25, 20, CORES_ST.linha);
+}
+
+/** Monta a folha: decide os retângulos e manda cada bloco desenhar no seu. */
+function desenharStatusReport() {
+  const W = 960, H = 540, M = 26;
+  const meta = ST.P.meta, sch = ST.sch;
+  const est = statusDoProjeto(), ind = est.ind;
+  const pg = sv('svg', { xmlns: SVGNS, viewBox: '0 0 ' + W + ' ' + H, width: W, height: H });
+  const cx = contextoFolha(pg, W, H, M, meta, sch, est, ind);
+
+  flFundo(cx);
+  const yLinha = flCabecalho(cx);
+
+  // ---- coluna da esquerda
+  const yk = yLinha + 14, hk = 60, colE = 470;
+  flKpis(cx, { x: M, y: yk, w: colE - M, h: hk });
+
+  // a curva vem logo abaixo dos indicadores; os textos ficam no rodapé da coluna
+  const yBlocos = yk + hk + 20;
+  const altCurva = 150;
+  const yTextos = yBlocos + altCurva + 18;
+  const altTexto = H - 34 - yTextos;
+  const meia = (colE - M - 14) / 2;
+  flCurva(cx, { x: M, y: yBlocos, w: colE - M, h: altCurva });
+
+  const rpl = ultimoReplano();
+  const itensRisco = (rpl ? [fraseReplano(rpl)] : []).concat(listarLinhas(meta.riscos));
+  const itensFeito = listarLinhas(meta.conquistas).length ? listarLinhas(meta.conquistas) : sugestaoConquistas();
+  /* Os dois quadros ficam lado a lado: se cada um escolhesse a própria fonte,
+     um sairia visivelmente menor que o vizinho. Ganha a menor das duas. */
+  const fBlocos = Math.min(fonteQueCabe(itensRisco, meia, altTexto), fonteQueCabe(itensFeito, meia, altTexto));
+  flLista(cx, { x: M, y: yTextos, w: meia, h: altTexto },
+    'Riscos / Pontos de Atenção', itensRisco, 'Nenhum risco registrado.', fBlocos);
+  flLista(cx, { x: M + meia + 14, y: yTextos, w: meia, h: altTexto },
+    'Atividades Realizadas', itensFeito, 'Nenhuma entrega concluída na última semana.', fBlocos);
+
+  // ---- coluna da direita: entregas (fases) e atividades em andamento
+  const xd = colE + 20, wd = W - M - xd;
+  const fases = fasesDoProjeto();
+  const yFases = yLinha + 14;
+  const fimDir = H - 34;                       // onde a coluna da direita termina
+  const itensAnd = listarLinhas(meta.andamento).length ? listarLinhas(meta.andamento) : sugestaoAndamento();
+
+  /* As entregas ficam com o espaço que precisarem, contanto que sobre o
+     suficiente para o bloco de baixo. Apertando a altura da linha (e a fonte
+     junto), o quadro cabe inteiro na folha em vez de virar "e mais N fases". */
+  const md = flEntregasMedida(fases, itensAnd, wd, fimDir - yFases - 20);
+  flEntregas(cx, { x: xd, y: yFases, w: wd, h: md.h }, fases, md);
+
+  const yAnd = yFases + md.h + 20;
+  flLista(cx, { x: xd, y: yAnd, w: wd, h: H - 34 - yAnd },
+    'Em Andamento e a Iniciar', itensAnd,
+    'Nenhuma atividade em andamento ou prevista para a próxima semana.');
+
+  flRodape(cx);
   return pg;
 }
 
