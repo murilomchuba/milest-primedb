@@ -5537,11 +5537,18 @@ function flKpis(cx, r) {
     ['Realizado', fmtNum(ind.real, 0) + '%', CORES_ST.realizado],
     ['Aderência', est.ader == null ? '—' : fmtNum(est.ader, 0) + '%', est.cor]
   ];
+  /* Tudo escala com a altura recebida. Antes os dois textos estavam cravados
+     em 22 e 47, que são os números certos para a faixa de 60 px da cascata —
+     num quadro mais baixo o valor vazava por cima do bloco de baixo. Com
+     `esc = r.h / 60` a faixa de 60 continua idêntica ao que sempre foi, e
+     qualquer outra altura passa a funcionar. */
+  const esc = r.h / 60;
+  const fsRot = Math.min(16, 12.5 * esc), fsVal = Math.min(30, 20 * esc);
   kpis.forEach((k, i) => {
     const x = r.x + i * (larg3 + 8);
     cx.R(x, r.y, larg3, r.h, k[2], 3);
-    cx.T(x + larg3 / 2, r.y + 22, k[0], 12.5, 600, '#FFFFFF', 'middle');
-    cx.T(x + larg3 / 2, r.y + 47, k[1], 20, 700, '#FFFFFF', 'middle');
+    cx.T(x + larg3 / 2, r.y + 22 * esc, k[0], fsRot, 600, '#FFFFFF', 'middle');
+    cx.T(x + larg3 / 2, r.y + 47 * esc, k[1], fsVal, 700, '#FFFFFF', 'middle');
   });
 }
 
@@ -5630,22 +5637,26 @@ function flCurva(cx, r) {
    Fica separado do desenho porque a conta é uma NEGOCIAÇÃO entre dois blocos:
    as entregas têm prioridade até o quadro de baixo chegar no mínimo dele. É
    esta função que a grade, mais adiante, vai substituir. */
-function flEntregasMedida(fases, itensAnd, wd, espacoDir) {
-  const linhasAnd = (itensAnd || []).reduce((n, it) => n + envolver(it, wd - 30, 10).length, 0) || 1;
+function medidaEntregasEm(fases, teto) {
   const CAB = 41, PASSO_MAX = 22, PASSO_MIN = 13;
   const nF = fases.length;
+  let passo = PASSO_MAX;
+  if (CAB + nF * passo > teto) passo = Math.max(PASSO_MIN, (teto - CAB) / Math.max(1, nF));
+  let cabem = Math.min(nF, Math.max(1, Math.floor((teto - CAB) / passo)));
+  if (cabem < nF) cabem = Math.max(1, Math.min(nF, Math.floor((teto - CAB - 14) / passo)));
+  const sobramF = nF - cabem;
+  const fsNome = clamp(7.8 + (passo - PASSO_MIN) * 2.2 / (PASSO_MAX - PASSO_MIN), 7.8, 10);
+  return { passo: passo, cabem: cabem, sobramF: sobramF,
+           h: CAB + cabem * passo + (sobramF > 0 ? 14 : 0), fsNome: fsNome };
+}
+function flEntregasMedida(fases, itensAnd, wd, espacoDir) {
+  const linhasAnd = (itensAnd || []).reduce((n, it) => n + envolver(it, wd - 30, 10).length, 0) || 1;
+  const nF = fases.length;
   const querAnd = clamp(27 + Math.min(linhasAnd, 7) * 15 + 10, 76, 145);   // o que o bloco de baixo pede
-  const precisaF = CAB + nF * PASSO_MAX;                                   // o que as entregas pediriam sem apertar
+  const precisaF = 41 + nF * 22;                                           // o que as entregas pediriam sem apertar
   const reservaAnd = Math.max(90, Math.min(querAnd, espacoDir - precisaF));
   const tetoF = Math.max(110, Math.min(320, espacoDir - reservaAnd));
-  let passo = PASSO_MAX;
-  if (CAB + nF * passo > tetoF) passo = Math.max(PASSO_MIN, (tetoF - CAB) / Math.max(1, nF));
-  let cabem = Math.min(nF, Math.max(1, Math.floor((tetoF - CAB) / passo)));
-  if (cabem < nF) cabem = Math.max(1, Math.min(nF, Math.floor((tetoF - CAB - 14) / passo)));
-  const sobramF = nF - cabem;
-  const hFases = CAB + cabem * passo + (sobramF > 0 ? 14 : 0);
-  const fsNome = clamp(7.8 + (passo - PASSO_MIN) * 2.2 / (PASSO_MAX - PASSO_MIN), 7.8, 10);
-  return { passo: passo, cabem: cabem, sobramF: sobramF, h: hFases, fsNome: fsNome };
+  return medidaEntregasEm(fases, tetoF);
 }
 
 /* ---- as entregas (fases) ---- */
@@ -5686,6 +5697,83 @@ function flRodape(cx) {
   marcasNoSVG(cx.pg, W - M, H - 25, 20, CORES_ST.linha);
 }
 
+/* ---------- a grade ----------
+   Doze colunas por oito linhas sobre o CORPO da folha — o que sobra entre o
+   cabeçalho e o rodapé. As linhas são proporcionais, não em pixels, e é esta
+   a decisão que faz um arranjo montado num projeto normal continuar inteiro
+   num projeto pausado: o cabeçalho cresce com a faixa de pausa e com o motivo
+   do selo, e o corpo encolhe uns 40 px entre um caso e outro. */
+const GRADE = { cols: 12, lins: 8, vao: 8 };
+
+function retanguloDaGrade(area, b) {
+  const g = GRADE.vao;
+  const lc = (area.w - (GRADE.cols - 1) * g) / GRADE.cols;
+  const ll = (area.h - (GRADE.lins - 1) * g) / GRADE.lins;
+  return {
+    x: area.x + b.c * (lc + g),
+    y: area.y + b.r * (ll + g),
+    w: b.w * lc + (b.w - 1) * g,
+    h: b.h * ll + (b.h - 1) * g
+  };
+}
+
+/* O catálogo: cada bloco sabe o próprio nome, o tamanho mínimo em células
+   abaixo do qual deixa de ser legível, e como se desenhar num retângulo. */
+const BLOCOS_FOLHA = {
+  indicadores: { rot: 'Indicadores', min: [3, 1], desenha: (cx, r) => flKpis(cx, r) },
+  curva:       { rot: 'Curva S', min: [4, 2], desenha: (cx, r) => flCurva(cx, r) },
+  entregas:    { rot: 'Entregas', min: [4, 2], desenha: (cx, r) => {
+                   const fases = fasesDoProjeto();
+                   flEntregas(cx, r, fases, medidaEntregasEm(fases, r.h));
+                 } },
+  riscos:      { rot: 'Riscos / Pontos de Atenção', min: [3, 2], desenha: (cx, r) => {
+                   const rpl = ultimoReplano();
+                   flLista(cx, r, 'Riscos / Pontos de Atenção',
+                     (rpl ? [fraseReplano(rpl)] : []).concat(listarLinhas(cx.meta.riscos)),
+                     'Nenhum risco registrado.');
+                 } },
+  feitas:      { rot: 'Atividades Realizadas', min: [3, 2], desenha: (cx, r) => {
+                   const it = listarLinhas(cx.meta.conquistas);
+                   flLista(cx, r, 'Atividades Realizadas', it.length ? it : sugestaoConquistas(),
+                     'Nenhuma entrega concluída na última semana.');
+                 } },
+  andamento:   { rot: 'Em Andamento e a Iniciar', min: [3, 2], desenha: (cx, r) => {
+                   const it = listarLinhas(cx.meta.andamento);
+                   flLista(cx, r, 'Em Andamento e a Iniciar', it.length ? it : sugestaoAndamento(),
+                     'Nenhuma atividade em andamento ou prevista para a próxima semana.');
+                 } }
+};
+
+/* O clássico escrito como grade. NÃO é o padrão: o padrão continua sendo a
+   cascata de sempre, pixel por pixel, porque trocá-la mudaria a aparência da
+   folha de quem nunca pediu nada. Este arranjo é o ponto de partida de quem
+   abre o editor. */
+const LAYOUT_CLASSICO = { v: 1, blocos: [
+  { tipo: 'indicadores', c: 0, r: 0, w: 6, h: 1 },
+  { tipo: 'curva',       c: 0, r: 1, w: 6, h: 3 },
+  { tipo: 'riscos',      c: 0, r: 4, w: 3, h: 4 },
+  { tipo: 'feitas',      c: 3, r: 4, w: 3, h: 4 },
+  { tipo: 'entregas',    c: 6, r: 0, w: 6, h: 5 },
+  { tipo: 'andamento',   c: 6, r: 5, w: 6, h: 3 }
+] };
+
+/** O layout configurado para esta folha, ou null quando ninguém configurou —
+    e aí vale a cascata clássica. */
+function layoutDaFolha() {
+  if (typeof FOLHA_FORCADA !== 'undefined' && FOLHA_FORCADA) return FOLHA_FORCADA;
+  const o = ST.org && ST.org.folhaLayout;
+  return (o && Array.isArray(o.blocos) && o.blocos.length) ? o : null;
+}
+
+/** Desenha os blocos de um layout dentro do corpo da folha. */
+function flPelaGrade(cx, area, layout) {
+  for (const b of layout.blocos) {
+    const def = BLOCOS_FOLHA[b.tipo];
+    if (!def) continue;
+    def.desenha(cx, retanguloDaGrade(area, b));
+  }
+}
+
 /** Monta a folha: decide os retângulos e manda cada bloco desenhar no seu. */
 function desenharStatusReport() {
   const W = 960, H = 540, M = 26;
@@ -5696,6 +5784,16 @@ function desenharStatusReport() {
 
   flFundo(cx);
   const yLinha = flCabecalho(cx);
+
+  /* Com layout configurado, o corpo inteiro vira grade. Sem configuração, vale
+     a cascata abaixo — é o que garante que a folha de quem nunca mexeu em nada
+     continue exatamente a mesma. */
+  const cfg = layoutDaFolha();
+  if (cfg) {
+    flPelaGrade(cx, { x: M, y: yLinha + 14, w: W - 2 * M, h: (H - 34) - (yLinha + 14) }, cfg);
+    flRodape(cx);
+    return pg;
+  }
 
   // ---- coluna da esquerda
   const yk = yLinha + 14, hk = 60, colE = 470;
