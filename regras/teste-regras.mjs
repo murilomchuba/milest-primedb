@@ -370,8 +370,14 @@ await caso('prazo vencido: a empresa NÃO estica o próprio prazo', () =>
   assertFails(updateDoc(doc(conta(DORA), 'orgs', 'vencida'), { expiraEm: Date.now() + 30 * DIA })));
 await caso('dentro do prazo: grava normalmente', () =>
   assertSucceeds(setDoc(doc(conta(DORA), 'orgs/noprazo/projects', 'n2'), { name: 'dentro do prazo' })));
+/* Grava num projeto NOVO, nao no p3. `setDoc` sem merge troca o documento
+   inteiro: escrevendo aqui no p3 ele perdia `gp` e `gpExtra`, e os casos do
+   gerente de projetos, 200 linhas abaixo, liam um projeto sem dono e eram
+   recusados. A regra estava certa o tempo todo — quem apagava o cenario era
+   este caso. E a mesma armadilha que o comentario logo abaixo descreve para
+   o prazo da empresa 'vencida'. */
 await caso('sem campo de prazo: grava normalmente', () =>
-  assertSucceeds(setDoc(doc(conta(ANA), 'orgs/unimed/projects', 'p3'), { name: 'sem prazo' })));
+  assertSucceeds(setDoc(doc(conta(ANA), 'orgs/unimed/projects', 'pPrazo'), { name: 'sem prazo' })));
 // Mexe no prazo da 'noprazo', não da 'vencida': a 'vencida' é o único cenário
 // de prazo estourado da suíte, e prorrogá-la aqui apaga o cenário de todos os
 // casos seguintes que dependem dele.
@@ -576,6 +582,12 @@ await caso('Gi lê as atividades do projeto dela', () =>
   assertSucceeds(getDoc(doc(conta(GI), 'orgs/unimed/projects/p1/tasks', 't1'))));
 await caso('Gi NÃO lê as atividades do projeto do outro', () =>
   assertFails(getDoc(doc(conta(GI), 'orgs/unimed/projects/p2/tasks', 't2'))));
+/* O p3 tinha cronograma no fixture e nenhum caso o lia. A férias de verdade
+   não é abrir a capa do projeto: é mexer no cronograma dele. E era justamente
+   este caminho o mais caro de todos — subcoleção de projeto em que o gerente
+   é substituto lê o documento do projeto ANTES de decidir. */
+await caso('Gi lê as atividades do projeto em que é substituta', () =>
+  assertSucceeds(getDoc(doc(conta(GI), 'orgs/unimed/projects/p3/tasks', 't3'))));
 await caso('Gi NÃO lê as horas do projeto do outro', () =>
   assertFails(getDoc(doc(conta(GI), 'orgs/unimed/projects/p2/horas', 'hH'))));
 await caso('Gi lê as horas do projeto dela', () =>
