@@ -163,7 +163,7 @@ service cloud.firestore {
                     // `abasOcultas` é preferência de tela, não permissão: esconder uma aba
                     // não tira o acesso a nada, e as regras de leitura e escrita dos dados
                     // dela continuam exatamente as mesmas.
-                    || (mandaNaOrg(org) && mexeuSomenteEm(['nome', 'cnpj', 'atualizadoEm', 'projetos', 'usuarios', 'abasOcultas', 'avisoHoras', 'avisoAvanco', 'avisoPrazo']))
+                    || (mandaNaOrg(org) && mexeuSomenteEm(['nome', 'cnpj', 'atualizadoEm', 'projetos', 'usuarios', 'abasOcultas', 'avisoHoras', 'avisoAvanco', 'avisoPrazo', 'folhaLayout', 'resumoSemanal']))
                     || (editaOrg(org)   && mexeuSomenteEm(['projetos', 'usuarios', 'atualizadoEm']));
 
       // ---- quem pertence à empresa ---------------------------------------

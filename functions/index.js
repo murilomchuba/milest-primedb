@@ -474,3 +474,61 @@ exports.vigiaAgora = onCall({ cors: ORIGENS, secrets: [RESEND_API_KEY], timeoutS
   console.log('vigiaAgora', quem, JSON.stringify(r));
   return r;
 });
+
+/* ============ o resumo semanal da carteira ============
+   Segunda e sexta de manhã, uma tabela por empresa para quem não abre o
+   sistema. A decisão está em `resumo.js` e a volta pelo banco em
+   `resumo-runner.js`; aqui só o relógio e as peças do mundo.
+
+   Publicar: firebase deploy --only functions:resumoSemanal
+   Rodar na mão:  resumoAgora({})                                            */
+const { rodarResumo } = require('./resumo-runner');
+
+function pecasDoResumo(o) {
+  return {
+    db: o.db, hoje: hojeSP(),
+    ler: ref => ler(ref),
+    mandar: (msg) => mandarStatus(String(o.chaveApi || '').trim(), Object.assign({
+      nomeArquivo: '', pdf: ''
+    }, msg)),
+    erro: (...a) => console.error(...a)
+  };
+}
+
+exports.resumoSemanal = onSchedule({
+  schedule: '0 7 * * 1,5',
+  timeZone: 'America/Sao_Paulo',
+  secrets: [RESEND_API_KEY],
+  memory: '512MiB',
+  timeoutSeconds: 540,
+  retryCount: 1
+}, async () => {
+  let r;
+  try {
+    r = await rodarResumo(pecasDoResumo({ db: admin.firestore(), chaveApi: RESEND_API_KEY.value() }));
+  } catch (e) {
+    console.error('resumoSemanal NÃO rodou:', comoTexto(e));
+    throw e;
+  }
+  console.log('resumoSemanal', JSON.stringify(r));
+});
+
+/* O mesmo resumo, pedido na hora — para conferir o e-mail sem esperar segunda.
+   Mesma porta do `vigiaAgora`: quem opera a plataforma. */
+exports.resumoAgora = onCall({ cors: ORIGENS, secrets: [RESEND_API_KEY], timeoutSeconds: 540, memory: '512MiB' }, async (req) => {
+  const tok = req.auth && req.auth.token;
+  if (!tok || !tok.email || tok.email_verified !== true)
+    throw new HttpsError('unauthenticated', 'entre com uma conta confirmada.');
+  const db = admin.firestore();
+  const quem = chave(tok.email);
+  const idxQuem = await ler(db.doc('users/' + quem));
+  const v = decidirBackup({ quem, idxQuem });
+  if (!v.ok) throw new HttpsError('permission-denied', 'o resumo na mão é de quem opera a plataforma.');
+  /* `hoje` forçado: na mão quase sempre é um dia que não é segunda nem sexta,
+     e a graça de pedir na hora é justamente ver o e-mail sair. */
+  const pecas = pecasDoResumo({ db, chaveApi: RESEND_API_KEY.value() });
+  if (req.data && req.data.forcarDia) pecas.hoje = String(req.data.forcarDia).slice(0, 10);
+  const r = await rodarResumo(pecas);
+  console.log('resumoAgora', quem, JSON.stringify(r));
+  return r;
+});

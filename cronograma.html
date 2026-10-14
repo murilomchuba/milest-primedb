@@ -5720,23 +5720,23 @@ function retanguloDaGrade(area, b) {
    abaixo do qual deixa de ser legível, e como se desenhar num retângulo. */
 const BLOCOS_FOLHA = {
   indicadores: { rot: 'Indicadores', min: [3, 1], desenha: (cx, r) => flKpis(cx, r) },
-  curva:       { rot: 'Curva S', min: [4, 2], desenha: (cx, r) => flCurva(cx, r) },
-  entregas:    { rot: 'Entregas', min: [4, 2], desenha: (cx, r) => {
+  curva:       { titulo: true, rot: 'Curva S', min: [4, 2], desenha: (cx, r) => flCurva(cx, r) },
+  entregas:    { titulo: true, rot: 'Entregas', min: [4, 2], desenha: (cx, r) => {
                    const fases = fasesDoProjeto();
                    flEntregas(cx, r, fases, medidaEntregasEm(fases, r.h));
                  } },
-  riscos:      { rot: 'Riscos / Pontos de Atenção', min: [3, 2], desenha: (cx, r) => {
+  riscos:      { titulo: true, rot: 'Riscos / Pontos de Atenção', min: [3, 2], desenha: (cx, r) => {
                    const rpl = ultimoReplano();
                    flLista(cx, r, 'Riscos / Pontos de Atenção',
                      (rpl ? [fraseReplano(rpl)] : []).concat(listarLinhas(cx.meta.riscos)),
                      'Nenhum risco registrado.');
                  } },
-  feitas:      { rot: 'Atividades Realizadas', min: [3, 2], desenha: (cx, r) => {
+  feitas:      { titulo: true, rot: 'Atividades Realizadas', min: [3, 2], desenha: (cx, r) => {
                    const it = listarLinhas(cx.meta.conquistas);
                    flLista(cx, r, 'Atividades Realizadas', it.length ? it : sugestaoConquistas(),
                      'Nenhuma entrega concluída na última semana.');
                  } },
-  andamento:   { rot: 'Em Andamento e a Iniciar', min: [3, 2], desenha: (cx, r) => {
+  andamento:   { titulo: true, rot: 'Em Andamento e a Iniciar', min: [3, 2], desenha: (cx, r) => {
                    const it = listarLinhas(cx.meta.andamento);
                    flLista(cx, r, 'Em Andamento e a Iniciar', it.length ? it : sugestaoAndamento(),
                      'Nenhuma atividade em andamento ou prevista para a próxima semana.');
@@ -5758,10 +5758,88 @@ const LAYOUT_CLASSICO = { v: 1, blocos: [
 
 /** O layout configurado para esta folha, ou null quando ninguém configurou —
     e aí vale a cascata clássica. */
+let FOLHA_EDIT = null;              // o arranjo em edição, enquanto o painel está aberto
+let AREA_FOLHA = null;              // o corpo da última folha desenhada, para o editor saber onde ele é
+
 function layoutDaFolha() {
+  if (FOLHA_EDIT) return FOLHA_EDIT;
   if (typeof FOLHA_FORCADA !== 'undefined' && FOLHA_FORCADA) return FOLHA_FORCADA;
-  const o = ST.org && ST.org.folhaLayout;
+  const o = folhaLayoutSalvo();
   return (o && Array.isArray(o.blocos) && o.blocos.length) ? o : null;
+}
+
+/** Desenha uma folha com um arranjo específico, sem deixar rastro no estado. */
+function desenharComLayout(cfg) {
+  const antes = FOLHA_EDIT; FOLHA_EDIT = cfg;
+  try { return desenharStatusReport(); } finally { FOLHA_EDIT = antes; }
+}
+
+/** O arranjo gravado no cadastro da empresa, ou null. */
+function folhaLayoutSalvo() {
+  const o = ST.perfil && ST.perfil.folhaLayout;
+  return (o && Array.isArray(o.blocos) && o.blocos.length) ? o : null;
+}
+
+/* Esta escolha mora no cadastro da empresa, e o cadastro da empresa é o
+   documento mais protegido do sistema: a regra lista, campo a campo, o que o
+   administrador pode escrever. Enquanto `folhaLayout` não estiver na lista
+   publicada, o banco recusa — e a recusa tem de aparecer em palavras, como a
+   de `abasOcultas` aprendeu a aparecer. */
+async function gravarFolhaLayout(cfg) {
+  gravarFolhaLayout.erro = '';
+  if (!(ST.comLogin && ST.mode === 'db' && ST.orgId && !ST.suporte)) {
+    gravarFolhaLayout.erro = 'Sem empresa aberta: o arranjo da folha é da empresa, e não deste navegador.';
+    return false;
+  }
+  try {
+    await ST.db.doc(dOrg(ST.orgId)).set({ folhaLayout: cfg, atualizadoEm: Date.now() }, { merge: true });
+  } catch (e) {
+    const t = String((e && e.code) || '') + ' ' + String((e && e.message) || '');
+    gravarFolhaLayout.erro = /permission|insufficient/i.test(t)
+      ? 'O banco recusou a gravação. Este recurso é novo e depende de uma atualização das regras do Firestore que ainda não foi publicada — publique com "firebase deploy --only firestore:rules" e tente de novo.'
+      : 'Não consegui gravar: ' + ((e && e.message) || 'erro');
+    return false;
+  }
+  if (ST.perfil) ST.perfil.folhaLayout = cfg;
+  return true;
+}
+
+/* As três regras que fazem um arranjo ser válido. Sobreposição é DETECTADA,
+   não evitada: empurrar o vizinho desmancha o que a pessoa acabou de montar,
+   e num arranjo em que cada quadro foi posto de propósito isso é pior do que
+   ver um aviso. */
+function problemasDoLayout(blocos) {
+  const maus = {}, msgs = [];
+  const diz = m => { if (msgs.indexOf(m) < 0) msgs.push(m); };
+  blocos.forEach((a, i) => {
+    const def = BLOCOS_FOLHA[a.tipo]; if (!def) return;
+    if (a.c < 0 || a.r < 0 || a.c + a.w > GRADE.cols || a.r + a.h > GRADE.lins) {
+      maus[i] = true; diz('“' + def.rot + '” saiu da folha.');
+    }
+    if (a.w < def.min[0] || a.h < def.min[1]) {
+      maus[i] = true;
+      diz('“' + def.rot + '” está menor que o mínimo de ' + def.min[0] + '×' + def.min[1] + ' e deixa de ser legível.');
+    }
+    blocos.forEach((b, j) => {
+      if (j <= i) return;
+      const d2 = BLOCOS_FOLHA[b.tipo]; if (!d2) return;
+      if (a.c < b.c + b.w && b.c < a.c + a.w && a.r < b.r + b.h && b.r < a.r + a.h) {
+        maus[i] = true; maus[j] = true;
+        diz('“' + def.rot + '” e “' + d2.rot + '” estão sobrepostos.');
+      }
+    });
+  });
+  return { maus: maus, msgs: msgs };
+}
+
+/** A primeira vaga livre onde um bloco de w×h células cabe. */
+function vagaLivre(blocos, w, h) {
+  for (let r = 0; r <= GRADE.lins - h; r++) {
+    for (let c = 0; c <= GRADE.cols - w; c++) {
+      if (!blocos.some(b => c < b.c + b.w && b.c < c + w && r < b.r + b.h && b.r < r + h)) return { c: c, r: r };
+    }
+  }
+  return null;
 }
 
 /** Desenha os blocos de um layout dentro do corpo da folha. */
@@ -5769,7 +5847,14 @@ function flPelaGrade(cx, area, layout) {
   for (const b of layout.blocos) {
     const def = BLOCOS_FOLHA[b.tipo];
     if (!def) continue;
-    def.desenha(cx, retanguloDaGrade(area, b));
+    const r = retanguloDaGrade(area, b);
+    /* Os quadros com título escrevem ACIMA da caixa — é a convenção herdada
+       da cascata, onde os vãos eram de 18 a 20 px. Na grade o vão é 8, e o
+       título encostava no bloco de cima. A célula cede 12 px do próprio topo
+       para ele, em vez de alargar o vão: alargar roubaria altura de todos os
+       blocos, inclusive dos que não têm título. */
+    if (def.titulo) { r.y += 12; r.h -= 12; }
+    def.desenha(cx, r);
   }
 }
 
@@ -5789,7 +5874,8 @@ function desenharStatusReport() {
      continue exatamente a mesma. */
   const cfg = layoutDaFolha();
   if (cfg) {
-    flPelaGrade(cx, { x: M, y: yLinha + 14, w: W - 2 * M, h: (H - 34) - (yLinha + 14) }, cfg);
+    AREA_FOLHA = { x: M, y: yLinha + 14, w: W - 2 * M, h: (H - 34) - (yLinha + 14) };
+    flPelaGrade(cx, AREA_FOLHA, cfg);
     flRodape(cx);
     return pg;
   }
@@ -8272,6 +8358,273 @@ function painelAgendaStatus() {
   return p;
 }
 
+/* ---------- a tela de montar a folha ----------
+   Fica na aba Status, abaixo da folha, e só para o administrador: o arranjo é
+   da EMPRESA, não do projeto — senão o PDF da carteira, que põe uma folha por
+   projeto no mesmo documento, vira colcha de retalhos.
+
+   O editor é uma camada de divs transparentes sobre a prévia que já existia.
+   Não há tela de edição separada de propósito: assim a pessoa monta em cima do
+   resultado real, com os dados do projeto aberto, e o que ela vê é o que sai
+   no PDF, porque é o mesmo desenho. */
+/* A recusa do banco não pode sumir num balão de dois segundos: é uma frase
+   que o administrador precisa ler inteira e, muitas vezes, copiar. */
+function avisoDaFolha(texto) {
+  modal('Não consegui salvar', (body, close) => {
+    const d = el('div', '', texto);
+    d.style.cssText = 'font-size:13px;line-height:1.5;color:var(--ink-1)';
+    body.appendChild(d);
+    const fim = el('div'); fim.style.cssText = 'display:flex;justify-content:flex-end;margin-top:14px';
+    const b = el('button', 'btn primary', 'Entendi');
+    b.addEventListener('click', close); fim.appendChild(b); body.appendChild(fim);
+  }, []);
+}
+
+function painelMontarFolha() {
+  const p = el('div', 'panel');
+  const cab = el('h3', '', 'Montar a folha');
+  cab.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap';
+  const acoes = el('div'); acoes.style.cssText = 'display:flex;gap:7px;align-items:center;flex-wrap:wrap';
+  cab.appendChild(acoes); p.appendChild(cab);
+
+  const corpo = el('div');
+  corpo.style.cssText = 'padding:0 16px 14px;display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap';
+  p.appendChild(corpo);
+
+  const salvo = folhaLayoutSalvo();
+  let edit = salvo ? JSON.parse(JSON.stringify(salvo))
+                   : JSON.parse(JSON.stringify(LAYOUT_CLASSICO));
+  let sel = -1;
+
+  /* ---- coluna da esquerda: paleta e modelos ---- */
+  const lado = el('div');
+  lado.style.cssText = 'flex:0 0 206px;display:flex;flex-direction:column;gap:12px;min-width:0';
+  corpo.appendChild(lado);
+
+  const caixa = (titulo) => {
+    const d = el('div');
+    d.style.cssText = 'border:1px solid var(--line);border-radius:7px;padding:9px;background:var(--surface-2)';
+    const h = el('div', '', titulo);
+    h.style.cssText = 'font-family:var(--f-mono);font-size:9.5px;font-weight:700;letter-spacing:.12em;'
+      + 'text-transform:uppercase;color:var(--ink-3);margin-bottom:7px';
+    d.appendChild(h); lado.appendChild(d); return d;
+  };
+
+  const cModelos = caixa('Modelos');
+  const gModelos = el('div'); gModelos.style.cssText = 'display:flex;flex-wrap:wrap;gap:5px';
+  cModelos.appendChild(gModelos);
+  for (const nome of Object.keys(MODELOS_FOLHA)) {
+    const b = el('button', 'btn', nome);
+    b.addEventListener('click', () => {
+      edit = JSON.parse(JSON.stringify(MODELOS_FOLHA[nome]));
+      sel = -1; desenhar();
+    });
+    gModelos.appendChild(b);
+  }
+
+  const cPaleta = caixa('Acrescentar bloco');
+  const gPaleta = el('div'); gPaleta.style.cssText = 'display:flex;flex-direction:column;gap:4px';
+  cPaleta.appendChild(gPaleta);
+
+  const cSel = caixa('Bloco selecionado');
+  const infoSel = el('div', 'hint', 'Nenhum. Clique num quadro da folha.');
+  cSel.appendChild(infoSel);
+  const bRemover = el('button', 'btn', 'Remover');
+  bRemover.style.marginTop = '7px'; bRemover.disabled = true;
+  bRemover.addEventListener('click', () => { if (sel >= 0) { edit.blocos.splice(sel, 1); sel = -1; desenhar(); } });
+  cSel.appendChild(bRemover);
+
+  const aviso = el('div');
+  aviso.style.cssText = 'font-size:11.5px;line-height:1.4;padding:7px 9px;border-radius:6px';
+  lado.appendChild(aviso);
+
+  /* ---- a folha, com a camada de arrasto por cima ---- */
+  const palco = el('div');
+  palco.style.cssText = 'flex:1 1 440px;min-width:0;display:flex;flex-direction:column;gap:8px';
+  corpo.appendChild(palco);
+
+  const moldura = el('div');
+  moldura.style.cssText = 'position:relative;width:100%;aspect-ratio:16/9;border:1px solid var(--line);'
+    + 'border-radius:6px;overflow:hidden;background:#fff;touch-action:none;user-select:none';
+  palco.appendChild(moldura);
+
+  const nota = el('div', 'hint',
+    'Arraste para mover, puxe o canto para redimensionar. O cabeçalho e o rodapé ficam fora da grade: '
+    + 'eles crescem com o resumo, com a faixa de pausa e com o motivo do selo, e por isso o corpo encolhe '
+    + 'de um projeto para outro. Nada é gravado até você clicar em Salvar.');
+  palco.appendChild(nota);
+
+  /* ---- ações ---- */
+  const bSalvar = el('button', 'btn primary', 'Salvar para a empresa');
+  const bPadrao = el('button', 'btn', 'Voltar ao padrão');
+  bPadrao.title = 'Apaga o arranjo da empresa: a folha volta a ser a de sempre';
+  acoes.appendChild(bPadrao); acoes.appendChild(bSalvar);
+
+  bSalvar.addEventListener('click', async () => {
+    const pb = problemasDoLayout(edit.blocos);
+    if (pb.msgs.length) { toast('Resolva o que está em vermelho antes de salvar.'); return; }
+    bSalvar.disabled = true;
+    const ok = await gravarFolhaLayout({ v: 1, blocos: edit.blocos });
+    bSalvar.disabled = false;
+    if (!ok) { avisoDaFolha(gravarFolhaLayout.erro); return; }
+    toast('Arranjo salvo. Vale para todos os projetos desta empresa.');
+    refresh();
+  });
+
+  bPadrao.addEventListener('click', async () => {
+    bPadrao.disabled = true;
+    const ok = await gravarFolhaLayout(null);
+    bPadrao.disabled = false;
+    if (!ok) { avisoDaFolha(gravarFolhaLayout.erro); return; }
+    edit = JSON.parse(JSON.stringify(LAYOUT_CLASSICO)); sel = -1;
+    toast('A folha voltou ao padrão.');
+    desenhar(); refresh();
+  });
+
+  /* ---- desenho do painel ---- */
+  let arrasto = null;
+
+  const desenhar = () => {
+    const pb = problemasDoLayout(edit.blocos);
+
+    moldura.textContent = '';
+    const svg = desenharComLayout({ v: 1, blocos: edit.blocos });
+    svg.removeAttribute('width'); svg.removeAttribute('height');
+    svg.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block';
+    moldura.appendChild(svg);
+
+    const area = AREA_FOLHA || { x: 26, y: 110, w: 908, h: 396 };
+    for (let i = 0; i < edit.blocos.length; i++) {
+      const b = edit.blocos[i], def = BLOCOS_FOLHA[b.tipo];
+      if (!def) continue;
+      const r = retanguloDaGrade(area, b);
+      const d = el('div');
+      d.dataset.i = String(i);
+      d.style.cssText = 'position:absolute;'
+        + 'left:' + (r.x / 960 * 100) + '%;top:' + (r.y / 540 * 100) + '%;'
+        + 'width:' + (r.w / 960 * 100) + '%;height:' + (r.h / 540 * 100) + '%;'
+        + 'border-radius:4px;cursor:grab;'
+        + (pb.maus[i] ? 'border:2px solid var(--critical);background:rgba(163,43,43,.10);'
+                      : (sel === i ? 'border:2px solid var(--accent);background:rgba(23,173,197,.10);'
+                                   : 'border:1px dashed rgba(1,68,121,.35);background:transparent;'));
+      const alca = el('div');
+      alca.dataset.alca = '1';
+      alca.style.cssText = 'position:absolute;right:-1px;bottom:-1px;width:14px;height:14px;'
+        + 'cursor:nwse-resize;border-right:3px solid var(--accent);border-bottom:3px solid var(--accent);'
+        + 'border-bottom-right-radius:4px;opacity:' + (sel === i ? '.95' : '.35');
+      d.appendChild(alca);
+      moldura.appendChild(d);
+    }
+
+    if (pb.msgs.length) {
+      aviso.style.color = 'var(--critical)';
+      aviso.style.background = 'rgba(163,43,43,.10)';
+      aviso.textContent = pb.msgs.join(' ');
+    } else {
+      aviso.style.color = 'var(--good)';
+      aviso.style.background = 'rgba(31,138,91,.10)';
+      aviso.textContent = 'Arranjo válido: ' + edit.blocos.length
+        + ' blocos, nada sobreposto, todos acima do mínimo.';
+    }
+
+    if (sel >= 0 && edit.blocos[sel]) {
+      const b = edit.blocos[sel], def = BLOCOS_FOLHA[b.tipo];
+      infoSel.textContent = def.rot + ' — ' + b.w + '×' + b.h + ' células, mínimo '
+        + def.min[0] + '×' + def.min[1] + '.';
+      bRemover.disabled = false;
+    } else {
+      infoSel.textContent = 'Nenhum. Clique num quadro da folha.';
+      bRemover.disabled = true;
+    }
+
+    gPaleta.textContent = '';
+    for (const tipo of Object.keys(BLOCOS_FOLHA)) {
+      const def = BLOCOS_FOLHA[tipo];
+      const b = el('button', 'btn', def.rot);
+      b.style.cssText = 'text-align:left;font-size:11.5px';
+      if (edit.blocos.some(x => x.tipo === tipo)) { b.disabled = true; b.title = 'Já está na folha.'; }
+      else b.addEventListener('click', () => {
+        const w = Math.max(def.min[0], 3), h = Math.max(def.min[1], 2);
+        const v = vagaLivre(edit.blocos, w, h) || vagaLivre(edit.blocos, def.min[0], def.min[1]);
+        if (!v) { toast('Não cabe mais nada: tire um bloco ou diminua algum antes.'); return; }
+        edit.blocos.push({ tipo: tipo, c: v.c, r: v.r, w: w, h: h });
+        sel = edit.blocos.length - 1;
+        desenhar();
+      });
+      gPaleta.appendChild(b);
+    }
+  };
+
+  moldura.addEventListener('pointerdown', (ev) => {
+    const d = ev.target.closest('[data-i]');
+    if (!d) { sel = -1; desenhar(); return; }
+    const i = Number(d.dataset.i), b = edit.blocos[i];
+    if (!b) return;
+    sel = i;
+    const cr = moldura.getBoundingClientRect();
+    const area = AREA_FOLHA || { x: 26, y: 110, w: 908, h: 396 };
+    const esc = cr.width / 960;
+    arrasto = {
+      i: i, modo: ev.target.dataset.alca ? 'tamanho' : 'mover',
+      x0: ev.clientX, y0: ev.clientY,
+      c0: b.c, r0: b.r, w0: b.w, h0: b.h,
+      pc: ((area.w - (GRADE.cols - 1) * GRADE.vao) / GRADE.cols + GRADE.vao) * esc,
+      pl: ((area.h - (GRADE.lins - 1) * GRADE.vao) / GRADE.lins + GRADE.vao) * esc
+    };
+    try { moldura.setPointerCapture(ev.pointerId); } catch (e) { }
+    desenhar(); ev.preventDefault();
+  });
+
+  moldura.addEventListener('pointermove', (ev) => {
+    if (!arrasto) return;
+    const b = edit.blocos[arrasto.i]; if (!b) return;
+    const dc = Math.round((ev.clientX - arrasto.x0) / arrasto.pc);
+    const dl = Math.round((ev.clientY - arrasto.y0) / arrasto.pl);
+    if (arrasto.modo === 'mover') {
+      b.c = clamp(arrasto.c0 + dc, 0, GRADE.cols - b.w);
+      b.r = clamp(arrasto.r0 + dl, 0, GRADE.lins - b.h);
+    } else {
+      b.w = clamp(arrasto.w0 + dc, 1, GRADE.cols - b.c);
+      b.h = clamp(arrasto.h0 + dl, 1, GRADE.lins - b.r);
+    }
+    desenhar();
+  });
+
+  const soltar = () => { if (arrasto) { arrasto = null; desenhar(); } };
+  moldura.addEventListener('pointerup', soltar);
+  moldura.addEventListener('pointercancel', soltar);
+
+  desenhar();
+  return p;
+}
+
+/* Quatro arranjos prontos. A maioria dos clientes não vai arrastar nada: vai
+   escolher um e, no máximo, trocar um quadro. O "Clássico" é uma APROXIMAÇÃO
+   do padrão de hoje, não ele — a cascata original tem vãos de 20 e 18, e uma
+   grade tem um vão só. */
+const MODELOS_FOLHA = {
+  'Clássico': LAYOUT_CLASSICO,
+  'Executivo': { v: 1, blocos: [
+    { tipo: 'indicadores', c: 0, r: 0, w: 12, h: 2 },
+    { tipo: 'riscos',      c: 0, r: 2, w: 6,  h: 6 },
+    { tipo: 'entregas',    c: 6, r: 2, w: 6,  h: 3 },
+    { tipo: 'andamento',   c: 6, r: 5, w: 6,  h: 3 }
+  ] },
+  'Operacional': { v: 1, blocos: [
+    { tipo: 'entregas',    c: 0, r: 0, w: 6, h: 5 },
+    { tipo: 'andamento',   c: 0, r: 5, w: 6, h: 3 },
+    { tipo: 'indicadores', c: 6, r: 0, w: 6, h: 1 },
+    { tipo: 'feitas',      c: 6, r: 1, w: 6, h: 3 },
+    { tipo: 'riscos',      c: 6, r: 4, w: 6, h: 4 }
+  ] },
+  'Cliente externo': { v: 1, blocos: [
+    { tipo: 'indicadores', c: 0, r: 0, w: 7, h: 2 },
+    { tipo: 'curva',       c: 0, r: 2, w: 7, h: 3 },
+    { tipo: 'feitas',      c: 0, r: 5, w: 7, h: 3 },
+    { tipo: 'entregas',    c: 7, r: 0, w: 5, h: 8 }
+  ] }
+};
+
 function renderStatusReport() {
   const host = $('#stView'); host.textContent = '';
   const meta = ST.P.meta;
@@ -8308,6 +8661,7 @@ function renderStatusReport() {
   host.appendChild(p1);
 
   host.appendChild(painelAgendaStatus());
+  if (ehAdmin() && ST.comLogin && ST.mode === 'db') host.appendChild(painelMontarFolha());
 
   const p2 = el('div', 'panel');
   p2.appendChild(el('h3', '', 'Conteúdo da folha'));
@@ -8445,6 +8799,8 @@ async function carregarPerfil() {
         const org = oSnap.data() || {};
         perfil.nomeOrg = org.nome || '';
         perfil.abasOcultas = Array.isArray(org.abasOcultas) ? org.abasOcultas : [];
+        perfil.folhaLayout = (org.folhaLayout && Array.isArray(org.folhaLayout.blocos)) ? org.folhaLayout : null;
+        perfil.resumoSemanal = (org.resumoSemanal && typeof org.resumoSemanal === 'object') ? org.resumoSemanal : null;
         perfil.avisoHoras = (org.avisoHoras && typeof org.avisoHoras === 'object') ? org.avisoHoras : null;
         perfil.plano = org.plano || '';
         perfil.expiraEm = org.expiraEm || 0;
@@ -8882,6 +9238,7 @@ function renderUsuarios() {
     'e o suporte do MILEST só os abre quando você libera, no quadro abaixo. Suspender mantém o cadastro e corta o acesso na hora.'));
   host.appendChild(explica);
   host.appendChild(painelAvisos());
+  host.appendChild(painelResumoSemanal());
   host.appendChild(painelSuporteCliente());
 
   const desenhar = (lista) => {
@@ -13248,12 +13605,51 @@ async function bootPesquisa() {
 /** Avanço de cada projeto: a barra é o realizado, o traço é onde deveria estar
     (planejado na data de status). Gráfico de marcador: uma cor só, e a
     distância entre a ponta da barra e o traço é o atraso — lido sem legenda. */
+/* A ordem do painel de avanço. Fica no navegador de quem olha, e não no
+   cadastro da empresa: é preferência de leitura, não decisão de gestão — cada
+   um tem a sua, e ninguém precisa combinar com os outros. */
+const LS_ORDEM_AV = 'milest.avanco.ordem';
+const ORDENS_AV = {
+  carteira: { rot: 'Como na carteira', fn: null },
+  maior:    { rot: 'Mais avançado primeiro', fn: (a, b) => (b.ind.real || 0) - (a.ind.real || 0) },
+  menor:    { rot: 'Menos avançado primeiro', fn: (a, b) => (a.ind.real || 0) - (b.ind.real || 0) },
+  atraso:   { rot: 'Maior atraso primeiro', fn: (a, b) => difAvanco(a) - difAvanco(b) }
+};
+/** Quantos pontos o projeto está acima (ou abaixo) de onde deveria estar.
+    Sem planejado não há atraso que se meça: esses vão para o fim da lista. */
+function difAvanco(x) {
+  const pl = x.ind && x.ind.plan && x.ind.plan.pct;
+  if (pl == null || !isFinite(pl)) return Infinity;
+  return (x.ind.real || 0) - pl;
+}
+function ordemAvanco() {
+  let v = 'carteira';
+  try { v = localStorage.getItem(LS_ORDEM_AV) || 'carteira'; } catch (e) { }
+  return ORDENS_AV[v] ? v : 'carteira';
+}
+
 function painelAvanco(lista) {
   const p = el('div', 'panel');
-  p.appendChild(el('h3', '', '% de avanço por projeto'));
+  const cab = el('h3', '', '% de avanço por projeto');
+  cab.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap';
+  const sel = el('select', 'btn');
+  sel.style.cssText = 'padding:0 6px;font-size:12px;max-width:220px';
+  sel.title = 'A ordem dos projetos neste painel';
+  for (const k of Object.keys(ORDENS_AV)) {
+    const o = el('option', '', ORDENS_AV[k].rot); o.value = k; sel.appendChild(o);
+  }
+  sel.value = ordemAvanco();
+  sel.addEventListener('change', () => {
+    try { localStorage.setItem(LS_ORDEM_AV, sel.value); } catch (e) { }
+    renderPainel();
+  });
+  cab.appendChild(sel);
+  p.appendChild(cab);
   const c = el('div', 'avanco'); p.appendChild(c);
-  const itens = (lista || []).filter(x => x && !x.erro && x.ind);
+  let itens = (lista || []).filter(x => x && !x.erro && x.ind);
   if (!itens.length) { c.appendChild(el('div', 'empty', 'Nenhum projeto medido ainda.')); return p; }
+  const ord = ORDENS_AV[ordemAvanco()].fn;
+  if (ord) itens = itens.slice().sort(ord);
   const leg = el('div', 'leg');
   const l1 = el('span'); l1.appendChild(el('i', 'br')); l1.appendChild(document.createTextNode('Realizado'));
   const l2 = el('span'); l2.appendChild(el('i', 'tk')); l2.appendChild(document.createTextNode('Onde deveria estar (planejado na data de status)'));
@@ -14977,6 +15373,137 @@ async function retratosDaCarteira(lista) {
    interruptores. A alternativa era dois painéis com dois cadastros de e-mail,
    e a consequência disso aparece no mês em que o gestor troca de endereço e
    alguém atualiza só um dos dois. */
+/* ---------- o resumo semanal da carteira ----------
+   Separado dos "Avisos automáticos" de propósito: aqueles cobram um projeto
+   que saiu da faixa; este informa a carteira inteira, no dia marcado, para
+   quem não abre o sistema. São públicos diferentes e intervalos diferentes,
+   e juntá-los num painel só faria a pessoa ligar um pensando no outro. */
+function resumoSemanalConfig() {
+  const c = (ST.perfil && ST.perfil.resumoSemanal) || {};
+  return {
+    ativo: !!c.ativo,
+    para: listaDeEmails(c.para),
+    dias: Array.isArray(c.dias) && c.dias.length ? c.dias.slice() : [1, 5],
+    incluirPausados: !!c.incluirPausados
+  };
+}
+
+async function gravarResumoSemanal(cfg) {
+  gravarResumoSemanal.erro = '';
+  if (!(ST.comLogin && ST.mode === 'db' && ST.orgId && !ST.suporte)) {
+    gravarResumoSemanal.erro = 'Disponível quando o sistema roda com login por conta.';
+    return false;
+  }
+  try {
+    await ST.db.doc(dOrg(ST.orgId)).set({ resumoSemanal: cfg, atualizadoEm: Date.now() }, { merge: true });
+  } catch (e) {
+    const t = String((e && e.code) || '') + ' ' + String((e && e.message) || '');
+    gravarResumoSemanal.erro = /permission|insufficient/i.test(t)
+      ? 'O banco recusou a gravação. Este recurso é novo e depende de uma atualização das regras do Firestore que ainda não foi publicada — publique com "firebase deploy --only firestore:rules" e tente de novo.'
+      : 'Não consegui gravar: ' + ((e && e.message) || 'erro');
+    return false;
+  }
+  if (ST.perfil) ST.perfil.resumoSemanal = cfg;
+  return true;
+}
+
+const DIAS_RESUMO = [['Seg', 1], ['Ter', 2], ['Qua', 3], ['Qui', 4], ['Sex', 5]];
+
+function painelResumoSemanal() {
+  const p = el('div', 'panel');
+  const cab = el('h3', '', 'Resumo semanal da carteira');
+  cab.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap';
+  p.appendChild(cab);
+
+  if (ST.mode !== 'db' || !ST.comLogin || !ST.orgId) {
+    p.appendChild(el('div', 'empty', 'Disponível quando o sistema roda com login por conta.'));
+    return p;
+  }
+
+  const cfg = resumoSemanalConfig();
+  const g = el('div', 'formgrid'); g.style.gridTemplateColumns = '1fr 1fr';
+
+  const fA = el('div', 'field');
+  fA.appendChild(el('label', '', 'Envio'));
+  const sel = el('select', 'inp');
+  for (const [v, r] of [['nao', 'Não envia'], ['sim', 'Envia nos dias marcados']]) {
+    const o = el('option', '', r); o.value = v; sel.appendChild(o);
+  }
+  sel.value = cfg.ativo ? 'sim' : 'nao';
+  fA.appendChild(sel);
+  fA.appendChild(el('div', 'hint', 'Sai de manhã, às 7h, pelo servidor — não depende de ninguém abrir o sistema.'));
+  g.appendChild(fA);
+
+  const fD = el('div', 'field');
+  fD.appendChild(el('label', '', 'Em que dias'));
+  const dias = el('div'); dias.style.cssText = 'display:flex;gap:10px;flex-wrap:wrap;padding-top:4px';
+  const caixas = [];
+  for (const [rot, n] of DIAS_RESUMO) {
+    const lb = el('label');
+    lb.style.cssText = 'display:flex;align-items:center;gap:4px;font-size:12.5px';
+    const ck = el('input'); ck.type = 'checkbox'; ck.checked = cfg.dias.indexOf(n) >= 0;
+    ck.dataset.dia = String(n); caixas.push(ck);
+    lb.appendChild(ck); lb.appendChild(document.createTextNode(rot));
+    dias.appendChild(lb);
+  }
+  fD.appendChild(dias);
+  g.appendChild(fD);
+
+  const fPara = el('div', 'field'); fPara.style.gridColumn = '1 / -1';
+  fPara.appendChild(el('label', '', 'Para quem vai'));
+  const iPara = el('input', 'inp'); iPara.value = cfg.para.join(', ');
+  iPara.placeholder = 'gestor@empresa.com.br, diretoria@empresa.com.br';
+  fPara.appendChild(iPara);
+  fPara.appendChild(el('div', 'hint', 'Um ou mais endereços, separados por vírgula. Até 20.'));
+  g.appendChild(fPara);
+
+  const fP = el('div', 'field'); fP.style.gridColumn = '1 / -1';
+  const lbP = el('label');
+  lbP.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:12.5px';
+  const ckP = el('input'); ckP.type = 'checkbox'; ckP.checked = cfg.incluirPausados;
+  lbP.appendChild(ckP); lbP.appendChild(document.createTextNode('Incluir também os projetos pausados'));
+  fP.appendChild(lbP);
+  fP.appendChild(el('div', 'hint', 'Os encerrados nunca entram. Pausado entra marcado como tal, com os números do dia em que parou.'));
+  g.appendChild(fP);
+
+  p.appendChild(g);
+
+  const erro = el('div', 'recusa'); erro.hidden = true; p.appendChild(erro);
+
+  const bSalvar = el('button', 'btn primary reqedit', 'Salvar');
+  bSalvar.addEventListener('click', async () => {
+    const ligado = sel.value === 'sim';
+    const para = listaDeEmails(iPara.value);
+    const escolhidos = caixas.filter(c => c.checked).map(c => Number(c.dataset.dia));
+    if (ligado && !para.length) { toast('Informe ao menos um e-mail.'); iPara.focus(); return; }
+    if (ligado && !escolhidos.length) { toast('Marque ao menos um dia.'); return; }
+    /* Mesma checagem dos avisos: salvar três de cinco endereços em silêncio
+       esconde os dois que a pessoa acha que salvou. */
+    const digitados = String(iPara.value).split(/[;,\s]+/).filter(x => x.trim()).length;
+    if (ligado && digitados > para.length
+      && !confirm('Reconheci ' + para.length + ' endereço(s) de ' + digitados + ' digitado(s):\n\n'
+        + para.join('\n') + '\n\nSalvar assim?')) { iPara.focus(); return; }
+    bSalvar.disabled = true;
+    const ok = await gravarResumoSemanal({
+      ativo: ligado, para: para,
+      dias: escolhidos.length ? escolhidos : [1, 5],
+      incluirPausados: ckP.checked
+    });
+    bSalvar.disabled = false;
+    erro.hidden = ok;
+    if (!ok) { erro.textContent = gravarResumoSemanal.erro; return; }
+    toast(ligado ? 'Resumo semanal ligado.' : 'Resumo semanal desligado.');
+  });
+  cab.appendChild(bSalvar);
+
+  p.appendChild(el('div', 'tagline',
+    'Uma tabela com os projetos em andamento: cliente, projeto, % previsto, % realizado, horas previstas e horas realizadas, '
+    + 'quem está mais atrás do plano em cima. Cada linha leva a data em que foi medida — os números são os da última vez que '
+    + 'o projeto foi aberto no sistema, e o previsto cresce com o calendário, então num projeto medido há vários dias ele '
+    + 'aparece menor do que já é hoje. Para um número do dia, basta abrir o projeto.'));
+  return p;
+}
+
 function painelAvisos() {
   const p = el('div', 'panel');
   const cab = el('h3', '', 'Avisos automáticos por e-mail');

@@ -432,6 +432,22 @@ await caso('admin NÃO marca a própria empresa como própria do operador', () =
   assertFails(updateDoc(doc(conta(ANA), 'orgs', 'unimed'), { propria: true })));
 await caso('admin NÃO apaga a própria empresa', () =>
   assertFails(deleteDoc(doc(conta(ANA), 'orgs', 'unimed'))));
+/* O arranjo da folha de status é da EMPRESA, e o cadastro da empresa é o
+   documento mais protegido do sistema: a regra lista campo a campo o que o
+   administrador pode escrever. Sem a linha, a tela de montar a folha salva no
+   vazio e o banco recusa sem ninguém entender por quê. */
+await caso('admin grava o arranjo da folha de status', () =>
+  assertSucceeds(updateDoc(doc(conta(ANA), 'orgs', 'unimed'),
+    { folhaLayout: { v: 1, blocos: [{ tipo: 'indicadores', c: 0, r: 0, w: 6, h: 1 }] }, atualizadoEm: Date.now() })));
+await caso('gerente de projetos NÃO grava o arranjo da folha', () =>
+  assertFails(updateDoc(doc(conta(HELO), 'orgs', 'unimed'),
+    { folhaLayout: { v: 1, blocos: [] }, atualizadoEm: Date.now() })));
+await caso('admin liga o resumo semanal da carteira', () =>
+  assertSucceeds(updateDoc(doc(conta(ANA), 'orgs', 'unimed'),
+    { resumoSemanal: { ativo: true, para: ['gestor@unimed.com.br'] }, atualizadoEm: Date.now() })));
+await caso('leitor NÃO liga o resumo semanal', () =>
+  assertFails(updateDoc(doc(conta(CAIO), 'orgs', 'unimed'),
+    { resumoSemanal: { ativo: true, para: ['x@y.com'] }, atualizadoEm: Date.now() })));
 
 console.log('\nÍNDICE DE CONTAS: OCUPAÇÃO DE E-MAIL');
 // Falha conhecida, de baixa gravidade: um admin aponta para a própria empresa
