@@ -16,6 +16,18 @@
 <link rel="canonical" href="https://app.milest.com.br/">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=&quot;http://www.w3.org/2000/svg&quot; viewBox=&quot;0 0 64 64&quot;><rect width=&quot;64&quot; height=&quot;64&quot; rx=&quot;13&quot; fill=&quot;%23014479&quot;/><rect x=&quot;11&quot; y=&quot;36&quot; width=&quot;10&quot; height=&quot;17&quot; rx=&quot;2&quot; fill=&quot;%236FB3CE&quot;/><rect x=&quot;27&quot; y=&quot;27&quot; width=&quot;10&quot; height=&quot;26&quot; rx=&quot;2&quot; fill=&quot;%238FCCE2&quot;/><rect x=&quot;43&quot; y=&quot;15&quot; width=&quot;10&quot; height=&quot;38&quot; rx=&quot;2&quot; fill=&quot;%23B9E4F2&quot;/><path d=&quot;M10 46 L24 33 L31 39 L47 20&quot; fill=&quot;none&quot; stroke=&quot;%23FFFFFF&quot; stroke-width=&quot;7.5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/><path d=&quot;M10 46 L24 33 L31 39 L47 20&quot; fill=&quot;none&quot; stroke=&quot;%2325BDD6&quot; stroke-width=&quot;4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/><path d=&quot;M53 14 L52 26 L41 19 Z&quot; fill=&quot;%23FFFFFF&quot;/><path d=&quot;M52 16 L51.3 24.6 L43.4 19.6 Z&quot; fill=&quot;%2325BDD6&quot;/></svg>">
 <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns=&quot;http://www.w3.org/2000/svg&quot; viewBox=&quot;0 0 64 64&quot;><rect width=&quot;64&quot; height=&quot;64&quot; rx=&quot;13&quot; fill=&quot;%23014479&quot;/><rect x=&quot;11&quot; y=&quot;36&quot; width=&quot;10&quot; height=&quot;17&quot; rx=&quot;2&quot; fill=&quot;%236FB3CE&quot;/><rect x=&quot;27&quot; y=&quot;27&quot; width=&quot;10&quot; height=&quot;26&quot; rx=&quot;2&quot; fill=&quot;%238FCCE2&quot;/><rect x=&quot;43&quot; y=&quot;15&quot; width=&quot;10&quot; height=&quot;38&quot; rx=&quot;2&quot; fill=&quot;%23B9E4F2&quot;/><path d=&quot;M10 46 L24 33 L31 39 L47 20&quot; fill=&quot;none&quot; stroke=&quot;%23FFFFFF&quot; stroke-width=&quot;7.5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/><path d=&quot;M10 46 L24 33 L31 39 L47 20&quot; fill=&quot;none&quot; stroke=&quot;%2325BDD6&quot; stroke-width=&quot;4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/><path d=&quot;M53 14 L52 26 L41 19 Z&quot; fill=&quot;%23FFFFFF&quot;/><path d=&quot;M52 16 L51.3 24.6 L43.4 19.6 Z&quot; fill=&quot;%2325BDD6&quot;/></svg>">
+<script>
+/* O tema escolhido é aplicado AQUI, antes de qualquer pintura. Se isto
+   estivesse junto do resto do código, que roda no fim do corpo, quem escolheu
+   escuro veria a tela branca piscar a cada carregamento — e esse susto é mais
+   incômodo que a falta do botão. */
+(function () {
+  try {
+    var t = localStorage.getItem('milest.tema');
+    if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) { }
+})();
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
@@ -840,6 +852,7 @@ body.embutido .view{height:100%}
   </div>
   <button class="btn" id="btnDia" title="O que está atrasado e o que é para hoje, em todos os projetos" hidden>🔔 Dia</button>
   <button class="btn" id="btnHoras" title="Esconde as horas da tela, para apresentar o cronograma ao cliente">👁 Horas</button>
+  <button class="btn icon" id="btnTema" title="Aparência: automática, clara ou escura"></button>
   <div class="syncdot" id="syncDot"><i></i><span>—</span></div>
   <div class="userchip" id="userChip" hidden><span class="org" id="orgChip" hidden></span><span class="papel" id="userRole" hidden></span><span id="userEmail"></span><button class="btn icon" id="btnSenha" title="Criar ou trocar a senha desta conta" hidden>Senha</button><button class="btn icon" id="btnSignOut" title="Sair da conta">Sair</button></div>
   <button class="btn icon" id="btnAbas" title="Escolher quais abas aparecem" hidden>⋯</button>
@@ -1097,7 +1110,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-10-14.1209';
+const VERSAO = '2026-10-14.1326';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -12839,7 +12852,72 @@ $('#btnLink').addEventListener('click', linkSelected);
 $('#btnBaseline').addEventListener('click', pedirLinhaDeBase);
 $('#btnDataStatus').addEventListener('click', janelaDataStatus);
 $('#btnDia').addEventListener('click', () => { abrirResumoDoDia(); });
+/* ---------- aparência: automático, claro, escuro ----------
+   O CSS já nascia preparado: existe a paleta clara no `:root`, a escura sob
+   `prefers-color-scheme` guardada por `:not([data-theme="light"])`, e a mesma
+   escura de novo sob `[data-theme="dark"]`. Faltava só alguém escrever o
+   atributo — até aqui o sistema obedecia ao tema do computador e ponto.
+
+   São TRÊS estados e não dois, porque é para isso que a guarda
+   `:not([data-theme="light"])` existe: sem o "automático", quem trabalha num
+   computador que vira escuro à noite perderia o acompanhamento automático
+   assim que tocasse no botão uma vez.
+
+   A escolha é de quem olha a tela, não da empresa: fica no navegador, como a
+   ordem do painel de avanço. */
+const LS_TEMA = 'milest.tema';
+const TEMAS = [
+  { v: '', ic: '◐', rot: 'Automático', dica: 'Aparência: segue o computador' },
+  { v: 'light', ic: '☀', rot: 'Claro', dica: 'Aparência: sempre clara' },
+  { v: 'dark', ic: '☾', rot: 'Escuro', dica: 'Aparência: sempre escura' }
+];
+
+function temaEscolhido() {
+  let v = '';
+  try { v = localStorage.getItem(LS_TEMA) || ''; } catch (e) { }
+  return TEMAS.some(t => t.v === v) ? v : '';
+}
+
+function aplicarTema(v) {
+  const raiz = document.documentElement;
+  if (v) raiz.setAttribute('data-theme', v); else raiz.removeAttribute('data-theme');
+  try { if (v) localStorage.setItem(LS_TEMA, v); else localStorage.removeItem(LS_TEMA); } catch (e) { }
+  /* A cor da barra do navegador no celular acompanha; senão fica uma faixa
+     azul clara em cima de uma tela escura. */
+  const escuro = v === 'dark'
+    || (!v && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  const mt = document.querySelector('meta[name="theme-color"]');
+  if (mt) mt.setAttribute('content', escuro ? '#0D1413' : '#014479');
+  pintarBotaoTema();
+}
+
+function pintarBotaoTema() {
+  const b = document.getElementById('btnTema'); if (!b) return;
+  const t = TEMAS.find(x => x.v === temaEscolhido()) || TEMAS[0];
+  b.textContent = t.ic;
+  b.title = t.dica + ' · clique para trocar';
+  b.setAttribute('aria-label', t.dica);
+}
+
+function ligarBotaoTema() {
+  const b = document.getElementById('btnTema'); if (!b) return;
+  b.addEventListener('click', () => {
+    const i = TEMAS.findIndex(x => x.v === temaEscolhido());
+    const prox = TEMAS[(i + 1) % TEMAS.length];
+    aplicarTema(prox.v);
+    toast('Aparência: ' + prox.rot.toLowerCase() + '.');
+  });
+  pintarBotaoTema();
+  /* No automático, o computador pode trocar sozinho ao anoitecer — a cor da
+     barra do celular tem de acompanhar. */
+  try {
+    window.matchMedia('(prefers-color-scheme: dark)')
+      .addEventListener('change', () => { if (!temaEscolhido()) aplicarTema(''); });
+  } catch (e) { }
+}
+
 $('#btnHoras').addEventListener('click', alternarHoras);
+ligarBotaoTema();
 $('#btnAbas').addEventListener('click', janelaAbas);
 $('#btnReplanejar').addEventListener('click', janelaReplanejar);
 $('#zoom').addEventListener('click', ev => {
@@ -19051,7 +19129,15 @@ function bootArquivo() {
   setSync('local', 'Cópia de segurança');
 }
 
-const EMBUTIDO = /[?&]embed=1/.test(location.search) || (function () {
+/* `var`, e não `const`, de propósito: a linha 1953 se protege com
+   `typeof EMBUTIDO !== 'undefined'`, e essa guarda só funciona com `var`.
+   Numa constante ainda não inicializada o `typeof` LANÇA em vez de devolver
+   "undefined" — é a zona morta temporal, e é a única exceção à regra de que
+   `typeof` nunca falha. Com `const`, qualquer chamada a `semHoras` antes
+   desta linha derruba a página inteira, e a guarda que existe justamente
+   para evitar isso é quem derruba. Hoje nada chama antes; bastou chamar
+   `refresh()` de fora, num teste, para a armadilha fechar. */
+var EMBUTIDO = /[?&]embed=1/.test(location.search) || (function () {
   try { return window.top !== window.self; } catch (e) { return true; }   // dentro de um iframe
 })();
 let embedPai = null, embedOrigem = '*', embedSoLeitura = false, embedPronto = false;
