@@ -230,6 +230,46 @@ h3{font-size:19px;font-weight:700}
   font-family:var(--f-mono);font-size:12.5px;letter-spacing:.06em;color:var(--tinta-3);
 }
 .tela img{width:100%;height:auto}
+
+/* ---------- visor: a tela ampliada ----------
+   As telas do produto são o argumento da página, e em 1560 px reduzidas a uma
+   coluna ninguém lê os números — que é justamente o que se quer mostrar. */
+.tela img{cursor:zoom-in}
+.visor{
+  position:fixed;inset:0;z-index:90;display:none;
+  align-items:center;justify-content:center;padding:24px;
+  background:rgba(4,22,38,.86);
+  -webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);
+  cursor:zoom-out;
+}
+.visor[open],.visor.on{display:flex}
+.visor img{
+  max-width:100%;max-height:calc(100vh - 110px);width:auto;height:auto;
+  border-radius:10px;background:#fff;
+  box-shadow:0 30px 90px -20px rgba(0,0,0,.6);
+  animation:visorEntra .16s ease-out;
+}
+.visor figcaption{
+  position:absolute;left:24px;right:24px;bottom:22px;margin:0;
+  text-align:center;color:#C9D8E4;font-size:13px;line-height:1.45;
+}
+.visor .fechar{
+  position:absolute;top:16px;right:18px;width:40px;height:40px;
+  display:flex;align-items:center;justify-content:center;
+  border:1px solid rgba(255,255,255,.28);border-radius:999px;
+  background:rgba(255,255,255,.08);color:#fff;font-size:20px;line-height:1;
+  cursor:pointer;
+}
+.visor .fechar:hover{background:rgba(255,255,255,.18)}
+.visor .fechar:focus-visible{outline:2px solid #7FD3EA;outline-offset:2px}
+@keyframes visorEntra{from{opacity:0;transform:scale(.985)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion: reduce){
+  .visor img{animation:none}
+}
+@media (max-width:640px){
+  .visor{padding:12px}
+  .visor img{max-height:calc(100vh - 92px)}
+}
 .tela{
   border-radius:12px;overflow:hidden;background:#fff;
   border:1px solid var(--linha);
@@ -985,6 +1025,12 @@ section[id]{scroll-margin-top:80px}
   </div>
 </footer>
 
+<div class="visor" id="visor" role="dialog" aria-modal="true" aria-label="Imagem ampliada" hidden>
+  <button class="fechar" type="button" id="visorFechar" aria-label="Fechar">&#10005;</button>
+  <img id="visorImg" src="" alt="">
+  <figcaption id="visorLegenda"></figcaption>
+</div>
+
 <script>
 /* ---- endereço do sistema, em um lugar só ----------------------------------
    Todos os botões "Entrar" da página saem daqui. Para mudar o endereço do
@@ -993,6 +1039,60 @@ section[id]{scroll-margin-top:80px}
    Os links já trazem o endereço no próprio HTML, então funcionam mesmo com o
    JavaScript desligado — mas então vale trocar os dois. */
 const APP = 'https://app.milest.com.br';
+
+/* ---- visor das telas ------------------------------------------------------
+   Clicar numa tela do produto abre ela grande. Sem biblioteca: são 30 linhas,
+   e qualquer uma traria mais código do que a página inteira tem de JavaScript.
+
+   O texto alternativo da imagem vira a legenda do visor — ele já descreve a
+   tela para quem não enxerga, então descreve bem para quem enxerga também, e
+   assim não existe uma segunda legenda para alguém esquecer de atualizar. */
+(function () {
+  const visor = document.getElementById('visor');
+  const img = document.getElementById('visorImg');
+  const legenda = document.getElementById('visorLegenda');
+  const fechar = document.getElementById('visorFechar');
+  if (!visor || !img) return;
+  let voltarPara = null;
+
+  const abrir = (origem) => {
+    img.src = origem.currentSrc || origem.src;
+    img.alt = origem.alt || '';
+    legenda.textContent = origem.alt || '';
+    voltarPara = origem;
+    visor.hidden = false;
+    visor.classList.add('on');
+    document.body.style.overflow = 'hidden';
+    fechar.focus();
+  };
+
+  const sair = () => {
+    visor.classList.remove('on');
+    visor.hidden = true;
+    img.removeAttribute('src');
+    document.body.style.overflow = '';
+    /* devolve o foco para a imagem clicada: quem navega por teclado não pode
+       ser jogado de volta para o topo da página */
+    if (voltarPara) { try { voltarPara.focus(); } catch (e) { } }
+  };
+
+  for (const el of document.querySelectorAll('.tela img')) {
+    el.tabIndex = 0;
+    el.setAttribute('role', 'button');
+    el.title = 'Clique para ampliar';
+    el.addEventListener('click', () => abrir(el));
+    el.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); abrir(el); }
+    });
+  }
+
+  visor.addEventListener('click', sair);
+  /* clicar NA imagem não fecha: é o gesto de quem quer olhar de perto */
+  img.addEventListener('click', (ev) => ev.stopPropagation());
+  fechar.addEventListener('click', sair);
+  document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && !visor.hidden) sair(); });
+})();
+
 for (const a of document.querySelectorAll('[data-app]')) a.href = APP;
 
 /* ---- para onde vai o formulário -------------------------------------------
