@@ -8329,15 +8329,15 @@ ${(itens.length ? itens : [vazio]).map((x, i) => `<tr><td style="padding:8px 12p
 <td style="padding:7px 12px;font-family:Arial,Helvetica,sans-serif;font-size:12.5px;color:#0E1E2B;font-weight:bold;text-align:right;border-bottom:1px solid #EDF1F4">${stEscapar(val)}</td></tr>`;
 
   const detalhes = [
-    linha('Período do plano', fmtBR(sch.start) + ' a ' + fmtBR(sch.finish)),
+    linha('Período do plano', fmtBR(sch.startISO) + ' a ' + fmtBR(sch.finishISO)),
     linha('Data de status', fmtBR(dataStatus())),
-    linha('Atividades concluídas', prontas + ' de ' + folhas.length),
-    ind.IDP != null ? linha('IDP — desempenho de prazo',
-      fmtNum(ind.IDP, 2) + (ind.IDP >= 0.995 ? '  (em dia ou à frente)' : '  (atrás do plano)')) : '',
-    ind.IDC != null ? linha('IDC — desempenho de ' + (ind.IDCbase === 'horas' ? 'horas' : 'custo'),
-      fmtNum(ind.IDC, 2) + (ind.IDC >= 0.995 ? '  (dentro do previsto)' : '  (acima do previsto)')) : '',
-    hs.prev > 0 ? linha('Horas', fmtNum(hs.feitas) + ' de ' + fmtNum(hs.prev) + ' previstas'
-      + (hs.feitas > hs.prev ? '  (' + fmtNum(hs.feitas - hs.prev) + ' acima)' : '')) : ''
+    linha('Atividades concluídas', prontas + ' de ' + folhas.length)
+    /* IDP, IDC e horas saíram daqui de propósito: este e-mail vai para o
+       CLIENTE, e consumo de horas é conversa de contrato, não de status.
+       Índice sem a explicação do que ele mede também não informa ninguém de
+       fora — vira número que gera pergunta em vez de responder. Os três
+       continuam inteiros na carteira, no PDF do portfólio e na aba Horas,
+       que são as telas de quem toca o projeto. */
   ].filter(Boolean).join('');
 
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#FFFFFF;border:1px solid #D8E3EC;border-radius:10px">
@@ -8353,7 +8353,7 @@ ${(itens.length ? itens : [vazio]).map((x, i) => `<tr><td style="padding:8px 12p
 ${quadro('PLANEJADO', fmtNum(ind.plan.pct, 0) + '%', '#014479')}
 ${quadro('REALIZADO', fmtNum(ind.real, 0) + '%', '#1C9BB8')}
 ${quadro('ADERÊNCIA', est.ader == null ? '—' : fmtNum(est.ader, 0) + '%', est.cor)}
-${quadro('TÉRMINO', fmtBR(sch.finish), '#3C5466')}
+${quadro('TÉRMINO', fmtBR(sch.finishISO), '#3C5466')}
 </tr></table></td></tr>
 
 ${m.resumo ? `<tr><td style="padding:18px 22px 0"><div style="font-family:Arial,Helvetica,sans-serif;font-size:13.5px;line-height:1.55;color:#243646">${stEscapar(m.resumo)}</div></td></tr>` : ''}
