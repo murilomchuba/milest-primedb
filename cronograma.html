@@ -1134,7 +1134,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-10-15.1919';
+const VERSAO = '2026-10-15.1930';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -13681,25 +13681,29 @@ const SEM_BASES = {
   IDC: { rot: 'IDC', desc: 'entregue ÷ consumido', falta: 'sem horas lançadas para calcular o IDC' },
   IDP: { rot: 'IDP', desc: 'entregue ÷ planejado', falta: 'sem planejado na data de status para comparar' }
 };
-const SEM_BASES_OK = ['PIOR', 'IDC', 'IDP'];
+const SEM_BASES_OK = ['IDC', 'IDP', 'PIOR'];
 /** O nome da base como se escreve na tela. `semBase()` devolve a CHAVE
- *  ('PIOR'), que não se mostra a ninguém. */
-function semBaseRot() { return (SEM_BASES[semBase()] || SEM_BASES.PIOR).rot; }
-/* Padrão: o PIOR dos dois.
-   Sozinho, cada indicador é cego para metade do problema. O IDC mede gasto:
-   um projeto parado gasta pouco e aparece eficiente — foi o que fez o Ouro
-   Safra sair "Saudável" no portal com 3% feito de 100% planejado, enquanto o
-   PDF, que lê aderência, dizia "Crítico". O IDP mede prazo: um projeto no
-   prazo queimando o dobro das horas passa batido.
+ *  ('IDC', 'IDP' ou 'PIOR'), que não se mostra a ninguém. */
+function semBaseRot() { return (SEM_BASES[semBase()] || SEM_BASES.IDC).rot; }
+/* Padrão: IDC.
+   É a régua que a gestão já usa na planilha há anos, e manter o sistema
+   falando a mesma língua vale mais do que a régua que eu acharia mais
+   completa: relatório que discorda da planilha não é adotado, é contestado.
 
-   Saudável só quando os dois estão bons é a régua que não deixa um esconder
-   o outro, e é a prática comum de PMO. Quem quiser a leitura antiga escolhe
-   IDC ou IDP no seletor; o que não dá é o padrão mentir por omissão. */
+   O que isso custa, registrado para quem vier depois: o IDC mede gasto, não
+   prazo. Projeto atrasado que gastou pouco aparece Saudável — a Triunfo
+   Logística, 97,5% planejado contra 75,0% realizado, sai Saudável porque o
+   IDC é 1,56. O sinal de prazo não se perde: está na coluna IDP, no %
+   planejado ao lado e na diferença em pontos percentuais do painel de
+   avanço. Só não é ele quem pinta o semáforo.
+
+   `PIOR` (o pior entre IDP e IDC) continua no seletor para quem quiser os
+   dois pesando. */
 function semBase() {
   try { const v = localStorage.getItem('milest.semBase'); if (SEM_BASES_OK.includes(v)) return v; } catch (e) { }
-  return 'PIOR';
+  return 'IDC';
 }
-function semBaseDefinir(v) { try { localStorage.setItem('milest.semBase', SEM_BASES_OK.includes(v) ? v : 'PIOR'); } catch (e) { } }
+function semBaseDefinir(v) { try { localStorage.setItem('milest.semBase', SEM_BASES_OK.includes(v) ? v : 'IDC'); } catch (e) { } }
 /** O seletor da base do semáforo, igual nas duas telas que o mostram. */
 function seletorSemBase(aoTrocar) {
   const cx = el('div');
@@ -13772,7 +13776,17 @@ function valorSemaforo(ind) {
    é o que permite mostrar o ajuste COMO ajuste em vez de disfarçá-lo de
    medição. Sobrescrever em silêncio é o que torna a prática ruim. */
 function semaforoDe(ind, meta) {
-  const auto = semaforoPor(valorSemaforo(ind));
+  /* Nada entregue não é "crítico", é "não começou" — e é o que a planilha da
+     gestão sempre disse com `IF(IDC=0; "Não iniciado"; ...)`. Um projeto que
+     ainda não arrancou aparecendo em vermelho junto dos que estão realmente
+     mal esconde os que precisam de atenção agora. Com avanço maior que zero e
+     sem indicador, continua "Sem medição": aí ele começou, só não dá para
+     medir ainda, e as duas coisas não são a mesma. */
+  const vSem = valorSemaforo(ind);
+  const realSem = Number(ind && ind.real) || 0;
+  if (realSem <= 0 && (vSem == null || vSem === 0) && !ehPausado(meta))
+    return { id: 'neutro', rot: ROT_ST.neutro, cls: 'sem-no', cor: 'var(--ink-3)', pdf: '#7F7F7F' };
+  const auto = semaforoPor(vSem);
   /* Pausa é fato, não avaliação, e ganha de tudo — inclusive do ajuste
      manual. É o que `statusPor` já fazia na folha de status; a carteira
      ficava sem isso e dava semáforo de desempenho a projeto parado. */
@@ -13801,7 +13815,8 @@ const SEM_ORDEM = [
   { id: 'atencao', rot: 'Atenção', cls: 'sem-at', cor: 'var(--warn)', pdf: '#E97132' },
   { id: 'critico', rot: 'Crítico', cls: 'sem-cr', cor: 'var(--critical)', pdf: '#C00000' },
   { id: 'sem', rot: 'Sem medição', cls: 'sem-no', cor: 'var(--ink-3)', pdf: '#7F7F7F' },
-  { id: 'pausado', rot: 'Pausado', cls: 'sem-ps', cor: '#5B6B7A', pdf: '#5B6B7A' }
+  { id: 'pausado', rot: 'Pausado', cls: 'sem-ps', cor: '#5B6B7A', pdf: '#5B6B7A' },
+  { id: 'neutro', rot: 'Não iniciado', cls: 'sem-no', cor: 'var(--ink-3)', pdf: '#7F7F7F' }
 ];
 
 /** Soma o portfólio inteiro. Médias vêm em duas formas: a simples, que a
@@ -13809,7 +13824,7 @@ const SEM_ORDEM = [
  *  totais — um projeto de 20 horas não pode pesar o mesmo que um de 2000. */
 function resumoPortfolio(lista) {
   const bons = (lista || []).filter(x => x && !x.erro && x.ind);
-  const cont = { saudavel: 0, atencao: 0, critico: 0, sem: 0, pausado: 0 };
+  const cont = { saudavel: 0, atencao: 0, critico: 0, sem: 0, pausado: 0, neutro: 0 };
   let prev = 0, feitas = 0, somaIDP = 0, nIDP = 0, somaIDC = 0, nIDC = 0;
   /* O saldo é líquido: um projeto que economizou 50h anula outro que estourou
      50h e o total aparece zerado, como se não houvesse problema. O estouro é
@@ -14450,7 +14465,7 @@ function pizzasPortfolio(lista, r) {
   /* `pausado` entra aqui porque `semaforoDe` passou a devolvê-lo: sem a
      chave, o primeiro projeto parado fazia `porSit[...].push` estourar num
      undefined e derrubava o painel inteiro. */
-  const porSit = { saudavel: [], atencao: [], critico: [], sem: [], pausado: [] };
+  const porSit = { saudavel: [], atencao: [], critico: [], sem: [], pausado: [], neutro: [] };
   for (const x of (lista || []).filter(x => x && !x.erro && x.ind)) {
     porSit[semaforoDe(x.ind, x.meta).id].push({
       rot: (x.meta.client ? x.meta.client + ' · ' : '') + (x.meta.name || 'Projeto'),
@@ -14719,7 +14734,7 @@ function painelDestaqueVisao(lista, fechados, r) {
   const bons = (lista || []).filter(x => x && !x.erro && x.ind);
   const pausados = bons.filter(x => ehPausado(x.meta));
   const correndo = bons.filter(x => !ehPausado(x.meta));
-  const cont = { saudavel: 0, atencao: 0, critico: 0, sem: 0 };
+  const cont = { saudavel: 0, atencao: 0, critico: 0, sem: 0, neutro: 0 };
   for (const x of correndo) cont[semaforoDe(x.ind, x.meta).id]++;
   const ativos = bons.length;
   const pc = n => ativos ? fmtNum(100 * n / ativos, 0) + '% dos projetos' : ' ';
