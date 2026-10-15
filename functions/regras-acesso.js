@@ -16,6 +16,82 @@ const EMAIL_OK = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const chave = e => String(e || '').trim().toLowerCase();
 
+/* ---- assentos -------------------------------------------------------------
+   TODA pessoa com acesso ocupa um assento — administrador, gerente, gerente de
+   projetos, leitor e analista. É a régua de cobrança escolhida: um preço por
+   pessoa, sem distinção de papel, que é o mais simples de vender e de explicar.
+
+   Mudar a régua é mudar ESTA lista, e só ela: tirar 'analista' e 'leitor' daqui
+   faz o sistema inteiro voltar a cobrar só por quem trabalha o plano, inclusive
+   as frases que a tela mostra, que são montadas a partir da lista em vez de
+   escritas à mão. `app.src.html` tem a mesma lista, pelo mesmo motivo, e as
+   duas têm de continuar iguais — a daqui é a que vale, porque é a do servidor. */
+const PAPEIS_ASSENTO = ['admin', 'gerente', 'gp', 'leitor', 'analista'];
+const TODOS_OS_PAPEIS = ['admin', 'gerente', 'gp', 'leitor', 'analista'];
+const ROTULO_PAPEL = {
+  admin: 'administrador', gerente: 'gerente da carteira',
+  gp: 'gerente de projetos', leitor: 'leitor', analista: 'analista'
+};
+
+/** Junta nomes com vírgulas e um "e" no fim, como se escreve de verdade. */
+function enumerar(itens) {
+  const l = itens.slice();
+  if (l.length <= 1) return l[0] || '';
+  return l.slice(0, -1).join(', ') + ' e ' + l[l.length - 1];
+}
+
+/** A explicação de quem ocupa assento, montada a partir da lista. Assim a
+ *  frase nunca desmente o código: mudar a régua muda o texto junto. */
+function fraseDosAssentos() {
+  const pagos = TODOS_OS_PAPEIS.filter(p => PAPEIS_ASSENTO.includes(p));
+  const livres = TODOS_OS_PAPEIS.filter(p => !PAPEIS_ASSENTO.includes(p));
+  if (!livres.length) return 'Cada pessoa com acesso ocupa um assento.';
+  return 'Ocupam assento: ' + enumerar(pagos.map(p => ROTULO_PAPEL[p])) + '. '
+    + 'Não ocupam: ' + enumerar(livres.map(p => ROTULO_PAPEL[p])) + '.';
+}
+
+/** Quantos membros ocupam assento. Recebe a lista já lida do banco. */
+function contarAssentos(membros) {
+  return (Array.isArray(membros) ? membros : [])
+    .filter(m => m && m.ativo !== false && PAPEIS_ASSENTO.includes(m.papel)).length;
+}
+
+/* A trava de assentos, em forma de função pura: devolve o motivo da recusa, ou
+   null quando pode passar.
+
+   Vale na CRIAÇÃO de acesso, não na redefinição: quem já usa o sistema tem de
+   poder recuperar a senha mesmo que a empresa esteja acima do limite — o
+   limite pode ter sido baixado depois que as pessoas já estavam dentro, e
+   trancar a recuperação de senha por causa disso puniria o usuário por uma
+   decisão comercial. `limiteAssentos` ausente ou 0 significa sem limite, igual
+   ao `expiraEm`.
+
+   A contagem vem do servidor, NUNCA do campo `usuarios` da empresa: esse campo
+   é escrito pelo navegador do próprio cliente e serve para o painel mostrar
+   quantos são, não para cobrar.
+
+   Falha fechada de propósito: se o limite existe e a contagem não veio, o
+   pedido é recusado em vez de passar. Um controle de cobrança que fica
+   permissivo quando alguém esquece de passar um parâmetro não é controle. */
+function semAssento(p) {
+  const limite = Number((p.org && p.org.limiteAssentos) || 0);
+  if (!limite || p.modo !== 'criar') return null;
+  if (!PAPEIS_ASSENTO.includes(p.membroAlvo && p.membroAlvo.papel)) return null;
+  if (typeof p.assentos !== 'number' || !isFinite(p.assentos))
+    return 'não consegui conferir os assentos desta empresa; tente de novo.';
+  /* O cadastro do alvo já existe quando esta função roda — a tela grava a
+     linha do membro e só depois pede o acesso —, então `assentos` já conta
+     esta pessoa. Por isso a comparação é `>` e não `>=`. */
+  if (p.assentos > limite) {
+    const livres = TODOS_OS_PAPEIS.filter(x => !PAPEIS_ASSENTO.includes(x));
+    return 'o plano desta empresa tem ' + limite + ' assento(s), e ' + (limite > 1 ? 'eles já estão ocupados' : 'ele já está ocupado') + '. '
+      + (livres.length
+         ? 'Cadastre esta pessoa como ' + enumerar(livres.map(x => ROTULO_PAPEL[x])) + ', que não ' + (livres.length > 1 ? 'ocupam' : 'ocupa') + ' assento, ou peça mais assentos a quem contratou o MILEST.'
+         : 'Para cadastrar mais pessoas, peça mais assentos a quem contratou o MILEST.');
+  }
+  return null;
+}
+
 /**
  * @param {object} p
  *   quem      e-mail de quem chama (já confirmado pelo token)
@@ -27,6 +103,9 @@ const chave = e => String(e || '').trim().toLowerCase();
  *   org       orgs/{idxAlvo.orgId} (ou null)
  *   membroQuem  orgs/{org}/members/{quem} (ou null)
  *   membroAlvo  orgs/{org}/members/{alvo} (ou null)
+ *   assentos    quantos membros da empresa ocupam assento HOJE, contados no
+ *               servidor (já incluindo o alvo). Obrigatório quando a empresa
+ *               tem `limiteAssentos`; sem ele o pedido é recusado.
  * @returns {{ok:true, como:'admin'|'plataforma'} | {ok:false, motivo:string}}
  */
 function decidir(p) {
@@ -46,8 +125,13 @@ function decidir(p) {
   const orgViva = p.org.ativo !== false;
   const noPrazo = !p.org.expiraEm || p.agora < p.org.expiraEm;
   if (m && m.ativo !== false && m.papel === 'admin' && orgViva && noPrazo
-      && p.idxQuem && p.idxQuem.orgId === orgId)
-    return { ok: true, como: 'admin' };
+      && p.idxQuem && p.idxQuem.orgId === orgId) {
+    /* A trava de assentos vale aqui, no caminho do cliente. A plataforma, mais
+       abaixo, não passa por ela: é ela que define o limite, e trancá-la no
+       próprio limite impediria até o primeiro administrador de nascer. */
+    const falta = semAssento(p);
+    return falta ? { ok: false, motivo: falta } : { ok: true, como: 'admin' };
+  }
 
   // plataforma: só o administrador que está sendo provisionado
   const souPlataforma = quem === DONO || (p.idxQuem && p.idxQuem.plataforma === true);
@@ -172,4 +256,5 @@ function decidirStatus(p) {
   return { ok: true, orgId };
 }
 
-module.exports = { decidir, decidirExclusao, decidirBackup, decidirPesquisa, decidirStatus, senhaValida, chave, DONO };
+module.exports = { decidir, decidirExclusao, decidirBackup, decidirPesquisa, decidirStatus,
+  senhaValida, chave, DONO, PAPEIS_ASSENTO, TODOS_OS_PAPEIS, contarAssentos, semAssento, fraseDosAssentos };

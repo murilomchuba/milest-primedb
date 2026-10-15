@@ -449,6 +449,31 @@ await caso('leitor NÃO liga o resumo semanal', () =>
   assertFails(updateDoc(doc(conta(CAIO), 'orgs', 'unimed'),
     { resumoSemanal: { ativo: true, para: ['x@y.com'] }, atualizadoEm: Date.now() })));
 
+/* ASSENTOS — a trava que sustenta a cobrança.
+   `limiteAssentos` é o número de assentos pagos que a empresa contratou, e ele
+   NÃO está na lista de campos que o administrador pode escrever. Estes dois
+   casos são a razão de a lista existir: sem eles, um dia alguém acrescenta o
+   campo na lista para "deixar o cliente ver" e a cobrança vira sugestão.
+   É a mesma proteção do `expiraEm`, pelo mesmo motivo. */
+await caso('admin NÃO define o próprio limite de assentos', () =>
+  assertFails(updateDoc(doc(conta(ANA), 'orgs', 'unimed'),
+    { limiteAssentos: 99 })));
+await caso('admin NÃO esconde o limite junto com um campo que ele pode escrever', () =>
+  assertFails(updateDoc(doc(conta(ANA), 'orgs', 'unimed'),
+    { nome: 'Unimed Uberaba', limiteAssentos: 99, atualizadoEm: Date.now() })));
+await caso('plataforma define o limite de assentos', () =>
+  assertSucceeds(updateDoc(doc(conta(PLATAFORMA), 'orgs', 'noprazo'),
+    { limiteAssentos: 5 })));
+/* O número que vira fatura não mora onde o cliente escreve: `medicao/` cai no
+   bloco final das regras, que recusa tudo. Nem a empresa nem a plataforma
+   chegam lá pelo navegador — só o servidor, pelo Admin SDK, como no backup. */
+await caso('admin NÃO lê a medição de assentos', () =>
+  assertFails(getDoc(doc(conta(ANA), 'medicao', '2026-10'))));
+await caso('plataforma NÃO lê a medição pelo navegador', () =>
+  assertFails(getDoc(doc(conta(PLATAFORMA), 'medicao', '2026-10'))));
+await caso('ninguém escreve na medição de assentos', () =>
+  assertFails(setDoc(doc(conta(PLATAFORMA), 'medicao', '2026-10'), { orgs: {} })));
+
 console.log('\nÍNDICE DE CONTAS: OCUPAÇÃO DE E-MAIL');
 // Falha conhecida, de baixa gravidade: um admin aponta para a própria empresa
 // o índice de um e-mail que ainda não entrou no sistema, e o admin legítimo

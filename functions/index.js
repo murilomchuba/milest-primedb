@@ -19,7 +19,8 @@ const { defineSecret } = require('firebase-functions/params');
 const crypto = require('crypto');
 const { setGlobalOptions } = require('firebase-functions/v2');
 const admin = require('firebase-admin');
-const { decidir, decidirExclusao, decidirBackup, decidirPesquisa, decidirStatus, senhaValida, chave } = require('./regras-acesso');
+const { decidir, decidirExclusao, decidirBackup, decidirPesquisa, decidirStatus, senhaValida, chave,
+  PAPEIS_ASSENTO, contarAssentos } = require('./regras-acesso');
 
 admin.initializeApp();
 setGlobalOptions({ region: 'us-central1', maxInstances: 5 });
@@ -48,15 +49,22 @@ exports.acesso = onCall({ cors: ORIGENS }, async (req) => {
   const db = admin.firestore();
   const [idxQuem, idxAlvo] = await Promise.all([ler(db.doc('users/' + quem)), ler(db.doc('users/' + alvo))]);
   const orgId = idxAlvo && idxAlvo.orgId;
-  let org = null, membroQuem = null, membroAlvo = null;
+  let org = null, membroQuem = null, membroAlvo = null, assentos = null;
   if (orgId) {
-    [org, membroQuem, membroAlvo] = await Promise.all([
+    /* A contagem de assentos sai daqui, do servidor, e vem FILTRADA pelos
+       papéis que ocupam assento: numa empresa com 300 analistas isto lê umas
+       poucas linhas, não as 300. O campo `usuarios` da empresa não serve para
+       isto — ele é escrito pelo navegador do próprio cliente. */
+    const [o, mq, ma, assento] = await Promise.all([
       ler(db.doc('orgs/' + orgId)),
       ler(db.doc('orgs/' + orgId + '/members/' + quem)),
-      ler(db.doc('orgs/' + orgId + '/members/' + alvo))
+      ler(db.doc('orgs/' + orgId + '/members/' + alvo)),
+      db.collection('orgs/' + orgId + '/members').where('papel', 'in', PAPEIS_ASSENTO).get()
     ]);
+    org = o; membroQuem = mq; membroAlvo = ma;
+    assentos = contarAssentos(assento.docs.map(d => d.data() || {}));
   }
-  const v = decidir({ quem, alvo, modo, agora: Date.now(), idxQuem, idxAlvo, org, membroQuem, membroAlvo });
+  const v = decidir({ quem, alvo, modo, agora: Date.now(), idxQuem, idxAlvo, org, membroQuem, membroAlvo, assentos });
   if (!v.ok) throw new HttpsError('permission-denied', v.motivo);
 
   const auth = admin.auth();
@@ -531,4 +539,70 @@ exports.resumoAgora = onCall({ cors: ORIGENS, secrets: [RESEND_API_KEY], timeout
   const r = await rodarResumo(pecas);
   console.log('resumoAgora', quem, JSON.stringify(r));
   return r;
+});
+
+/* ============ medição de assentos ============
+   Todo dia o servidor conta quantos assentos pagos cada empresa tem e guarda o
+   MAIOR número do mês em `medicao/{AAAA-MM}`. É de lá que a fatura sai.
+
+   Por que diária e não mensal: um retrato do dia 1º não diria nada sobre a
+   empresa que subiu para 9 assentos no dia 10 e voltou para 3 no dia 28. O mês
+   é cobrado pelo que ele teve.
+
+   E por que medir, já tendo a trava em `regras-acesso.js`: a trava impede o
+   acidente e o atalho — ninguém ganha login de assento acima do limite —, mas
+   o administrador da empresa pode cadastrar alguém como analista e depois
+   trocar o papel para gerente, numa escrita comum. As regras do Firestore não
+   sabem contar documentos de uma coleção, então não há como barrar isso lá.
+   Aqui isso não fica invisível: fica registrado no número de que a fatura sai,
+   com `acima: true`. O controle que não dá para construir como muro existe
+   como medição — que é do que a cobrança precisa de verdade. */
+const { rodarMedicao } = require('./medicao-runner');
+const { excedentes } = require('./medicao');
+
+exports.medicaoDiaria = onSchedule({
+  schedule: '20 6 * * *',
+  timeZone: 'America/Sao_Paulo',
+  memory: '512MiB',
+  timeoutSeconds: 540,
+  retryCount: 1
+}, async () => {
+  let r;
+  try {
+    r = await rodarMedicao({ db: admin.firestore(), hoje: hojeSP(), ler: ref => ler(ref),
+      erro: (...a) => console.error(...a) });
+  } catch (e) {
+    // sem isto o mês fica sem medição e só se descobre na hora de faturar
+    console.error('medicaoDiaria NÃO rodou:', comoTexto(e));
+    throw e;
+  }
+  console.log('medicaoDiaria', JSON.stringify(r));
+});
+
+/* A medição pedida na hora, e a leitura do mês. O painel da plataforma chama
+   esta porta: o documento de `medicao/` é recusado ao navegador pelas regras
+   (bloco final, `allow read, write: if false`), de propósito — o número que
+   vira fatura não mora onde o cliente escreve. Mesma porta do backup: quem
+   opera a plataforma. */
+exports.medicaoAgora = onCall({ cors: ORIGENS, timeoutSeconds: 540, memory: '512MiB' }, async (req) => {
+  const tok = req.auth && req.auth.token;
+  if (!tok || !tok.email || tok.email_verified !== true)
+    throw new HttpsError('unauthenticated', 'entre com uma conta confirmada.');
+  const db = admin.firestore();
+  const quem = chave(tok.email);
+  const idxQuem = await ler(db.doc('users/' + quem));
+  const v = decidirBackup({ quem, idxQuem });
+  if (!v.ok) throw new HttpsError('permission-denied', v.motivo);
+
+  const d = req.data || {};
+  const mes = /^\d{4}-\d{2}$/.test(String(d.mes || '')) ? String(d.mes) : hojeSP().slice(0, 7);
+  let corrida = null;
+  if (d.medirAgora !== false && mes === hojeSP().slice(0, 7)) {
+    try {
+      corrida = await rodarMedicao({ db, hoje: hojeSP(), ler: ref => ler(ref),
+        erro: (...a) => console.error(...a) });
+    } catch (e) { console.error('medicaoAgora:', comoTexto(e)); }
+  }
+  const doc = (await ler(db.doc('medicao/' + mes))) || { mes, orgs: {} };
+  return { mes, corrida, doc, excedentes: excedentes(doc) };
 });

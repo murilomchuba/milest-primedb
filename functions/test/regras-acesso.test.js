@@ -190,3 +190,86 @@ test('o gerente de projetos manda o status do projeto dele', () => {
     membroQuem: { papel: 'gerente', ativo: true }, projeto: { gp: 'helo@unimed.com.br' }
   })).ok, true);
 });
+
+/* ---- assentos -------------------------------------------------------------
+   A trava que sustenta a cobrança por assento. O que estes casos protegem não
+   é a tela: é o fato de a conta ser feita no servidor e o pedido ser recusado
+   quando ela não vem. */
+const { PAPEIS_ASSENTO, contarAssentos, semAssento, fraseDosAssentos } = require('../regras-acesso');
+
+const comLimite = (limite, assentos, papel) => ({
+  ...base(), org: { ativo: true, expiraEm: 0, limiteAssentos: limite },
+  membroAlvo: { papel: papel, senhaProvisoria: true }, assentos: assentos
+});
+
+test('contarAssentos conta todo papel com acesso e só quem está ativo', () => {
+  // a régua de cobrança: um assento por PESSOA, sem distinção de papel
+  assert.deepEqual(PAPEIS_ASSENTO, ['admin', 'gerente', 'gp', 'leitor', 'analista']);
+  assert.equal(contarAssentos([
+    { papel: 'admin', ativo: true }, { papel: 'gerente' }, { papel: 'gp', ativo: true },
+    { papel: 'leitor', ativo: true }, { papel: 'analista', ativo: true },
+    { papel: 'gerente', ativo: false }
+  ]), 5, 'desligado não conta; os outros cinco, sim');
+  // membro sem `ativo` conta: a ausência do campo significa ativo no resto do sistema
+  assert.equal(contarAssentos([{ papel: 'gerente' }]), 1);
+  assert.equal(contarAssentos(null), 0);
+  assert.equal(contarAssentos([null, {}, { papel: '' }]), 0);
+});
+
+test('limite 0 ou ausente não trava nada', () => {
+  assert.equal(ok(comLimite(0, 99, 'gerente')), true);
+  assert.equal(ok({ ...base(), membroAlvo: { papel: 'gerente' }, assentos: 99 }), true);
+});
+
+test('dentro do limite passa, acima recusa', () => {
+  // 3 assentos usados (o alvo já está entre eles) e limite 3: couber é couber
+  assert.equal(ok(comLimite(3, 3, 'gerente')), true);
+  assert.equal(ok(comLimite(3, 4, 'gerente')), false);
+  assert.match(decidir(comLimite(3, 4, 'gp')).motivo, /3 assento/);
+});
+
+test('leitor e analista também ocupam assento', () => {
+  // foi a mudança de régua: antes entravam de graça
+  assert.equal(ok(comLimite(3, 9, 'leitor')), false);
+  assert.equal(ok(comLimite(3, 9, 'analista')), false);
+  assert.equal(ok(comLimite(9, 9, 'analista')), true);
+});
+
+test('a frase da recusa é montada a partir da lista, e não escrita à mão', () => {
+  // com todos os papéis pagos não existe "cadastre como leitor": a frase não
+  // pode oferecer uma saída que não existe mais
+  const m = semAssento(comLimite(3, 4, 'analista'));
+  assert.ok(!/não ocupam? assento/.test(m), m);
+  assert.match(m, /peça mais assentos/);
+  assert.match(fraseDosAssentos(), /Cada pessoa com acesso ocupa um assento/);
+});
+
+test('redefinir senha nunca é travado pelo limite', () => {
+  // o limite pode ter sido BAIXADO depois que as pessoas já estavam dentro;
+  // trancar a recuperação de senha puniria o usuário por decisão comercial
+  assert.equal(ok({ ...comLimite(2, 7, 'gerente'), modo: 'redefinir',
+    membroAlvo: { papel: 'gerente', ultimoAcesso: 1 } }), true);
+});
+
+test('sem a contagem do servidor o pedido FALHA FECHADO', () => {
+  // esquecer de passar `assentos` recusa, em vez de liberar: um controle de
+  // cobrança que vira permissivo por omissão não é controle
+  const sem = { ...comLimite(3, 0, 'gerente') }; delete sem.assentos;
+  assert.equal(ok(sem), false);
+  assert.equal(ok({ ...comLimite(3, 0, 'gerente'), assentos: '3' }), false);
+  assert.equal(ok({ ...comLimite(3, 0, 'gerente'), assentos: NaN }), false);
+});
+
+test('a plataforma não é travada pelo limite que ela mesma define', () => {
+  // senão a primeira administradora de uma empresa de 1 assento não nasceria
+  const plat = { ...comLimite(1, 5, 'admin'), quem: 'mmc.chuba@gmail.com',
+    idxQuem: { plataforma: true }, membroQuem: null };
+  assert.equal(ok(plat), true);
+});
+
+test('semAssento devolve motivo legível, não código', () => {
+  const m = semAssento(comLimite(2, 3, 'gerente'));
+  assert.ok(m && m.length > 40);
+  assert.ok(!/undefined|NaN|\[object/.test(m));
+  assert.equal(semAssento(comLimite(2, 2, 'gerente')), null);
+});
