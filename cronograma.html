@@ -499,6 +499,11 @@ body.soleitura .avisoleitura{display:flex}
 .sem-at{background:var(--warn-soft);color:var(--warn)}
 .sem-at i{background:var(--warn)}
 .sem-cr{background:var(--critical-soft);color:var(--critical)}
+/* Pausado no semáforo: o mesmo cinza-azulado do cartão "Pausados" e do selo
+   da folha de status. Não é bom nem ruim, é parado — e por isso não usa
+   verde, âmbar nem vermelho. */
+.sem-ps{background:color-mix(in srgb,#5B6B7A 15%,transparent);color:#5B6B7A}
+.sem-ps i{background:#5B6B7A}
 .sem-cr i{background:var(--critical)}
 .sem-no{background:var(--surface-3);color:var(--ink-3)}
 .sem-pa{background:var(--warn-soft);color:var(--warn)}
@@ -1129,7 +1134,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-10-15.1851';
+const VERSAO = '2026-10-15.1904';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -5595,7 +5600,7 @@ function renderOverview() {
         chipS.appendChild(document.createTextNode(sem.rot + (sem.forcado ? ' \u270E' : '')));
         chipS.title = sem.forcado ? textoAjusteStatus(sem)
           : sem.id === 'sem' ? SEM_BASES[semBase()].falta
-          : 'Semáforo pelo ' + semBase() + ' (' + SEM_BASES[semBase()].desc + '): saudável de 1,00 para cima; ' +
+          : 'Semáforo pelo ' + semBaseRot() + ' (' + SEM_BASES[semBase()].desc + '): saudável de 1,00 para cima; ' +
             'atenção de 0,80 a 0,99; crítico abaixo de 0,80';
         tds.appendChild(chipS);
       }
@@ -13612,14 +13617,29 @@ function montarImpressao() {
    foi consumido. Quem manda é a operação — dá para trocar na Visão geral, e a
    escolha fica guardada neste navegador. */
 const SEM_BASES = {
+  PIOR: { rot: 'IDP e IDC', desc: 'vale o pior dos dois', falta: 'sem IDP nem IDC para calcular' },
   IDC: { rot: 'IDC', desc: 'entregue ÷ consumido', falta: 'sem horas lançadas para calcular o IDC' },
   IDP: { rot: 'IDP', desc: 'entregue ÷ planejado', falta: 'sem planejado na data de status para comparar' }
 };
+const SEM_BASES_OK = ['PIOR', 'IDC', 'IDP'];
+/** O nome da base como se escreve na tela. `semBase()` devolve a CHAVE
+ *  ('PIOR'), que não se mostra a ninguém. */
+function semBaseRot() { return (SEM_BASES[semBase()] || SEM_BASES.PIOR).rot; }
+/* Padrão: o PIOR dos dois.
+   Sozinho, cada indicador é cego para metade do problema. O IDC mede gasto:
+   um projeto parado gasta pouco e aparece eficiente — foi o que fez o Ouro
+   Safra sair "Saudável" no portal com 3% feito de 100% planejado, enquanto o
+   PDF, que lê aderência, dizia "Crítico". O IDP mede prazo: um projeto no
+   prazo queimando o dobro das horas passa batido.
+
+   Saudável só quando os dois estão bons é a régua que não deixa um esconder
+   o outro, e é a prática comum de PMO. Quem quiser a leitura antiga escolhe
+   IDC ou IDP no seletor; o que não dá é o padrão mentir por omissão. */
 function semBase() {
-  try { const v = localStorage.getItem('milest.semBase'); if (v === 'IDP' || v === 'IDC') return v; } catch (e) { }
-  return 'IDC';
+  try { const v = localStorage.getItem('milest.semBase'); if (SEM_BASES_OK.includes(v)) return v; } catch (e) { }
+  return 'PIOR';
 }
-function semBaseDefinir(v) { try { localStorage.setItem('milest.semBase', v === 'IDP' ? 'IDP' : 'IDC'); } catch (e) { } }
+function semBaseDefinir(v) { try { localStorage.setItem('milest.semBase', SEM_BASES_OK.includes(v) ? v : 'PIOR'); } catch (e) { } }
 /** O seletor da base do semáforo, igual nas duas telas que o mostram. */
 function seletorSemBase(aoTrocar) {
   const cx = el('div');
@@ -13628,8 +13648,8 @@ function seletorSemBase(aoTrocar) {
   rot.style.cssText = 'font-size:11.5px;color:var(--ink-3);white-space:nowrap';
   const sel = el('select', 'inp');
   sel.style.cssText = 'width:auto;min-width:70px;padding:4px 8px';
-  for (const k of ['IDC', 'IDP']) {
-    const o = el('option', '', k + ' — ' + SEM_BASES[k].desc);
+  for (const k of SEM_BASES_OK) {
+    const o = el('option', '', SEM_BASES[k].rot + ' — ' + SEM_BASES[k].desc);
     o.value = k; if (k === semBase()) o.selected = true;
     sel.appendChild(o);
   }
@@ -13669,7 +13689,19 @@ function semaforoPor(v) {
   return { id: 'critico', rot: 'Crítico', cls: 'sem-cr', cor: 'var(--critical)' };
 }
 /** O valor do indicador escolhido, e o semáforo do projeto por ele. */
-function valorSemaforo(ind) { return !ind ? null : (semBase() === 'IDP' ? ind.IDP : ind.IDC); }
+function valorSemaforo(ind) {
+  if (!ind) return null;
+  const b = semBase();
+  if (b === 'IDP') return ind.IDP;
+  if (b === 'IDC') return ind.IDC;
+  /* O pior dos dois. Quando só um existe, vale o que existe — exigir os dois
+     faria o projeto novo, sem horas lançadas, cair em "sem medição" e sumir
+     do semáforo justamente quando ainda dá para corrigir o rumo. */
+  const a = ind.IDP, c = ind.IDC;
+  if (a == null) return c == null ? null : c;
+  if (c == null) return a;
+  return Math.min(a, c);
+}
 /* O ajuste manual vale aqui TAMBÉM, não só na folha do status report.
    As duas bases automáticas do sistema são diferentes de propósito — a folha
    lê aderência, a carteira lê IDP/IDC —, mas a leitura humana tem de valer
@@ -13681,6 +13713,12 @@ function valorSemaforo(ind) { return !ind ? null : (semBase() === 'IDP' ? ind.ID
    medição. Sobrescrever em silêncio é o que torna a prática ruim. */
 function semaforoDe(ind, meta) {
   const auto = semaforoPor(valorSemaforo(ind));
+  /* Pausa é fato, não avaliação, e ganha de tudo — inclusive do ajuste
+     manual. É o que `statusPor` já fazia na folha de status; a carteira
+     ficava sem isso e dava semáforo de desempenho a projeto parado. */
+  if (ehPausado(meta))
+    return { id: 'pausado', rot: ROT_ST.pausado, cls: 'sem-ps', cor: CORES_ST.pausado,
+      pdf: CORES_ST.pausado, pausado: true, autoRot: auto.rot, autoId: auto.id };
   const f = meta && meta.statusManual;
   if (!f) return auto;
   const forc = SEM_ORDEM.find(x => x.id === f);
@@ -13695,14 +13733,15 @@ function semaforoDe(ind, meta) {
 function textoAjusteStatus(sem) {
   if (!sem || !sem.forcado) return '';
   return 'Situação definida por você: ' + sem.rot
-    + ' (pelo ' + semBase() + ' seria ' + sem.autoRot + ')'
+    + ' (pelo ' + semBaseRot() + ' seria ' + sem.autoRot + ')'
     + (sem.motivo ? ' — ' + sem.motivo : '');
 }
 const SEM_ORDEM = [
   { id: 'saudavel', rot: 'Saudável', cls: 'sem-ok', cor: 'var(--ok)', pdf: '#1F8A5B' },
   { id: 'atencao', rot: 'Atenção', cls: 'sem-at', cor: 'var(--warn)', pdf: '#E97132' },
   { id: 'critico', rot: 'Crítico', cls: 'sem-cr', cor: 'var(--critical)', pdf: '#C00000' },
-  { id: 'sem', rot: 'Sem medição', cls: 'sem-no', cor: 'var(--ink-3)', pdf: '#7F7F7F' }
+  { id: 'sem', rot: 'Sem medição', cls: 'sem-no', cor: 'var(--ink-3)', pdf: '#7F7F7F' },
+  { id: 'pausado', rot: 'Pausado', cls: 'sem-ps', cor: '#5B6B7A', pdf: '#5B6B7A' }
 ];
 
 /** Soma o portfólio inteiro. Médias vêm em duas formas: a simples, que a
@@ -13710,7 +13749,7 @@ const SEM_ORDEM = [
  *  totais — um projeto de 20 horas não pode pesar o mesmo que um de 2000. */
 function resumoPortfolio(lista) {
   const bons = (lista || []).filter(x => x && !x.erro && x.ind);
-  const cont = { saudavel: 0, atencao: 0, critico: 0, sem: 0 };
+  const cont = { saudavel: 0, atencao: 0, critico: 0, sem: 0, pausado: 0 };
   let prev = 0, feitas = 0, somaIDP = 0, nIDP = 0, somaIDC = 0, nIDC = 0;
   /* O saldo é líquido: um projeto que economizou 50h anula outro que estourou
      50h e o total aparece zerado, como se não houvesse problema. O estouro é
@@ -14348,16 +14387,19 @@ function pizzasPortfolio(lista, r) {
   p.appendChild(el('h3', '', 'Distribuição do portfólio'));
   const g = el('div', 'pizzas');
 
-  const porSit = { saudavel: [], atencao: [], critico: [], sem: [] };
+  /* `pausado` entra aqui porque `semaforoDe` passou a devolvê-lo: sem a
+     chave, o primeiro projeto parado fazia `porSit[...].push` estourar num
+     undefined e derrubava o painel inteiro. */
+  const porSit = { saudavel: [], atencao: [], critico: [], sem: [], pausado: [] };
   for (const x of (lista || []).filter(x => x && !x.erro && x.ind)) {
     porSit[semaforoDe(x.ind, x.meta).id].push({
       rot: (x.meta.client ? x.meta.client + ' · ' : '') + (x.meta.name || 'Projeto'),
-      det: valorSemaforo(x.ind) == null ? 'sem ' + semBase() : semBase() + ' ' + num2(valorSemaforo(x.ind))
+      det: valorSemaforo(x.ind) == null ? 'sem ' + semBase() : semBaseRot() + ' ' + num2(valorSemaforo(x.ind))
     });
   }
   const fSit = SEM_ORDEM.filter(s => r.cont[s.id] > 0)
     .map(s => ({ rot: s.rot, sub: '', val: r.cont[s.id], cor: s.cor, tinta: '#FFFFFF', itens: porSit[s.id] }));
-  g.appendChild(blocoPizza('Projetos por situação (' + semBase() + ')', fSit, fmtNum(r.n),
+  g.appendChild(blocoPizza('Projetos por situação (' + semBaseRot() + ')', fSit, fmtNum(r.n),
     r.n === 1 ? 'projeto' : 'projetos', 'projeto(s)', 'Nenhum projeto medido ainda.'));
 
   const fPrev = fatiasPorProjeto(lista, 'prev', PZ_AZUL);
@@ -14628,13 +14670,13 @@ function painelDestaqueVisao(lista, fechados, r) {
     sub: fechados.length ? fmtNum(fechados.length) + ' concluído(s) fora da conta' : 'portfólio total' });
   vgCard(l1, { selo: '\u2713', cor: '#2BA55B', valor: fmtNum(cont.saudavel), rotulo: 'Status saudável',
     sub: pc(cont.saudavel), corNum: cont.saudavel ? '#1F8A5B' : null,
-    dica: semBase() + ' a partir de 1,00' });
+    dica: semBaseRot() + ' a partir de 1,00' });
   vgCard(l1, { selo: '!', cor: '#E8A33D', valor: fmtNum(cont.atencao), rotulo: 'Em atenção',
     sub: 'requer monitoramento', corNum: cont.atencao ? '#B0790F' : null,
-    dica: semBase() + ' de 0,80 a 0,99' });
+    dica: semBaseRot() + ' de 0,80 a 0,99' });
   vgCard(l1, { selo: '\u2715', cor: '#D4483E', valor: fmtNum(cont.critico), rotulo: 'Status crítico',
     sub: 'ação imediata', corNum: cont.critico ? '#B3322B' : null,
-    dica: semBase() + ' abaixo de 0,80' });
+    dica: semBaseRot() + ' abaixo de 0,80' });
   vgCard(l1, { selo: '\u23F8', cor: '#5B6B7A', valor: fmtNum(pausados.length), rotulo: 'Pausados',
     sub: pausados.length ? 'fora do semáforo' : 'nenhum parado', corNum: '#5B6B7A' });
   vgCard(l1, { selo: '\u2691', cor: '#3C5466', valor: fmtNum(fechados.length), rotulo: 'Encerrados',
@@ -14758,7 +14800,7 @@ function renderPainel() {
       'Repare na diferença entre os dois cartões de horas: o saldo é líquido, então um projeto que ' +
       'economizou anula outro que estourou e o total pode parecer saudável; “horas excedidas” soma só ' +
       'os estouros, projeto a projeto, sem compensação — é o que de fato foi trabalhado além do contratado. ' +
-      'Acima de 1,00, os dois são boa notícia. O semáforo dos projetos está saindo pelo ' + semBase() +
+      'Acima de 1,00, os dois são boa notícia. O semáforo dos projetos está saindo pelo ' + semBaseRot() +
       '; o seletor no alto desta tela troca para o outro.'));
 
     /* ---- a distribuição, em anéis ---- */
@@ -14817,9 +14859,9 @@ function desenharPainelSVG(lista, LW, LH) {
   /* ---- cartões ---- */
   const cards = [
     ['Projetos', fmtNum(r.n), 'no portfólio', 'var(--ink)'],
-    ['Saudáveis', fmtNum(r.cont.saudavel), semBase() + ' ≥ 1,00', '#1F8A5B'],
-    ['Em atenção', fmtNum(r.cont.atencao), semBase() + ' 0,80–0,99', '#9C6A0E'],
-    ['Críticos', fmtNum(r.cont.critico), semBase() + ' < 0,80', '#C00000'],
+    ['Saudáveis', fmtNum(r.cont.saudavel), semBaseRot() + ' ≥ 1,00', '#1F8A5B'],
+    ['Em atenção', fmtNum(r.cont.atencao), semBaseRot() + ' 0,80–0,99', '#9C6A0E'],
+    ['Críticos', fmtNum(r.cont.critico), semBaseRot() + ' < 0,80', '#C00000'],
     ['Horas previstas', fmtNum(r.prev), r.comHoras + ' projeto(s)', 'var(--ink)'],
     ['Horas consumidas', fmtNum(r.feitas), 'lançadas', 'var(--ink)'],
     ['Saldo', fmtNum(r.saldo), r.saldo < 0 ? 'estourou' : 'disponível', r.saldo < 0 ? '#C00000' : '#1F8A5B'],
@@ -14842,7 +14884,7 @@ function desenharPainelSVG(lista, LW, LH) {
   y += 2 * (ch + gapC) + 10;
 
   /* ---- distribuição ---- */
-  T(M, y, 'PROJETOS POR SITUAÇÃO (' + semBase() + ')', 7.6, 700, 'var(--ink-3)', famMono);
+  T(M, y, 'PROJETOS POR SITUAÇÃO (' + semBaseRot() + ')', 7.6, 700, 'var(--ink-3)', famMono);
   y += 8;
   const totalSem = SEM_ORDEM.reduce((a, s) => a + r.cont[s.id], 0) || 1;
   let bx = M;
@@ -14935,7 +14977,7 @@ function desenharPizzasSVG(lista, LW, LH) {
   const prev = fatiasPorProjeto(lista, 'prev', PZ_AZUL);
   const feit = fatiasPorProjeto(lista, 'feitas', PZ_CIANO);
   const colunas = [
-    { tit: 'PROJETOS POR SITUAÇÃO (' + semBase() + ')',
+    { tit: 'PROJETOS POR SITUAÇÃO (' + semBaseRot() + ')',
       fat: SEM_ORDEM.filter(x => r.cont[x.id] > 0).map(x => ({ rot: x.rot, sub: '', val: r.cont[x.id], cor: x.pdf, tinta: '#FFFFFF' })),
       centro: fmtNum(r.n), rot: r.n === 1 ? 'projeto' : 'projetos', unid: '', vazio: 'Nenhum projeto medido.' },
     { tit: 'HORAS PREVISTAS POR PROJETO', fat: prev.fatias, centro: fmtNum(prev.total), rot: 'horas previstas', unid: 'h',
@@ -15025,7 +15067,7 @@ function desenharListaPortfolioSVG(bloco, pag, totPag, LW, LH) {
   R(0, 0, W, H, CORES_ST.fundo);
 
   T(M, 34, 'Portfólio de Projetos', 21, 700, CORES_ST.tinta);
-  T(M, 52, 'Situação pelo ' + semBase() + ' · consolidado em ' + fmtBR(todayISO()), 10.5, 600, CORES_ST.planejado);
+  T(M, 52, 'Situação pelo ' + semBaseRot() + ' · consolidado em ' + fmtBR(todayISO()), 10.5, 600, CORES_ST.planejado);
   logoEmpresaNoSVG(pg, W - M, 12, 20);
   if (totPag > 1) T(W - M, 52, 'Folha ' + pag + ' de ' + totPag, 9.5, 600, CORES_ST.tinta3, 'end');
   L(M, 62, W - M, 62, CORES_ST.linha, 1.4);
@@ -15091,7 +15133,7 @@ function desenharListaPortfolioSVG(bloco, pag, totPag, LW, LH) {
     somaP - somaF < 0 ? CORES_ST.critico : CORES_ST.saudavel, 'end');
 
   L(M, H - 24, W - M, H - 24, CORES_ST.linha, 1);
-  T(M, H - 11, '* situação definida pela gerência  ·  IDP = realizado ÷ planejado  ·  IDC = entregue ÷ consumido  ·  Situação pelo ' + semBase() +
+  T(M, H - 11, '* situação definida pela gerência  ·  IDP = realizado ÷ planejado  ·  IDC = entregue ÷ consumido  ·  Situação pelo ' + semBaseRot() +
     ': saudável de 1,00 para cima, atenção de 0,80 a 0,99, crítico abaixo  ·  Ativ. = concluídas / total',
     8, 400, CORES_ST.tinta3);
   return pg;
