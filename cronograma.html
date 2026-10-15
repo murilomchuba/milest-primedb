@@ -1134,7 +1134,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-10-15.1904';
+const VERSAO = '2026-10-15.1919';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -1635,6 +1635,11 @@ const LSKEY = 'cronograma.v1';
 function newMeta(name) {
   return {
     name: name || 'Novo projeto', client: '', start: todayISO(),
+    /* De quem é o projeto: de um cliente que paga, ou da própria casa.
+       Nasce 'cliente' porque é a maioria, e porque projeto antigo (sem o
+       campo) é de cliente — `tipoDoProjeto` trata a ausência como 'cliente',
+       então nenhum histórico precisa ser migrado. */
+    tipo: 'cliente',
     workweek: [false, true, true, true, true, true, false],
     holidays: [], hoursPerDay: 8, currency: 'R$',
     statusDate: todayISO(), statusFixa: false, baselineAt: null, updatedAt: Date.now(),
@@ -1873,6 +1878,22 @@ function semPermissao() {
    atividades realizadas, andamento e o cadastro do projeto. Tem de ser
    assim, senão não daria para escrever o status report que explica a pausa
    ao cliente — que é justamente o documento que a pausa exige. */
+/* ---- de quem é o projeto ----
+   Projeto corporativo é da própria empresa: não fatura, mas consome a mesma
+   equipe e as mesmas horas. Separá-lo é o que permite responder "quanto do
+   time está em trabalho interno?", que é a primeira pergunta que vem depois
+   desta. A ausência do campo vale como 'cliente': é o que todo projeto criado
+   antes disto era, e assim nenhum histórico precisa ser tocado. */
+const TIPOS_PROJ = {
+  cliente: { rot: 'Cliente', desc: 'Projeto contratado por um cliente', cor: 'var(--accent)' },
+  corporativo: { rot: 'Corporativo', desc: 'Projeto interno da própria empresa', cor: '#7A5CA8' }
+};
+function tipoDoProjeto(m) {
+  const t = m && m.tipo;
+  return TIPOS_PROJ[t] ? t : 'cliente';
+}
+function ehCorporativo(m) { return tipoDoProjeto(m) === 'corporativo'; }
+
 function ehPausado(m) { return !!(m && m.pausadoEm); }
 function diasDePausa(m) {
   if (!ehPausado(m)) return 0;
@@ -5485,7 +5506,11 @@ function renderOverview() {
   const desenhar = (lista) => {
     corpo.textContent = '';
     if (!lista || !lista.length) { corpo.appendChild(el('div', 'empty', 'Nenhum projeto ainda. Use “＋ Novo projeto”.')); return; }
-    const ativos = soEmAndamento(lista), parados = soPausados(lista), fechados = soEncerrados(lista);
+    /* O filtro de tipo corta ANTES das abas, para os contadores delas
+       mostrarem o que a aba vai realmente exibir. Contador que não bate com a
+       lista embaixo é pior do que contador nenhum. */
+    const noTipo = FILTRO_TIPO ? lista.filter(x => x && x.meta && tipoDoProjeto(x.meta) === FILTRO_TIPO) : lista;
+    const ativos = soEmAndamento(noTipo), parados = soPausados(noTipo), fechados = soEncerrados(noTipo);
     hom = acharHomonimos(lista);      // a conta é da carteira toda: dois homônimos podem estar em abas diferentes
     /* O alternador aparece sempre, mesmo com zero concluídos. Escondê-lo até
        existir o primeiro deixava a funcionalidade invisível justamente para
@@ -5500,6 +5525,25 @@ function renderOverview() {
     bota('ativos', 'Em andamento', ativos.length);
     bota('pausados', 'Pausados', parados.length);
     bota('encerrados', 'Concluídos', fechados.length);
+    /* O filtro de tipo fica FORA das abas de propósito: ele corta na outra
+       direção. "Em andamento" e "Corporativo" são perguntas diferentes, e um
+       seletor dentro do outro faria o usuário perder de vista que está
+       olhando um recorte. */
+    const nTipo = { cliente: 0, corporativo: 0 };
+    for (const x of lista) if (x && x.meta) nTipo[tipoDoProjeto(x.meta)]++;
+    if (nTipo.corporativo) {
+      const ft = el('select', 'btn');
+      ft.style.cssText = 'padding:0 6px;font-size:12px;margin-left:auto';
+      ft.title = 'Mostrar só projetos de cliente, só corporativos, ou todos';
+      for (const [k, r] of [['', 'Todos os tipos (' + lista.length + ')'],
+                            ['cliente', TIPOS_PROJ.cliente.rot + ' (' + nTipo.cliente + ')'],
+                            ['corporativo', TIPOS_PROJ.corporativo.rot + ' (' + nTipo.corporativo + ')']]) {
+        const o = el('option', '', r); o.value = k; if (k === FILTRO_TIPO) o.selected = true;
+        ft.appendChild(o);
+      }
+      ft.addEventListener('change', () => { FILTRO_TIPO = ft.value; desenhar(lista); });
+      nav.appendChild(ft);
+    }
     corpo.appendChild(nav);
     if (hom.nomes) {
       const av = el('div', 'tagline', (hom.nomes === 1
@@ -11590,6 +11634,19 @@ function renderSettings() {
     return i;
   };
   fld('Nome do projeto', mk('text', m.name, v => { m.name = v || 'Projeto'; renderProjectList(); }));
+  fld('Tipo de projeto', (() => {
+    const sel = el('select', 'inp');
+    for (const k of Object.keys(TIPOS_PROJ)) {
+      const o = el('option', '', TIPOS_PROJ[k].rot + ' — ' + TIPOS_PROJ[k].desc);
+      o.value = k; sel.appendChild(o);
+    }
+    sel.value = tipoDoProjeto(m);
+    sel.addEventListener('change', () => {
+      m.tipo = tipoDoProjeto({ tipo: sel.value });
+      markMeta(); renderProjectList(); refresh();
+    });
+    return sel;
+  })());
   fld('Cliente', mk('text', m.client || '', v => { m.client = v; renderProjectList(); }));
   if (ST.comLogin && ST.orgId) montarResponsavel(fld, m, p);
   fld('Início do projeto', mk('date', m.start, v => { if (v) m.start = v.slice(0, 10); }));
@@ -13240,6 +13297,9 @@ async function diBaixarImagem(dia, escopo, tipo) {
 /* ============ orquestração ============ */
 let VIEW = 'overview';
 let ABA_PORT = 'ativos';          // qual lista o Portfólio está mostrando
+/* Qual tipo de projeto a carteira mostra: '' = todos. Mora fora da função
+   para sobreviver ao redesenho da lista, igual ao ABA_PORT. */
+let FILTRO_TIPO = '';
 let toastT = null;
 function toast(msg) {
   const t = $('#toast'); t.textContent = msg; t.classList.add('on');
@@ -18331,9 +18391,30 @@ $('#btnNewProj').addEventListener('click', () => {
   modal('Novo projeto', (body, close) => {
     const f = el('div', 'field'); f.appendChild(el('label', '', 'Nome'));
     const i = el('input', 'inp'); i.value = 'Projeto ' + (ST.projects.length + 1); f.appendChild(i); body.appendChild(f);
-    const fc = el('div', 'field'); fc.appendChild(el('label', '', 'Cliente'));
+    /* O tipo vem ANTES do cliente de propósito: ele muda o que "cliente"
+       quer dizer. Num projeto corporativo o campo deixa de ser o contratante
+       e passa a ser a área que pediu — e o rótulo acompanha, em vez de deixar
+       a pessoa preencher "cliente" com o nome da própria empresa. */
+    const ft = el('div', 'field'); ft.appendChild(el('label', '', 'Tipo de projeto'));
+    const st = el('select', 'inp');
+    for (const k of Object.keys(TIPOS_PROJ)) {
+      const o = el('option', '', TIPOS_PROJ[k].rot + ' — ' + TIPOS_PROJ[k].desc);
+      o.value = k; st.appendChild(o);
+    }
+    ft.appendChild(st); body.appendChild(ft);
+
+    const fc = el('div', 'field'); const rotC = el('label', '', 'Cliente');
+    fc.appendChild(rotC);
     const ic = el('input', 'inp'); ic.placeholder = 'Nome do cliente (aparece na visão geral e no PDF)';
     fc.appendChild(ic); body.appendChild(fc);
+    const ajustarTipo = () => {
+      const corp = st.value === 'corporativo';
+      rotC.textContent = corp ? 'Área ou setor' : 'Cliente';
+      ic.placeholder = corp
+        ? 'Qual área pediu — TI, RH, Comercial (aparece na visão geral e no PDF)'
+        : 'Nome do cliente (aparece na visão geral e no PDF)';
+    };
+    st.addEventListener('change', ajustarTipo); ajustarTipo();
     const f2 = el('div', 'field'); f2.appendChild(el('label', '', 'Início'));
     const i2 = el('input', 'inp'); i2.type = 'date'; i2.value = todayISO(); f2.appendChild(i2); body.appendChild(f2);
     const fgp = el('div', 'field'); fgp.appendChild(el('label', '', 'Gerente responsável'));
@@ -18354,7 +18435,7 @@ $('#btnNewProj').addEventListener('click', () => {
     const b = el('button', 'btn primary', 'Criar');
     b.addEventListener('click', async () => {
       const logo = fLogo.valor(); const gp = chaveEmail(sgp.value); close();
-      await createProject(i.value, i2.value, ic.value.trim(), ir.value.trim(), Number(ih.value) || 0, logo || null, gp);
+      await createProject(i.value, i2.value, ic.value.trim(), ir.value.trim(), Number(ih.value) || 0, logo || null, gp, st.value);
       /* O e-mail sai DEPOIS de o projeto existir no banco: um aviso com link
          para um projeto que ainda não gravou é um link que não abre. */
       if (gp) {
@@ -18367,7 +18448,7 @@ $('#btnNewProj').addEventListener('click', () => {
     body.appendChild(b);
   }, []);
 });
-async function createProject(name, start, cliente, resumo, horasPrev, logo, gp) {
+async function createProject(name, start, cliente, resumo, horasPrev, logo, gp, tipo) {
   if (ST.mode === 'db' && !podeCriarProjeto()) {
     toast(souGP() ? 'Projetos novos são criados pelo escritório, não pelo gerente.' : 'Seu acesso é somente leitura.');
     return;
@@ -18375,6 +18456,7 @@ async function createProject(name, start, cliente, resumo, horasPrev, logo, gp) 
   const pid = uid('p');
   const meta = newMeta(name); meta.start = (start || todayISO()).slice(0, 10);
   meta.client = cliente || '';
+  meta.tipo = TIPOS_PROJ[tipo] ? tipo : 'cliente';
   meta.resumo = resumo || '';
   meta.horasPrev = Math.max(0, Number(horasPrev) || 0);
   meta.gp = chaveEmail(gp || '');
