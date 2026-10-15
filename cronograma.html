@@ -1110,7 +1110,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-10-14.1326';
+const VERSAO = '2026-10-15.1550';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -1710,6 +1710,69 @@ const PAPEIS = {
      recebe não abre o MILEST — abre uma tela só de apontamento. */
   analista: { rot: 'Analista', desc: 'Lança só as próprias horas, nos projetos em que está na equipe. Não vê a carteira.' }
 };
+
+/* ---- assentos ----
+   TODA pessoa com acesso ocupa um assento. É a régua de cobrança: um preço por
+   pessoa, sem distinção de papel.
+
+   É a MESMA lista de `functions/regras-acesso.js`, e tem de continuar sendo: a
+   trava de verdade é lá, no servidor, onde o navegador não alcança. Esta cópia
+   existe só para a tela avisar ANTES — sem ela a pessoa preenche o cadastro
+   inteiro, a linha do membro é gravada e só então o servidor recusa o acesso,
+   deixando um cadastro sem login para alguém entender depois.
+
+   Mudar a régua é mudar as DUAS listas. As frases abaixo são montadas a partir
+   da lista, nunca escritas à mão, para o texto não desmentir o código: tirar
+   'analista' daqui volta a mostrar "analista não ocupa assento" sozinho. */
+const PAPEIS_ASSENTO = ['admin', 'gerente', 'gp', 'leitor', 'analista'];
+const TODOS_OS_PAPEIS = ['admin', 'gerente', 'gp', 'leitor', 'analista'];
+const ocupaAssento = papel => PAPEIS_ASSENTO.includes(papel);
+const papeisLivres = () => TODOS_OS_PAPEIS.filter(p => !PAPEIS_ASSENTO.includes(p));
+
+/** Junta nomes com vírgulas e um "e" no fim, como se escreve de verdade. */
+function enumerarPapeis(ps) {
+  const l = ps.map(p => (PAPEIS[p] || { rot: p }).rot.toLowerCase());
+  if (l.length <= 1) return l[0] || '';
+  return l.slice(0, -1).join(', ') + ' e ' + l[l.length - 1];
+}
+
+/** Quem ocupa assento, em uma frase montada a partir da lista. */
+function fraseDosAssentos() {
+  const livres = papeisLivres();
+  if (!livres.length) return 'Cada pessoa com acesso ocupa um assento, qualquer que seja o papel.';
+  return 'Ocupam assento: ' + enumerarPapeis(TODOS_OS_PAPEIS.filter(ocupaAssento)) + '; '
+    + enumerarPapeis(livres) + ' não ' + (livres.length > 1 ? 'ocupam' : 'ocupa') + '.';
+}
+
+/** Quantos assentos a empresa contratou. 0 = sem limite, igual ao prazo. */
+function limiteAssentos() {
+  return Number((ST.perfil && ST.perfil.limiteAssentos) || 0);
+}
+
+/** Quantos estão ocupados agora. Conta a lista que a tela já tem na mão —
+ *  nunca o campo `usuarios` da empresa, que é um contador de exibição. */
+function assentosUsados(lista) {
+  return (lista || ST.usuarios || [])
+    .filter(m => m && m.ativo !== false && ocupaAssento(m.papel)).length;
+}
+
+/** A frase de um assento que não cabe, ou '' quando cabe. `jaEra` é o papel
+ *  que a pessoa tinha antes (numa edição), para a troca de gerente para
+ *  gerente não consumir um assento novo. */
+function assentoNaoCabe(papel, jaEra) {
+  const limite = limiteAssentos();
+  if (!limite || !ocupaAssento(papel)) return '';
+  if (jaEra && ocupaAssento(jaEra)) return '';
+  const usados = assentosUsados();
+  if (usados < limite) return '';
+  const livres = papeisLivres();
+  return 'O plano desta empresa tem ' + limite + ' assento' + (limite > 1 ? 's' : '') + ', e '
+    + (limite > 1 ? 'eles já estão ocupados' : 'ele já está ocupado') + '. '
+    + (livres.length
+      ? 'Cadastre esta pessoa como ' + enumerarPapeis(livres) + ', que não '
+        + (livres.length > 1 ? 'ocupam' : 'ocupa') + ' assento, ou fale com quem contratou o MILEST.'
+      : 'Para cadastrar mais pessoas, fale com quem contratou o MILEST.');
+}
 /** O gerente de projetos: vê a empresa, mas só a parte dela que é dele. */
 function souGP() {
   return ST.comLogin && !ST.suporte && !!ST.perfil && ST.perfil.papel === 'gp';
@@ -2644,9 +2707,145 @@ function janelaDataStatus() {
 
 /** Salvar linha de base apaga a referência anterior, então quando já existe uma
  *  eu pergunto antes — é a régua de todo o "% planejado" e dos desvios. */
+/* A primeira base: mostrar o que vai ser congelado, e deixar cancelar.
+   O texto diz o que está em jogo sem assustar — congelar cedo não é erro,
+   é erro congelar sem saber que congelou. */
+function modalPrimeiraBase() {
+  modal('Salvar a primeira linha de base', (body, close) => {
+    const sch = ST.sch;
+    const cx = el('div', 'panel'); cx.style.cssText = 'padding:11px 13px;box-shadow:none';
+    const linha = (k, v) => {
+      const d = el('div'); d.style.cssText = 'display:flex;justify-content:space-between;gap:14px;padding:2px 0';
+      const a = el('div', 'hint', k); a.style.margin = '0';
+      const b = el('div', '', v); b.style.cssText = 'font-family:var(--f-mono);font-weight:600';
+      d.appendChild(a); d.appendChild(b); cx.appendChild(d);
+    };
+    const folhas = ST.P.tasks.filter(t => !sch.out.get(t.id).sum);
+    linha('Início', fmtBR(sch.startISO));
+    linha('Término', fmtBR(sch.finishISO));
+    linha('Atividades', fmtNum(folhas.length));
+    body.appendChild(cx);
+    const aviso = el('div', 'hint');
+    aviso.innerHTML = 'É este plano que vira a régua do projeto: daqui para a frente o <b>% planejado</b>, '
+      + 'o desvio de prazo e a curva S passam a ser medidos contra ele.<br><br>'
+      + 'Se o cronograma ainda está sendo montado, cancele e salve quando o plano estiver fechado — '
+      + 'uma base gravada cedo demais faz o projeto parecer atrasado por causa de dias que nunca foram planejados.';
+    body.appendChild(aviso);
+    const l = el('div'); l.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
+    const bN = el('button', 'btn', 'Ainda não'); bN.addEventListener('click', close);
+    const bS = el('button', 'btn primary', 'Congelar este plano');
+    bS.addEventListener('click', () => { close(); saveBaseline(false, 'primeira linha de base'); });
+    l.appendChild(bN); l.appendChild(bS); body.appendChild(l);
+    setTimeout(() => bS.focus(), 30);
+  }, []);
+}
+
+/* Deslocar a base. A prévia mostra as DUAS pontas de propósito: deslocar
+   também move o término da base, e com ele o "no prazo da base". Esconder
+   esse efeito trocaria um número errado por outro, que é pior, porque o
+   segundo parece certo. */
+function modalDeslocarBase() {
+  const r = resumoDaBase();
+  if (!r.tem) { toast('Este projeto ainda não tem linha de base salva.'); return; }
+  modal('Deslocar a linha de base', (body, close) => {
+    const sugerido = diasParaAlinharBase();
+
+    const topo = el('div', 'hint');
+    topo.innerHTML = 'Use quando a base foi gravada a partir do ponto errado — por exemplo, congelada no dia '
+      + 'em que o projeto foi criado, antes de as atividades terem a data certa. '
+      + 'As durações e os intervalos entre atividades são preservados; só a origem muda.<br><br>'
+      + 'Todo o desvio que aconteceu DEPOIS continua visível. Para descartar o desvio e adotar o plano de hoje, '
+      + 'o caminho é <b>Regravar</b>, não este.';
+    body.appendChild(topo);
+
+    const f = el('div', 'field'); f.appendChild(el('label', '', 'Deslocar em (dias úteis)'));
+    const iD = el('input', 'inp'); iD.type = 'number'; iD.step = '1';
+    iD.value = String(sugerido || 0);
+    iD.style.cssText = 'width:120px;text-align:right;font-family:var(--f-mono)';
+    f.appendChild(iD); body.appendChild(f);
+
+    if (sugerido) {
+      const bAl = el('button', 'btn', 'Alinhar ao início do plano (' + (sugerido > 0 ? '+' : '') + sugerido + ')');
+      bAl.style.marginTop = '-4px';
+      bAl.addEventListener('click', () => { iD.value = String(sugerido); atualizar(); });
+      body.appendChild(bAl);
+    }
+
+    const previa = el('div', 'panel');
+    previa.style.cssText = 'padding:11px 13px;box-shadow:none;margin-top:10px';
+    body.appendChild(previa);
+
+    const fm = el('div', 'field'); fm.appendChild(el('label', '', 'Por quê'));
+    const ta = el('textarea', 'inp'); ta.style.minHeight = '62px'; ta.style.resize = 'vertical';
+    ta.placeholder = 'Ex.: a base foi congelada na criação do projeto; as atividades só começavam em 13/10.';
+    fm.appendChild(ta); body.appendChild(fm);
+    body.appendChild(el('div', 'hint',
+      'Fica registrado com a data e o seu nome, no histórico abaixo do painel. A régua do projeto não se move em silêncio.'));
+
+    const l = el('div'); l.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;margin-top:10px';
+    const bC = el('button', 'btn', 'Cancelar'); bC.addEventListener('click', close);
+    const bOk = el('button', 'btn primary', 'Deslocar a base');
+    l.appendChild(bC); l.appendChild(bOk); body.appendChild(l);
+
+    function atualizar() {
+      previa.textContent = '';
+      const n = Math.round(Number(iD.value) || 0);
+      if (!n) {
+        previa.appendChild(el('div', 'hint', 'Informe um número diferente de zero. Positivo empurra a base para a frente; negativo, para trás.'));
+        bOk.disabled = true; return;
+      }
+      const pv = previaDeslocamento(n);
+      const tb = el('table', 'data');
+      const hr = el('tr');
+      for (const c of ['', 'hoje', 'depois']) hr.appendChild(el('th', c === '' ? '' : 'num', c));
+      const th = el('thead'); th.appendChild(hr); tb.appendChild(th);
+      const tbo = el('tbody');
+      const linha = (rot, a, b) => {
+        const tr = el('tr');
+        tr.appendChild(el('td', '', rot));
+        tr.appendChild(el('td', 'num', fmtBR(a)));
+        const td = el('td', 'num', fmtBR(b));
+        if (a !== b) td.style.fontWeight = '700';
+        tr.appendChild(td); tbo.appendChild(tr);
+      };
+      linha('Início da base', pv.antes.inicio, pv.depois.inicio);
+      linha('Término da base', pv.antes.fim, pv.depois.fim);
+      tb.appendChild(tbo); previa.appendChild(tb);
+
+      /* O efeito no indicador que todo mundo olha. */
+      const fimPlano = ST.sch.finishISO;
+      const dAntes = diffDays(pv.antes.fim, fimPlano), dDepois = diffDays(pv.depois.fim, fimPlano);
+      const frase = d => d === 0 ? 'no prazo da base'
+        : (d > 0 ? d + ' dia(s) ATRASADO vs. base' : (-d) + ' dia(s) adiantado vs. base');
+      const ef = el('div', 'hint');
+      ef.style.marginTop = '8px';
+      ef.innerHTML = 'O término do projeto continua em <b>' + fmtBR(fimPlano) + '</b>. '
+        + 'O indicador de prazo passa de “' + frase(dAntes) + '” para <b>“' + frase(dDepois) + '”</b>.';
+      previa.appendChild(ef);
+      bOk.disabled = false;
+    }
+    iD.addEventListener('input', atualizar);
+    atualizar();
+
+    bOk.addEventListener('click', () => {
+      const motivo = String(ta.value || '').trim();
+      if (!motivo) { toast('Escreva por que a base está sendo deslocada.'); ta.focus(); return; }
+      const n = Math.round(Number(iD.value) || 0);
+      if (deslocarLinhaDeBase(n, motivo)) {
+        close();
+        toast('Linha de base deslocada em ' + (n > 0 ? '+' : '') + n + ' dia(s) útil(eis).');
+      }
+    });
+  }, []);
+}
+
 function pedirLinhaDeBase() {
   const m = ST.P.meta;
-  if (!m.baselineAt) return saveBaseline();
+  /* A primeira gravação não perguntava nada: um clique congelava o que
+     estivesse na tela, que num projeto recém-criado costuma ser o plano pela
+     metade — e a partir dali todo desvio passava a ser medido contra ele.
+     Era barato de fazer por engano e caro de descobrir. */
+  if (!m.baselineAt) return modalPrimeiraBase();
   modal('Salvar nova linha de base', (body, close) => {
     const alvo = el('div', 'panel'); alvo.style.padding = '11px 13px'; alvo.style.boxShadow = 'none';
     const q = el('div', '', 'LINHA DE BASE ATUAL');
@@ -2885,14 +3084,131 @@ function janelaReplanejar() {
   }, []);
 }
 
-function saveBaseline(silencioso) {
+/* ============ a linha de base, e como mexer nela ============
+   Até aqui a base só tinha um verbo: regravar. E regravar APAGA a anterior
+   sem deixar rastro — o que é demais para o caso comum de ter congelado o
+   plano cedo demais, e de menos para auditar depois por que os desvios
+   mudaram de um dia para o outro.
+
+   Agora são dois verbos, e a diferença entre eles é o que importa:
+
+   DESLOCAR  — "a base foi gravada a partir do ponto errado". Move todas as
+               barras da base o mesmo tanto de dias úteis, preservando
+               durações e intervalos. Corrige a ORIGEM e mantém visível todo
+               o desvio que aconteceu depois.
+   REGRAVAR  — "o plano mudou, esta é a nova referência". Congela o plano de
+               hoje e, com ele, absorve todo o desvio acumulado — que deixa
+               de existir para os indicadores.
+
+   As duas registram quem fez, quando e por quê. Sem isso, o indicador mais
+   importante do sistema podia ser movido sem deixar rastro. */
+
+/** O que a base diz hoje: início, término e quantas atividades carregam. */
+function resumoDaBase(P) {
+  const proj = P || ST.P, m = proj.meta;
+  const folhas = proj.tasks.filter(t => !(ST.sch && ST.sch.out.get(t.id) || {}).sum);
+  const com = proj.tasks.filter(t => t.bl && t.bl.start && t.bl.finish);
+  let ini = '', fim = '';
+  for (const t of com) {
+    if (!ini || t.bl.start < ini) ini = t.bl.start;
+    if (!fim || t.bl.finish > fim) fim = t.bl.finish;
+  }
+  return { tem: com.length > 0, n: com.length, total: folhas.length || proj.tasks.length,
+           inicio: ini, fim: fim, em: m.baselineAt || '' };
+}
+
+/* Quando começa o TRABALHO, que não é a mesma coisa que quando começa o
+   projeto. `sch.startISO` é a data do cadastro (meta.start); a primeira
+   atividade pode estar semanas depois, e foi exatamente essa diferença que
+   fez o % planejado parecer errado. A base se compara com o trabalho. */
+function inicioDoTrabalho(P, sch) {
+  const proj = P || ST.P, s = sch || ST.sch;
+  let ini = '';
+  for (const t of proj.tasks) {
+    const o = s.out.get(t.id);
+    if (!o || o.sum) continue;
+    if (!ini || o.start < ini) ini = o.start;
+  }
+  return ini || s.startISO;
+}
+
+/** Quantos dias úteis faltam para o início da base bater com o do trabalho. */
+function diasParaAlinharBase() {
+  const r = resumoDaBase();
+  if (!r.tem || !ST.sch) return 0;
+  const cal = ST.sch.cal;
+  return cal.idxF(inicioDoTrabalho()) - cal.idxF(r.inicio);
+}
+
+/** Onde a base FICARIA com um deslocamento de N dias úteis — sem aplicar. */
+function previaDeslocamento(dias) {
+  const r = resumoDaBase();
+  if (!r.tem || !ST.sch) return null;
+  const cal = ST.sch.cal;
+  return {
+    antes: { inicio: r.inicio, fim: r.fim },
+    depois: { inicio: cal.at(cal.idxF(r.inicio) + dias), fim: cal.at(cal.idxB(r.fim) + dias) }
+  };
+}
+
+/* O registro de cada mexida na base. Guarda as duas pontas, antes e depois,
+   porque "a base mudou" sem os números não ajuda ninguém a entender por que
+   o IDP do projeto deu um salto. */
+function registrarBase(tipo, motivo, antes, depois) {
+  const m = ST.P.meta;
+  if (!Array.isArray(m.basesAjustadas)) m.basesAjustadas = [];
+  m.basesAjustadas.push({
+    tipo: tipo, em: todayISO(), quando: Date.now(),
+    por: chaveEmail(ST.userEmail || '') || 'local',
+    motivo: String(motivo || '').slice(0, 300),
+    antes: antes || null, depois: depois || null
+  });
+  /* Vinte chega para auditar e não engorda o documento do projeto, que desce
+     inteiro a cada abertura da carteira. */
+  if (m.basesAjustadas.length > 20) m.basesAjustadas = m.basesAjustadas.slice(-20);
+}
+
+/** Move a base N dias úteis. Positivo empurra para a frente. */
+function deslocarLinhaDeBase(dias, motivo) {
+  if (semPermissao()) return false;
+  const n = Math.round(Number(dias) || 0);
+  if (!n) { toast('Informe quantos dias deslocar.'); return false; }
+  const prev = previaDeslocamento(n);
+  if (!prev) { toast('Este projeto não tem linha de base salva.'); return false; }
+  const cal = ST.sch.cal;
+  for (const t of ST.P.tasks) {
+    if (!t.bl || !t.bl.start || !t.bl.finish) continue;
+    t.bl = Object.assign({}, t.bl, {
+      start: cal.at(cal.idxF(t.bl.start) + n),
+      finish: cal.at(cal.idxB(t.bl.finish) + n)
+    });
+    markTask(t.id);
+  }
+  registrarBase('deslocada', motivo, prev.antes, prev.depois);
+  markMeta();
+  ST.portfolio = null; ST.portfolioEm = 0; esquecerCarteira();
+  refresh();
+  return true;
+}
+
+function saveBaseline(silencioso, motivo) {
   const now = todayISO();
+  /* O retrato de ANTES tem de ser tirado antes de sobrescrever: depois do
+     laço abaixo a base anterior já não existe em lugar nenhum. */
+  const r = resumoDaBase();
+  const antes = r.tem ? { inicio: r.inicio, fim: r.fim } : null;
   for (const t of ST.P.tasks) {
     const o = ST.sch.out.get(t.id);
     t.bl = { start: o.start, finish: o.finish, dur: o.D, cost: o.cost, work: o.work };
     markTask(t.id);
   }
-  ST.P.meta.baselineAt = now; markMeta(); refresh();
+  ST.P.meta.baselineAt = now;
+  const d = resumoDaBase();
+  registrarBase(antes ? 'regravada' : 'criada', motivo, antes,
+    { inicio: d.inicio, fim: d.fim });
+  markMeta();
+  ST.portfolio = null; ST.portfolioEm = 0; esquecerCarteira();
+  refresh();
   if (!silencioso) toast('Linha de base salva em ' + fmtBR(now) + '.');
 }
 
@@ -8816,6 +9132,7 @@ async function carregarPerfil() {
         perfil.resumoSemanal = (org.resumoSemanal && typeof org.resumoSemanal === 'object') ? org.resumoSemanal : null;
         perfil.avisoHoras = (org.avisoHoras && typeof org.avisoHoras === 'object') ? org.avisoHoras : null;
         perfil.plano = org.plano || '';
+        perfil.limiteAssentos = Number(org.limiteAssentos || 0);
         perfil.expiraEm = org.expiraEm || 0;
         perfil.expirado = !!(perfil.expiraEm && Date.now() >= perfil.expiraEm);
         ST.db.doc(dOrg(perfil.orgId) + '/members/' + chaveEmail(email))
@@ -9331,7 +9648,12 @@ function renderUsuarios() {
       tbody.appendChild(l);
     }
     tb.appendChild(tbody); corpo.appendChild(tb);
-    corpo.appendChild(el('div', 'tagline', lista.length + ' conta(s) nesta empresa.'));
+    const lim = limiteAssentos(), usados = assentosUsados(lista);
+    corpo.appendChild(el('div', 'tagline', lista.length + ' conta(s) nesta empresa'
+      + (lim
+        ? ' · ' + usados + ' de ' + lim + ' assento(s) em uso'
+          + (usados > lim ? ' (acima do contratado)' : '') + '. ' + fraseDosAssentos()
+        : '.')));
   };
 
   if (ST.usuarios) { desenhar(ST.usuarios); return; }
@@ -9408,6 +9730,27 @@ function modalUsuario(atual, sugestao) {
     sel.value = (atual && PAPEIS[atual.papel]) ? atual.papel : (sug.analista ? 'analista' : 'leitor');
     f3.appendChild(sel); body.appendChild(f3);
 
+    /* O aviso de assento. É gentileza, não segurança: quem confere de verdade
+       é a função `acesso`, no servidor, que conta os membros lá e recusa.
+       Existe para a pessoa descobrir antes de preencher o resto — e para o
+       caminho da PROMOÇÃO ter uma porta: trocar o papel de um analista para
+       gerente é uma escrita comum no cadastro do membro, que as regras do
+       Firestore não sabem contar (elas não contam documentos de coleção).
+       Essa troca aparece na medição diária do servidor, de onde sai a fatura. */
+    const avisoAss = el('div', 'hint'); avisoAss.style.marginTop = '-4px';
+    body.appendChild(avisoAss);
+    const papelAntes = editando ? (atual && atual.papel) : '';
+    const conferirAssento = () => {
+      const limite = limiteAssentos();
+      const msg = assentoNaoCabe(sel.value, papelAntes);
+      if (msg) { avisoAss.textContent = '⚠ ' + msg; avisoAss.style.color = 'var(--critical)'; return; }
+      avisoAss.style.color = '';
+      avisoAss.textContent = (limite && ocupaAssento(sel.value))
+        ? 'Ocupa assento: ' + assentosUsados() + ' de ' + limite + ' em uso nesta empresa.'
+        : (limite ? 'Este papel não ocupa assento.' : '');
+    };
+    sel.addEventListener('change', conferirAssento); conferirAssento();
+
     /* o vínculo com o cronograma — só faz sentido para quem lança hora */
     const f4 = el('div', 'field');
     f4.appendChild(el('label', '', 'Pessoa no cronograma'));
@@ -9456,6 +9799,8 @@ function modalUsuario(atual, sugestao) {
       const senhaU = iSenhaU ? iSenhaU.value.trim() : '';
       if (senhaU && senhaU.length < 6) { toast('A senha inicial precisa ter pelo menos 6 caracteres.'); return; }
       const nome = iNo.value.trim() || email.split('@')[0];
+      const naoCabe = assentoNaoCabe(sel.value, papelAntes);
+      if (naoCabe) { toast(naoCabe); return; }
       /* resolver o recurso ANTES de fechar: se a criação do recurso falhar, a
          pessoa ainda está olhando a janela e pode decidir o que fazer. */
       let recursoId = '';
@@ -9591,7 +9936,7 @@ function idDeOrg(nome) {
   return base + '-' + Math.random().toString(36).slice(2, 6);
 }
 
-async function criarEmpresa(nome, cnpj, emailDono, nomeDono, plano, expiraEm) {
+async function criarEmpresa(nome, cnpj, emailDono, nomeDono, plano, expiraEm, limiteAssentos) {
   const id = idDeOrg(nome), email = chaveEmail(emailDono);
   // a empresa do próprio operador nasce marcada: é a única em que ele pode
   // se cadastrar, e a marca deixa isso registrado no dado
@@ -9600,6 +9945,11 @@ async function criarEmpresa(nome, cnpj, emailDono, nomeDono, plano, expiraEm) {
     await ST.db.doc(dOrg(id)).set({
       nome: nome, cnpj: cnpj || '', plano: plano || 'Padrão', ativo: true,
       expiraEm: expiraEm || 0,
+      /* Assentos contratados. Como o `expiraEm`, este campo é só da
+         plataforma: ele NÃO está na lista de campos que o administrador da
+         empresa pode escrever, nas regras do Firestore. 0 = sem limite.
+         Quem confere de verdade é a função `acesso`, no servidor. */
+      limiteAssentos: Number(limiteAssentos || 0),
       // espaço da assinatura: quem preenche, mais adiante, é o webhook do
       // gateway de pagamento. Nascem vazios de propósito — a tela e as regras
       // já sabem lidar com isso, então ligar a cobrança vira preencher campos.
@@ -9727,6 +10077,17 @@ function modalEditarEmpresa(org) {
     sp.value = ['Avaliação', 'Padrão', 'Corporativo'].includes(org.plano) ? org.plano : 'Padrão';
     fp.appendChild(sp); body.appendChild(fp);
 
+    const fa = el('div', 'field'); fa.appendChild(el('label', '', 'Assentos contratados'));
+    const ia = el('input', 'inp'); ia.type = 'number'; ia.min = '0'; ia.step = '1';
+    ia.value = String(Number(org.limiteAssentos || 0));
+    fa.appendChild(ia); body.appendChild(fa);
+    /* Quantos estão ocupados AGORA, contados aqui e não lidos do campo
+       `usuarios`: aquele contador é escrito pelo navegador do próprio cliente.
+       A linha aparece preenchida quando a leitura dos membros volta, abaixo. */
+    const notaA = el('div', 'hint'); notaA.style.marginTop = '-4px';
+    notaA.textContent = 'Conferindo quantos assentos estão ocupados…';
+    body.appendChild(notaA);
+
     const fo = el('div', 'field'); fo.appendChild(el('label', '', 'Observações'));
     const iObs = el('textarea', 'inp'); iObs.value = org.observacoes || '';
     iObs.placeholder = 'Contato, combinados comerciais, o que você quiser lembrar depois';
@@ -9740,6 +10101,7 @@ function modalEditarEmpresa(org) {
       + ' · Criada em ' + (org.criadoEm ? new Date(org.criadoEm).toLocaleDateString('pt-BR') : '—')
       + ' · ' + (org.projetos == null ? '—' : org.projetos) + ' projeto(s)'
       + ' · ' + (org.usuarios == null ? '—' : org.usuarios) + ' usuário(s)'
+      + ' · ' + (Number(org.limiteAssentos || 0) ? org.limiteAssentos + ' assento(s)' : 'assentos sem limite')
       + ' · ' + (org.ativo === false ? 'suspensa' : 'ativa')
       + ' · ' + (dias == null ? 'sem prazo' : (dias <= 0 ? 'prazo vencido' : 'faltam ' + dias + ' dia(s)'));
     body.appendChild(ficha);
@@ -9749,12 +10111,24 @@ function modalEditarEmpresa(org) {
     body.appendChild(contatos);
     (ST.db ? ST.db.collection(dOrg(org.id) + '/members').get() : Promise.reject())
       .then(q => {
-        const adms = q.docs.map(d => d.data() || {}).filter(m => m.papel === 'admin' && m.ativo !== false);
+        const todos = q.docs.map(d => d.data() || {});
+        const adms = todos.filter(m => m.papel === 'admin' && m.ativo !== false);
         contatos.textContent = adms.length
           ? 'Administrador(es): ' + adms.map(m => (m.nome ? m.nome + ' <' + m.email + '>' : m.email)).join(', ')
           : 'Esta empresa não tem administrador ativo.';
+        const usados = todos.filter(m => m.ativo !== false && ocupaAssento(m.papel)).length;
+        const lim = Number(org.limiteAssentos || 0);
+        notaA.textContent = (lim
+          ? usados + ' de ' + lim + ' assento(s) ocupado(s)'
+            + (usados > lim ? ' — ACIMA do contratado.' : '.')
+          : usados + ' assento(s) ocupado(s); esta empresa está sem limite.')
+          + ' ' + fraseDosAssentos()
+          + ' Baixar o limite não desliga ninguém: trava o próximo cadastro.';
       })
-      .catch(() => { contatos.textContent = 'Não consegui ler a lista de administradores.'; });
+      .catch(() => {
+        contatos.textContent = 'Não consegui ler a lista de administradores.';
+        notaA.textContent = 'Não consegui contar os assentos ocupados.';
+      });
 
     const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;margin-top:10px';
     const bC = el('button', 'btn', 'Cancelar'); bC.addEventListener('click', close);
@@ -9766,6 +10140,7 @@ function modalEditarEmpresa(org) {
       try {
         await ST.db.doc(dOrg(org.id)).update({
           nome: nome, cnpj: iCnpj.value.trim(), plano: sp.value,
+          limiteAssentos: Math.max(0, Math.round(Number(ia.value || 0))),
           observacoes: iObs.value.trim(), atualizadoEm: Date.now()
         });
         close(); ST.orgs = null; renderPlataforma();
@@ -10720,6 +11095,20 @@ function modalEmpresa() {
     for (const v of ['Avaliação', 'Padrão', 'Corporativo']) { const o = el('option', '', v); o.value = v; sp.appendChild(o); }
     sp.value = 'Avaliação'; fp.appendChild(sp); body.appendChild(fp);
 
+    const fa = el('div', 'field'); fa.appendChild(el('label', '', 'Assentos incluídos'));
+    const ia = el('input', 'inp'); ia.type = 'number'; ia.min = '0'; ia.step = '1'; ia.value = '3';
+    fa.appendChild(ia); body.appendChild(fa);
+    const notaA = el('div', 'hint'); notaA.style.marginTop = '-4px'; body.appendChild(notaA);
+    const explicarAssentos = () => {
+      const n = Number(ia.value || 0);
+      notaA.textContent = n
+        ? 'Quantas pessoas desta empresa podem ter acesso ao MILEST. ' + fraseDosAssentos()
+          + ' O ' + (n === 1 ? 'único assento é o do' : 'primeiro assento é o do')
+          + ' administrador que você está cadastrando agora.'
+        : 'Sem limite de assentos. Use para contrato por mensalidade fixa.';
+    };
+    ia.addEventListener('input', explicarAssentos); explicarAssentos();
+
     const fpz = el('div', 'field'); fpz.appendChild(el('label', '', 'Prazo de acesso'));
     const spz = el('select', 'inp');
     for (const [rot, dias] of [['7 dias', 7], ['15 dias', 15], ['30 dias', 30], ['Sem prazo', 0]]) {
@@ -10747,7 +11136,8 @@ function modalEmpresa() {
       close();
       const dias = Number(spz.value);
       const expira = dias ? Date.now() + dias * 86400000 : 0;
-      const id = await criarEmpresa(nome, iCnpj.value.trim(), email, iDono.value.trim(), sp.value, expira);
+      const id = await criarEmpresa(nome, iCnpj.value.trim(), email, iDono.value.trim(), sp.value, expira,
+        Math.max(0, Math.round(Number(ia.value || 0))));
       if (id) {
         ST.orgs = null; renderPlataforma();
         await provisionarAcesso(email, null, {
@@ -11049,6 +11439,118 @@ function montarResponsavel(fld, m, painel) {
   painel.appendChild(cauda);
 }
 
+/* O painel da linha de base. Antes isto era uma linha de texto dizendo a data
+   em que ela foi salva — e era só isso que o sistema contava sobre a régua
+   com que mede todos os desvios. Quem precisasse descobrir que a base começa
+   uma semana antes do plano tinha de ir ao Gantt procurar a barrinha. */
+function painelLinhaDeBase() {
+  const p = el('div', 'panel');
+  p.appendChild(el('h3', '', 'Linha de base'));
+  const m = ST.P.meta, r = resumoDaBase(), sch = ST.sch, ed = podeEditar();
+
+  if (!r.tem) {
+    p.appendChild(el('div', 'empty', 'Nenhuma linha de base salva.'));
+    p.appendChild(el('div', 'tagline',
+      'Sem base, o % planejado é medido pelo plano atual — ou seja, o projeto nunca aparece fora do prazo. '
+      + 'Salve uma quando o cronograma estiver fechado.'));
+    if (ed) {
+      const b = el('button', 'btn primary reqedit', 'Salvar linha de base');
+      b.addEventListener('click', pedirLinhaDeBase);
+      const d = el('div'); d.style.marginTop = '8px'; d.appendChild(b); p.appendChild(d);
+    }
+    return p;
+  }
+
+  /* As duas réguas lado a lado. É a comparação que explica, sozinha, por que
+     o % realizado pode estar abaixo do planejado num projeto que termina na
+     data certa: o começo das duas não é o mesmo. */
+  const tb = el('table', 'data');
+  const hr = el('tr');
+  for (const c of [['', ''], ['linha de base', 'num'], ['plano de hoje', 'num'], ['', 'num']]) hr.appendChild(el('th', c[1], c[0]));
+  const th = el('thead'); th.appendChild(hr); tb.appendChild(th);
+  const tbo = el('tbody');
+  const cal = sch.cal;
+  const linha = (rot, a, b) => {
+    const tr = el('tr');
+    tr.appendChild(el('td', '', rot));
+    tr.appendChild(el('td', 'num', fmtBR(a)));
+    tr.appendChild(el('td', 'num', fmtBR(b)));
+    const du = cal.idxF(b) - cal.idxF(a);
+    const td = el('td', 'num', du === 0 ? '—' : (du > 0 ? '+' : '') + du + ' du');
+    if (du !== 0) td.style.fontWeight = '700';
+    tr.appendChild(td); tbo.appendChild(tr);
+  };
+  const iniTrab = inicioDoTrabalho();
+  linha('Início', r.inicio, iniTrab);
+  linha('Término', r.fim, sch.finishISO);
+  tb.appendChild(tbo); p.appendChild(tb);
+
+  p.appendChild(el('div', 'tagline',
+    'Salva em ' + fmtBR(r.em || m.baselineAt) + ' · ' + fmtNum(r.n) + ' de ' + fmtNum(r.total) + ' atividades. '
+    + 'O “plano de hoje” começa na PRIMEIRA ATIVIDADE, não na data de cadastro do projeto.'));
+
+  /* A confusão que origina quase toda dúvida sobre o % planejado. */
+  if (m.start && iniTrab && m.start !== iniTrab) {
+    const dd = cal.idxF(iniTrab) - cal.idxF(m.start);
+    p.appendChild(el('div', 'hint',
+      'O projeto está cadastrado com início em ' + fmtBR(m.start) + ', mas a primeira atividade só começa em '
+      + fmtBR(iniTrab) + ' — ' + dd + ' dia(s) útil(eis) depois. Isso sozinho não afeta o % planejado '
+      + '(que mede pela base), mas muda o INÍCIO e a DURAÇÃO no topo da tela. '
+      + 'Se a data de cadastro estiver errada, corrija em Projeto → Início do projeto, acima.'));
+  }
+
+  const desalinho = diasParaAlinharBase();
+  if (desalinho) {
+    const av = el('div', 'hint');
+    av.style.color = 'var(--critical)';
+    av.textContent = 'A base começa ' + Math.abs(desalinho) + ' dia(s) útil(eis) '
+      + (desalinho > 0 ? 'ANTES' : 'DEPOIS') + ' do plano. '
+      + (desalinho > 0
+        ? 'Enquanto for assim, o % planejado cobra dias em que o plano não previa trabalho nenhum — '
+          + 'e o projeto aparece atrasado por causa deles.'
+        : 'O % planejado está cobrando menos do que deveria.');
+    p.appendChild(av);
+  }
+
+  if (ed) {
+    const acs = el('div'); acs.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;margin-top:10px';
+    const bD = el('button', 'btn reqedit', '⇄ Deslocar a base');
+    bD.title = 'Move a base inteira, preservando durações. Corrige a origem sem apagar o desvio.';
+    bD.addEventListener('click', modalDeslocarBase);
+    const bR = el('button', 'btn reqedit', '⟳ Regravar com o plano de hoje');
+    bR.title = 'Congela o plano atual como nova base. Apaga o desvio acumulado.';
+    bR.addEventListener('click', pedirLinhaDeBase);
+    acs.appendChild(bD); acs.appendChild(bR); p.appendChild(acs);
+    p.appendChild(el('div', 'tagline',
+      'Deslocar corrige a ORIGEM e mantém o desvio visível. Regravar adota o plano de hoje e, com ele, '
+      + 'apaga o desvio acumulado — quem regrava toda vez que atrasa nunca enxerga que atrasa.'));
+  }
+
+  /* O histórico. Mexer na régua dos indicadores passa a deixar rastro. */
+  const h = Array.isArray(m.basesAjustadas) ? m.basesAjustadas.slice().reverse() : [];
+  if (h.length) {
+    p.appendChild(el('h3', '', 'Histórico da base'));
+    const t2 = el('table', 'data');
+    const r2 = el('tr');
+    for (const c of [['Quando', 'num'], ['O quê', ''], ['De', 'num'], ['Para', 'num'], ['Quem', ''], ['Por quê', '']]) r2.appendChild(el('th', c[1], c[0]));
+    const h2 = el('thead'); h2.appendChild(r2); t2.appendChild(h2);
+    const b2 = el('tbody');
+    const faixa = x => x ? fmtBR(x.inicio) + ' → ' + fmtBR(x.fim) : '—';
+    for (const x of h.slice(0, 12)) {
+      const tr = el('tr');
+      tr.appendChild(el('td', 'num', fmtBR(x.em)));
+      tr.appendChild(el('td', '', x.tipo || '—'));
+      tr.appendChild(el('td', 'num', faixa(x.antes)));
+      tr.appendChild(el('td', 'num', faixa(x.depois)));
+      tr.appendChild(el('td', '', x.por || '—'));
+      tr.appendChild(el('td', '', x.motivo || '—'));
+      b2.appendChild(tr);
+    }
+    t2.appendChild(b2); p.appendChild(t2);
+  }
+  return p;
+}
+
 function renderSettings() {
   const host = $('#setView'); host.textContent = '';
   const m = ST.P.meta;
@@ -11097,8 +11599,8 @@ function renderSettings() {
     ? 'Com custos ligados, a curva S mede valor agregado em dinheiro (VP, VA, CR, IDC, ENT).'
     : 'Sem custos, some tudo que é dinheiro da tela e a curva S mede avanço físico: cada atividade pesa pela duração em dias úteis.'));
   p.appendChild(el('div', 'tagline', 'Versão da aplicação: ' + VERSAO + '. Se o número aqui for diferente do que você acabou de publicar, a página está em cache — recarregue com Shift + F5 (ou Cmd + Shift + R).'));
-  p.appendChild(el('div', 'tagline', m.baselineAt ? 'Linha de base salva em ' + fmtBR(m.baselineAt) + '. Salvar de novo substitui a referência de prazo e custo.' : 'Nenhuma linha de base salva. Salve uma quando o plano estiver aprovado para medir desvios.'));
   host.appendChild(p);
+  host.appendChild(painelLinhaDeBase());
 
   // ---- histórico de replanejamentos
   const rps = Array.isArray(m.replanejamentos) ? m.replanejamentos : [];
@@ -14681,14 +15183,22 @@ function horasDoProjeto() {
   return m.horas;
 }
 
-function atualizarResumoHoras() {
-  const l = horasDoProjeto();
-  ST.P.meta.horasResumo = {
-    feitas: l.reduce((a, x) => a + (horaVale(x) ? (Number(x.h) || 0) : 0), 0),
-    n: l.filter(horaVale).length,
-    pendentes: l.filter(x => x && x.estado === 'pendente').length,
+/* O resumo, calculado num lugar só. A aba Horas chama com a lista que tem na
+   mão; o apontamento chama com a lista que acabou de ler do banco. Duas contas
+   iguais escritas em dois lugares viram duas contas diferentes com o tempo —
+   e a que diverge é a que a carteira mostra. */
+function resumoDeHoras(l) {
+  const lista = Array.isArray(l) ? l : [];
+  return {
+    feitas: lista.reduce((a, x) => a + (horaVale(x) ? (Number(x.h) || 0) : 0), 0),
+    n: lista.filter(horaVale).length,
+    pendentes: lista.filter(x => x && x.estado === 'pendente').length,
     atualizadoEm: Date.now()
   };
+}
+
+function atualizarResumoHoras() {
+  ST.P.meta.horasResumo = resumoDeHoras(horasDoProjeto());
   /* Toda hora que entra, sai ou é decidida passa por aqui. É o ponto único
      onde dá para conferir as faixas sem depender de alguém abrir a carteira. */
   checarAvisosDaqui();
@@ -16223,6 +16733,16 @@ function renderHoras() {
         node.addEventListener('change', () => {
           if (semPermissao()) { renderHoras(); return; }
           x[campo] = conv ? conv(node.value) : node.value;
+          /* O lançamento é um DOCUMENTO em projects/{pid}/horas, não um campo
+             do cabeçalho do projeto. `markMeta()` sozinho marcava só o
+             cabeçalho: a edição aparecia na tela, nada era gravado, e ao
+             reabrir o projeto o valor antigo voltava do banco. Era o bug de
+             "lancei e depois voltou". Marcar o documento é o que o salva. */
+          if (ST.mode === 'db') dirty.horas.add(x.id);
+          /* E o total do cabeçalho tem de seguir junto: é ele, e não a coleção,
+             que a carteira lê. Sem esta linha a tela mostrava o número novo e o
+             Portfólio continuava no velho. */
+          atualizarResumoHoras();
           markMeta(); ST.portfolio = null; ST.portfolioEm = 0; esquecerCarteira();
           if (campo === 'h' || campo === 'data') { renderHoras(); renderKPIs(); }
         });
@@ -18007,7 +18527,15 @@ async function abrirApontamento(deNovo) {
   try {
     AP.projetos = await apMeusProjetos();
     AP.erro = ''; AP.tentativas = 0;
-    if (AP.projetos.length) await apAbrirProjeto(AP.projetos[0].pid);
+    /* Reabrir SEMPRE no primeiro projeto jogava fora a escolha de quem tem
+       mais de um. A pessoa selecionava o projeto B, lançava hora, saía da
+       tela e voltava — e a tela reabria no projeto A, mostrando as horas
+       DELE. Parece que o lançamento sumiu e que "voltaram as horas antigas",
+       mas são as horas de outro projeto: as dela continuam gravadas no B.
+       Guardar a escolha é o que faz a tela voltar onde estava. */
+    const antes = AP.pid;
+    const aindaTem = antes && AP.projetos.some(p => p.pid === antes);
+    if (AP.projetos.length) await apAbrirProjeto(aindaTem ? antes : AP.projetos[0].pid);
   } catch (e) {
     if (apErroDeIndice(e)) {
       AP.tentativas = (AP.tentativas || 0) + 1;
@@ -18099,18 +18627,53 @@ function apMinhasTarefas() {
   return folhas.filter(t => (t.res || []).some(a => a && a.rid === meu));
 }
 
+/* Quem lança a própria hora e também seria quem aprova não precisa aprovar.
+   O espelho disto está no firestore.rules: lá, `editaOrg` (administrador e
+   gerente da carteira) grava o lançamento com QUALQUER estado, e a exigência
+   de nascer pendente vale só para o ramo do analista. O gerente de projetos
+   fica de fora de propósito — as regras não o deixam escolher o estado, então
+   prometer aceite aqui só produziria uma recusa do banco. */
+function apLancaAceito() {
+  const p = papelAtual();
+  return p === 'admin' || p === 'gerente';
+}
+
+/* A carteira não abre projeto: ela lê o total gravado no cabeçalho. Então uma
+   hora lançada por aqui só chega ao portfólio se ESTE total for refeito — e
+   era isto que faltava. Relê a coleção e recalcula, em vez de somar por cima
+   do número velho: somar acumula erro a cada falha de rede, e o número do
+   portfólio é o que vai para a diretoria.
+   Só para quem pode gravar o cabeçalho do projeto; para o analista as regras
+   recusariam, e com razão. */
+async function apRefazerResumo(pid) {
+  if (!apLancaAceito()) return;
+  const base = 'orgs/' + ST.orgId + '/projects/' + pid;
+  try {
+    const snap = await ST.db.collection(base + '/horas').get();
+    const resumo = resumoDeHoras((snap.docs || []).map(d => d.data() || {}));
+    await ST.db.doc(base).set({ horasResumo: resumo }, { merge: true });
+    ST.portfolio = null; ST.portfolioEm = 0; esquecerCarteira();
+  } catch (e) {
+    /* A hora já está gravada; só o total do cabeçalho ficou para trás. Abrir
+       o projeto uma vez o conserta, então isto não vira erro na cara de
+       ninguém — vira registro para quem for investigar. */
+    console.warn('apontamento: não refiz o resumo de horas', (e && e.message) || e);
+  }
+}
+
 async function apLancar(reg) {
   if (AP.salvando) return false;
   const eu = chaveEmail(ST.userEmail || '');
   const r = Object.assign({
     id: uid('h'), data: todayISO(), pessoa: nomeDeExibicao(eu), pessoaEmail: eu,
     recursoId: (apProjeto() || {}).recursoId || '', tid: '', h: 0, obs: '',
-    estado: 'pendente', criadoEm: Date.now(), criadoPor: eu
+    estado: apLancaAceito() ? 'aceito' : 'pendente', criadoEm: Date.now(), criadoPor: eu
   }, reg || {});
   AP.salvando = true;
   try {
     await ST.db.doc('orgs/' + ST.orgId + '/projects/' + AP.pid + '/horas/' + r.id).set(r);
     AP.horas.push(r);
+    await apRefazerResumo(AP.pid);
     return true;
   } catch (e) {
     toast(apMotivo(e));
@@ -18121,6 +18684,7 @@ async function apLancar(reg) {
 async function apRegravar(x) {
   try {
     await ST.db.doc('orgs/' + ST.orgId + '/projects/' + AP.pid + '/horas/' + x.id).set(Object.assign({}, x));
+    await apRefazerResumo(AP.pid);
     return true;
   } catch (e) { toast(apMotivo(e)); return false; }
 }
@@ -18129,6 +18693,7 @@ async function apApagar(x) {
   try {
     await ST.db.doc('orgs/' + ST.orgId + '/projects/' + AP.pid + '/horas/' + x.id).delete();
     const i = AP.horas.indexOf(x); if (i >= 0) AP.horas.splice(i, 1);
+    await apRefazerResumo(AP.pid);
     return true;
   } catch (e) { toast(apMotivo(e)); return false; }
 }

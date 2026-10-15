@@ -8,3 +8,4 @@ regras/firestore-debug.log
 regras/saida-testes.txt
 regras/firestore.rules
 .fuse_hidden*
+_to_delete/
