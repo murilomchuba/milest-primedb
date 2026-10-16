@@ -1185,7 +1185,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-10-16.1843';
+const VERSAO = '2026-10-16.1858';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -15739,8 +15739,8 @@ function renderPainel() {
   acoes.appendChild(seletorSemBase(() => renderPainel()));
   const bAtu = el('button', 'btn', 'Atualizar');
   bAtu.addEventListener('click', () => { ST.portfolioEm = 0; renderPainel(); });
-  const bPdf = el('button', 'btn', 'PDF');
-  bPdf.title = 'Capa, a Visão geral e, se você quiser, o status report de cada projeto';
+  const bPdf = el('button', 'btn primary', '📄 PDF do portfólio');
+  bPdf.title = 'Capa, indicadores, avanço por projeto, a lista do Portfólio e o status report de cada projeto';
   bPdf.addEventListener('click', () => {
     if (!ST.portfolio) { toast('Espere os projetos carregarem.'); return; }
     janelaPDFPortfolio();
@@ -16028,6 +16028,82 @@ function desenharCapaSVG(titulo, dataISO, LW, LH) {
 }
 /** A aba Portfólio em folha: as mesmas colunas da tela, na mesma ordem.
  *  Uma folha a cada POR_FOLHA projetos. */
+/** A folha de avanço por projeto, que faltava no PDF do portfólio.
+ *  Na tela o avanço é um anel por projeto; no papel vira barra de marcador em
+ *  duas colunas — mesma informação, mas dezoito projetos cabem numa folha e
+ *  os anéis não caberiam seis. A ordem é a que o usuário escolheu na tela: o
+ *  PDF tem de sair como a tela estava quando ele mandou gerar. */
+function desenharAvancoSVG(bloco, pag, totPag, LW, LH) {
+  const W = LW || 960, H = LH || 540, M = 22;
+  const pg = sv('svg', { xmlns: SVGNS, viewBox: '0 0 ' + W + ' ' + H, width: W, height: H });
+  const T = (x, y, t, fs, peso, cor, anc, larg) => {
+    const e = sv('text', { x: x, y: y, 'font-size': fs, 'font-weight': peso || 400, fill: cor, 'font-family': FONTE_ST });
+    if (anc) e.setAttribute('text-anchor', anc);
+    e.textContent = t == null ? '' : String(t);
+    if (larg && medirTexto(e.textContent, fs, peso, FONTE_ST) > larg) {
+      e.setAttribute('textLength', larg.toFixed(1)); e.setAttribute('lengthAdjust', 'spacingAndGlyphs');
+    }
+    pg.appendChild(e); return e;
+  };
+  const R = (x, y, w, h, f, rx) => pg.appendChild(sv('rect', Object.assign(
+    { x: x, y: y, width: Math.max(0, w), height: Math.max(0, h), fill: f }, rx ? { rx: rx } : {})));
+  const L = (x1, y1, x2, y2, c, w) => pg.appendChild(sv('line', { x1: x1, y1: y1, x2: x2, y2: y2, stroke: c, 'stroke-width': w || 1 }));
+  const pct1 = v => (v == null || isNaN(v)) ? '—' : (Math.round(v * 10) / 10).toFixed(1).replace('.', ',') + '%';
+
+  R(0, 0, W, H, CORES_ST.fundo);
+  T(M, 34, 'Avanço por projeto', 21, 700, CORES_ST.tinta);
+  T(M, 52, 'Consolidado em ' + fmtBR(todayISO()), 10.5, 600, CORES_ST.planejado);
+  logoEmpresaNoSVG(pg, W - M, 12, 20);
+  if (totPag > 1) T(W - M, 52, 'Folha ' + pag + ' de ' + totPag, 9.5, 600, CORES_ST.tinta3, 'end');
+  L(M, 62, W - M, 62, CORES_ST.linha, 1.4);
+
+  /* a legenda desenhada, e não escrita: quem lê o papel não tem tooltip */
+  let lx = M;
+  R(lx, 72, 16, 7, CORES_ST.realizado, 3.5); lx += 21;
+  T(lx, 79, 'realizado', 8.4, 400, CORES_ST.tinta2); lx += medirTexto('realizado', 8.4, 400, FONTE_ST) + 14;
+  L(lx + 3, 69, lx + 3, 82, CORES_ST.planejado, 2); lx += 11;
+  T(lx, 79, 'onde deveria estar na data de status', 8.4, 400, CORES_ST.tinta2);
+  lx += medirTexto('onde deveria estar na data de status', 8.4, 400, FONTE_ST) + 14;
+  if (bloco.some(x => ehPausado(x.meta))) {
+    R(lx, 72, 16, 7, CORES_ST.pausado, 3.5); lx += 21;
+    T(lx, 79, 'pausado', 8.4, 400, CORES_ST.tinta2);
+  }
+
+  /* As colunas se equilibram em vez de encher a primeira: com nove projetos,
+     9 e 0 deixa metade da folha em branco e parece defeito; 5 e 4 usa a
+     página. O teto de 9 por coluna é o que cabe antes do rodapé. */
+  const GAP = 30, colW = (W - 2 * M - GAP) / 2, ALT = 46, y0 = 104;
+  const POR_COL = Math.min(9, Math.max(1, Math.ceil(bloco.length / 2)));
+  bloco.forEach((x, i) => {
+    const bx = M + Math.floor(i / POR_COL) * (colW + GAP), by = y0 + (i % POR_COL) * ALT;
+    const nome = (x.meta.client ? x.meta.client + ' · ' : '') + (x.meta.name || 'Projeto');
+    const real = Math.max(0, Math.min(100, (x.ind && x.ind.real) || 0));
+    const plan = x.ind && x.ind.plan && x.ind.plan.pct != null ? Math.max(0, Math.min(100, x.ind.plan.pct)) : null;
+    const pausado = ehPausado(x.meta);
+    const cor = pausado ? CORES_ST.pausado : CORES_ST.realizado;
+
+    T(bx, by, nome, 9.6, 600, CORES_ST.tinta, null, colW - 54);
+    T(bx + colW, by, pct1(real), 11.5, 700, cor, 'end');
+    R(bx, by + 8, colW, 9, CORES_ST.caixa, 4.5);
+    if (real > 0) R(bx, by + 8, colW * real / 100, 9, cor, 4.5);
+    if (plan != null) { const px = bx + colW * plan / 100; L(px, by + 5, px, by + 20, CORES_ST.planejado, 2); }
+
+    const hp = (x.ind && x.ind.horas) || {}, hPrev = Number(hp.prev) || 0, hFeitas = Number(hp.feitas) || 0;
+    const partes = [plan == null ? 'sem planejado' : 'planejado ' + pct1(plan)];
+    /* Sem previsto cadastrado não existe percentual de horas — e escrever 0%
+       ali diria "não gastou nada", que é o oposto de "não sei". */
+    if (hPrev > 0) partes.push('horas ' + pct1(100 * hFeitas / hPrev) + ' de ' + fmtNum(hPrev) + ' h');
+    else if (hFeitas > 0) partes.push(fmtNum(hFeitas) + ' h lançadas, sem previsto');
+    if (pausado) partes.push('pausado');
+    T(bx, by + 32, partes.join('   ·   '), 8.3, 400, CORES_ST.tinta3, null, colW);
+  });
+
+  T(M, H - 10, 'A distância entre a ponta da barra e o traço é o atraso — ou o adiantamento, quando a barra passa dele.',
+    6.8, 400, CORES_ST.tinta3);
+  T(W - M, H - 10, 'MILEST ' + VERSAO, 6.2, 400, CORES_ST.tinta3, 'end');
+  return pg;
+}
+
 function desenharListaPortfolioSVG(bloco, pag, totPag, LW, LH) {
   const W = LW || 960, H = LH || 540, M = 22;
   const pg = sv('svg', { xmlns: SVGNS, viewBox: '0 0 ' + W + ' ' + H, width: W, height: H });
@@ -16124,9 +16200,9 @@ function janelaPDFPortfolio() {
   const comAtiv = lista.filter(it => it && it.P && !it.erro && it.ind && it.ind.folhas > 0);
   modal('Apresentação do portfólio', (body, close) => {
     body.appendChild(el('div', 'hint',
-      'Sai um PDF em 16:9: a capa da empresa com o título que você escrever, a Visão geral em duas folhas ' +
-      '(indicadores e distribuição), a lista do Portfólio com todas as colunas e, se você quiser, ' +
-      'a folha de status de cada projeto na sequência.'));
+      'Sai um PDF em 16:9: a capa da empresa com o título que você escrever, os indicadores da carteira, ' +
+      'o avanço de cada projeto, a distribuição, a lista do Portfólio com todas as colunas — tudo com o ' +
+      'semáforo pelo ' + semBaseRot() + ' — e, se você quiser, a folha de status de cada projeto na sequência.'));
 
     const f = el('div', 'field');
     f.appendChild(el('label', '', 'Título da capa'));
@@ -16144,9 +16220,9 @@ function janelaPDFPortfolio() {
       lb.appendChild(r); lb.appendChild(cx); esc2.appendChild(lb);
       return r;
     };
-    const rTudo = op('tudo', 'Visão geral + Portfólio + status report de cada projeto',
+    const rTudo = op('tudo', 'Visão geral + avanço + Portfólio + status report de cada projeto',
       comAtiv.length + ' projeto(s) com atividades entram, um por folha, em ordem de cliente.', true);
-    op('so', 'Somente a Visão geral', 'Capa, as duas folhas de indicadores e a lista do Portfólio.', false);
+    op('so', 'Somente a Visão geral', 'Capa, indicadores, avanço por projeto, distribuição e a lista do Portfólio.', false);
     body.appendChild(esc2);
 
     const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
@@ -16171,7 +16247,17 @@ async function gerarPDFPortfolio(titulo, comStatus) {
     }
     const folhas = [];
     folhas.push(await svgParaJPEG(desenharCapaSVG(titulo, todayISO(), W, H), W, H, 2.2, 0.9));
-    for (const pg of [desenharPainelSVG(lista, W, H), desenharPizzasSVG(lista, W, H)]) {
+    /* A ordem das folhas é a ordem da tela: indicadores, avanço por projeto,
+       distribuição. O PDF tem de sair como a Visão estava quando ele pediu. */
+    const medidos = lista.filter(it => it && !it.erro && it.ind);
+    const ordAv = ORDENS_AV[ordemAvanco()].fn;
+    const emOrdem = ordAv ? medidos.slice().sort(ordAv) : medidos;
+    const POR_AV = 18, avBlocos = [];
+    for (let i = 0; i < emOrdem.length; i += POR_AV) avBlocos.push(emOrdem.slice(i, i + POR_AV));
+    const telas = [desenharPainelSVG(lista, W, H)];
+    avBlocos.forEach((b, i) => telas.push(desenharAvancoSVG(b, i + 1, avBlocos.length, W, H)));
+    telas.push(desenharPizzasSVG(lista, W, H));
+    for (const pg of telas) {
       resolverVarsDOM(pg);
       folhas.push(await svgParaJPEG(pg, W, H, 2.4, 0.92));
     }
