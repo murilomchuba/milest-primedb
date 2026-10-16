@@ -755,6 +755,21 @@ exports.enviarMudanca = onCall({ cors: ORIGENS, secrets: [RESEND_API_KEY], timeo
     respondidoEm: null, resposta: null
   });
 
+  /* O que é só nosso NÃO vai no documento do cliente. `formularios/{token}`
+     tem `allow get: if true` — quem tem o link lê o documento inteiro, e
+     "prioridade: baixa" ou "alternativas descartadas" lidos pelo cliente
+     fazem um estrago que nenhuma tela conserta depois. Então o lado interno
+     mora na subcoleção do projeto, onde só a empresa entra. */
+  const i = (d.mudanca || {}).interno || {};
+  await db.doc(`orgs/${orgId}/projects/${pid}/mudancas/${token}`).set({
+    codigo, token, titulo: mudanca.titulo, enviadaPor: quem, enviadaEm: agora,
+    solicitante: corte(i.solicitante, 160),
+    prioridade: ['urgente', 'alta', 'media', 'baixa'].includes(i.prioridade) ? i.prioridade : 'media',
+    alternativas: corte(i.alternativas, 4000),
+    recursos: corte(i.recursos, 4000),
+    dependencias: corte(i.dependencias, 4000)
+  });
+
   const chaveApi = (RESEND_API_KEY.value() || '').trim();
   const saida = [];
   for (const dest of d.destinatarios) {

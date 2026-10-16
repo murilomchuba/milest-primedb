@@ -933,6 +933,7 @@ body.embutido .view{height:100%}
     <button class="tab" role="tab" data-view="raci" aria-selected="false">RACI</button>
     <button class="tab" role="tab" data-view="horas" aria-selected="false" id="tabHoras">Horas</button>
     <button class="tab" role="tab" data-view="status" aria-selected="false">Status</button>
+    <button class="tab" role="tab" data-view="formularios" aria-selected="false">Formulários</button>
     <button class="tab" role="tab" data-view="diario" aria-selected="false">Diário</button>
     <button class="tab" role="tab" data-view="docs" aria-selected="false">Documentos</button>
     <button class="tab" role="tab" data-view="curve" aria-selected="false">Curva S</button>
@@ -1023,6 +1024,7 @@ body.embutido .view{height:100%}
 <div class="view" id="view-raci"><div class="scrollview" id="raciView"></div></div>
 <div class="view" id="view-horas"><div class="scrollview" id="hrView"></div></div>
 <div class="view" id="view-status"><div class="scrollview" id="stView"></div></div>
+<div class="view" id="view-formularios"><div class="scrollview" id="fmView"></div></div>
 <div class="view" id="view-diario"><div class="scrollview" id="diView"></div></div>
 <div class="view" id="view-docs"><div class="scrollview" id="docsView"></div></div>
 <div class="view" id="view-curve"><div class="scrollview" id="curveView"></div></div>
@@ -1177,7 +1179,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-10-16.1748';
+const VERSAO = '2026-10-16.1758';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -9348,6 +9350,7 @@ const ABAS_ESCONDIVEIS = [
   { id: 'raci', rot: 'RACI', desc: 'Quem faz, responde, é consultado e informado' },
   { id: 'horas', rot: 'Horas', desc: 'Horas previstas, lançadas e o aceite' },
   { id: 'status', rot: 'Status', desc: 'O conteúdo do status report' },
+  { id: 'formularios', rot: 'Formulários', desc: 'Pesquisa de satisfação e aceite de mudança de escopo' },
   { id: 'diario', rot: 'Diário', desc: 'O acompanhamento do dia a dia e as tabelas' },
   { id: 'docs', rot: 'Documentos', desc: 'Arquivos anexados ao projeto' },
   { id: 'curve', rot: 'Curva S', desc: 'Avanço físico previsto contra realizado' },
@@ -13384,6 +13387,7 @@ function refresh() {
   else if (VIEW === 'raci') renderRACI();
   else if (VIEW === 'horas') renderHoras();
   else if (VIEW === 'status') renderStatusReport();
+  else if (VIEW === 'formularios') renderFormularios();
   else if (VIEW === 'diario') renderDiario();
   else if (VIEW === 'docs') renderDocumentos();
   else if (VIEW === 'curve') renderCurve();
@@ -13399,7 +13403,7 @@ function setView(v) {
   document.querySelectorAll('.tab').forEach(b => b.setAttribute('aria-selected', String(b.dataset.view === v)));
   document.querySelectorAll('.view').forEach(x => x.classList.toggle('on', x.id === 'view-' + v));
   $('#toolbar').style.display = v === 'schedule' ? '' : 'none';
-  $('#kpis').style.display = (v === 'overview' || v === 'kpi' || v === 'canvas' || v === 'kickoff' || v === 'docs' || v === 'diario' || v === 'users' || v === 'plataforma') ? 'none' : '';
+  $('#kpis').style.display = (v === 'overview' || v === 'kpi' || v === 'canvas' || v === 'kickoff' || v === 'docs' || v === 'diario' || v === 'formularios' || v === 'users' || v === 'plataforma') ? 'none' : '';
   refresh();
 }
 
@@ -14391,6 +14395,339 @@ async function bootPesquisa() {
 }
 
 
+
+/* ============ aba Formulários ============
+   O que o cliente assina mora junto: a pesquisa de satisfação e o aceite de
+   mudança de escopo. Os dois saem por link público, sem login, e os dois
+   voltam como registro — é a mesma família, e estavam em telas diferentes
+   só por acidente de ordem de construção.                                */
+function renderFormularios() {
+  const host = $('#fmView'); host.textContent = '';
+  if (!(ST.mode === 'db' && ST.comLogin && ST.orgId)) {
+    const p = el('div', 'panel');
+    p.appendChild(el('h3', '', 'Formulários'));
+    p.appendChild(el('div', 'empty', 'Os formulários dependem de conta e empresa: eles criam links públicos no servidor.'));
+    host.appendChild(p); return;
+  }
+  const desenhar = lista => {
+    host.textContent = '';
+    host.appendChild(painelMudancas(lista));
+    host.appendChild(painelPesquisas(lista));
+  };
+  const agora = Date.now();
+  if (ST.portfolio && agora - (ST.portfolioEm || 0) < 60000) { desenhar(ST.portfolio); return; }
+  const esperando = el('div', 'panel');
+  esperando.appendChild(el('div', 'empty', 'Carregando projetos…'));
+  host.appendChild(esperando);
+  carregarPortfolio().then(lista => {
+    ST.portfolio = lista; ST.portfolioEm = Date.now();
+    if (VIEW === 'formularios') desenhar(lista);
+  }).catch(() => {
+    host.textContent = '';
+    const p = el('div', 'panel'); p.appendChild(el('div', 'empty', 'Não consegui carregar os projetos.')); host.appendChild(p);
+  });
+}
+
+const EST_MUD = {
+  aprovado:  { rot: 'Aprovado', cor: 'var(--ok)' },
+  rejeitado: { rot: 'Não aprovado', cor: 'var(--critical)' },
+  conversar: { rot: 'Quer conversar', cor: 'var(--warn)' }
+};
+function estadoMudanca(m) {
+  if (m.respondidoEm) return EST_MUD[(m.resposta || {}).decisao] || { rot: 'Respondido', cor: 'var(--ink-2)' };
+  if (Date.now() >= (m.expiraEm || 0)) return { rot: 'Venceu sem resposta', cor: 'var(--ink-3)' };
+  return { rot: 'Aguardando', cor: 'var(--accent)' };
+}
+/* fmtBR devolve 16/10/26. Aqui não serve: estas datas entram na cópia
+   congelada do aceite, que pode ser lida anos depois e é a única prova do
+   que o cliente aprovou. Ano de dois dígitos ali é ambiguidade de graça. */
+function dataLonga(iso) {
+  const t = String(iso || '');
+  return /^\d{4}-\d{2}-\d{2}/.test(t) ? t.slice(8, 10) + '/' + t.slice(5, 7) + '/' + t.slice(0, 4) : fmtBR(t);
+}
+function moedaBR(v) {
+  try { return 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+  catch (e) { return 'R$ ' + (v || 0); }
+}
+
+function painelMudancas(lista) {
+  const p = el('div', 'panel');
+  const cab = el('h3', '', 'Aceite de mudança de escopo');
+  cab.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap';
+  const acoes = el('div'); acoes.style.cssText = 'display:flex;gap:7px;flex-wrap:wrap;align-items:center';
+  const sel = el('select', 'btn'); sel.style.cssText = 'padding:0 6px;font-size:12px;max-width:260px';
+  const ativos = (lista || []).filter(x => x && !x.erro);
+  for (const x of ativos) {
+    const o = el('option', '', (x.meta.client ? x.meta.client + ' · ' : '') + (x.meta.name || 'Projeto'));
+    o.value = x.id; sel.appendChild(o);
+  }
+  const bN = el('button', 'btn primary', '＋ Nova solicitação');
+  bN.disabled = !podeEditar() || !ativos.length;
+  bN.addEventListener('click', () => {
+    const x = ativos.find(y => y.id === sel.value) || ativos[0];
+    if (x) modalEnviarMudanca(x);
+  });
+  acoes.appendChild(sel); acoes.appendChild(bN); cab.appendChild(acoes);
+  p.appendChild(cab);
+  const corpo = el('div'); corpo.style.padding = '6px 16px 14px'; p.appendChild(corpo);
+  corpo.appendChild(el('div', 'tagline', 'Carregando…'));
+
+  ST.db.collection(cFormularios()).get().then(snap => {
+    corpo.textContent = '';
+    const todas = snap.docs.map(d => Object.assign({ token: d.id }, d.data() || {}))
+      .filter(m => m.tipo === 'mudanca')
+      .sort((a, b) => (b.enviadaEm || 0) - (a.enviadaEm || 0));
+    const nome = pid => { const x = ativos.find(y => y.id === pid); return x ? (x.meta.name || 'Projeto') : '(projeto fora da lista)'; };
+    if (!todas.length) {
+      corpo.appendChild(el('div', 'empty', 'Nenhuma mudança enviada ainda. Escolha o projeto ao lado e abra uma solicitação.'));
+      corpo.appendChild(el('div', 'tagline', 'O cliente recebe um link, lê o que muda e o que custa, e responde sem precisar de conta. ' +
+        'A hora do aceite vem do relógio do servidor, e o documento aceita uma resposta só.'));
+      return;
+    }
+    const resp = todas.filter(m => m.respondidoEm), apr = todas.filter(m => (m.resposta || {}).decisao === 'aprovado');
+    corpo.appendChild(el('div', 'tagline', 'Carteira: ' + todas.length + ' solicitação(ões) · ' +
+      resp.length + ' respondida(s) · ' + apr.length + ' aprovada(s)'));
+    const tb = el('table', 'data');
+    const th = el('thead'), trh = el('tr');
+    for (const c of ['Projeto', 'CR', 'O que muda', 'Prazo', 'Horas', 'Valor', 'Estado', '']) trh.appendChild(el('th', '', c));
+    th.appendChild(trh); tb.appendChild(th);
+    const tbody = el('tbody');
+    for (const m of todas) {
+      const mu = m.mudanca || {}, e = estadoMudanca(m);
+      const l = el('tr');
+      l.appendChild(el('td', '', nome(m.projetoId)));
+      l.appendChild(el('td', '', m.codigo || '—'));
+      l.appendChild(el('td', '', mu.titulo || '—'));
+      l.appendChild(el('td', 'num', mu.dias ? '+' + mu.dias + ' du' : '—'));
+      l.appendChild(el('td', 'num', mu.horas ? '+' + mu.horas + ' h' : '—'));
+      l.appendChild(el('td', 'num', mu.valor ? moedaBR(mu.valor) : '—'));
+      const tdE = el('td'); const pt = el('b', '', e.rot); pt.style.color = e.cor; tdE.appendChild(pt);
+      l.appendChild(tdE);
+      const tdA = el('td'); tdA.style.cssText = 'white-space:nowrap;text-align:right';
+      const bV = el('button', 'btn', 'Ver');
+      bV.addEventListener('click', () => modalVerMudanca(m, nome(m.projetoId)));
+      tdA.appendChild(bV); l.appendChild(tdA);
+      tbody.appendChild(l);
+    }
+    tb.appendChild(tbody); corpo.appendChild(tb);
+    corpo.appendChild(el('div', 'tagline', 'O cliente responde sem conta no MILEST. A hora do aceite vem do relógio do servidor, ' +
+      'o texto aprovado fica congelado no registro, e o link aceita uma resposta só.'));
+  }).catch(e => {
+    corpo.textContent = '';
+    corpo.appendChild(el('div', 'tagline', 'Não consegui ler as mudanças: ' + ((e && e.message) || 'erro')));
+  });
+  return p;
+}
+
+function modalEnviarMudanca(x) {
+  const sch = computeSchedule(x.P);
+  const hs = horasDe(x.P);
+  const fimISO = sch.finishISO;
+  const maisTarde = dias => { try { return sch.cal.at(sch.cal.idxF(fimISO) + Math.max(0, Math.round(dias) || 0)); } catch (e) { return fimISO; } };
+
+  modal('Solicitação de mudança — ' + (x.meta.name || 'Projeto'), (body, close) => {
+    body.appendChild(el('div', 'hint', 'O que estiver marcado como interno fica no MILEST e não entra no documento do cliente. ' +
+      'O número do CR, a data e o estado o sistema preenche sozinho.'));
+
+    const campo = (rot, tag, cfg) => {
+      const f = el('div', 'field'); f.appendChild(el('label', '', rot));
+      const i = el(tag, 'inp'); Object.assign(i, cfg || {});
+      f.appendChild(i); body.appendChild(f); return i;
+    };
+    const titulo = campo('Título breve', 'input', { maxLength: 160, placeholder: 'Inclusão do gateway de pagamento Pix' });
+    const desc = campo('O que muda', 'textarea', { rows: 3, maxLength: 4000 });
+    const just = campo('Por que a mudança é necessária', 'textarea', { rows: 2, maxLength: 4000 });
+    const escopo = campo('Entregas afetadas (uma por linha)', 'textarea', { rows: 3, maxLength: 4000 });
+
+    const fi = el('div', 'field'); fi.appendChild(el('label', '', 'Impacto'));
+    const grade = el('div'); grade.style.cssText = 'display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px';
+    const nDias = el('input', 'inp'); nDias.type = 'number'; nDias.min = '0'; nDias.value = '0';
+    const nHoras = el('input', 'inp'); nHoras.type = 'number'; nHoras.min = '0'; nHoras.value = '0';
+    const nValor = el('input', 'inp'); nValor.type = 'number'; nValor.min = '0'; nValor.step = '0.01'; nValor.value = '0';
+    for (const par of [['Prazo (dias úteis)', nDias], ['Esforço (horas)', nHoras], ['Investimento (R$)', nValor]]) {
+      const c = el('div');
+      const l = el('div', '', par[0]); l.style.cssText = 'font-size:11.5px;color:var(--ink-2);margin-bottom:3px';
+      c.appendChild(l); c.appendChild(par[1]); grade.appendChild(c);
+    }
+    fi.appendChild(grade); body.appendChild(fi);
+    /* A conta é do MILEST, não do gestor. Ele digita o acréscimo; o término
+       novo sai do calendário do projeto, com feriados e semana de trabalho. */
+    const conta = el('div', 'hint');
+    const recontar = () => {
+      const d = Math.max(0, Math.round(Number(nDias.value) || 0));
+      const h = Math.max(0, Number(nHoras.value) || 0);
+      conta.textContent = 'Com ' + d + ' dia(s) útil(eis), o término vai de ' + dataLonga(fimISO) + ' para ' +
+        dataLonga(maisTarde(d)) + (hs.prev > 0 ? ', e as horas previstas de ' + hs.prev + ' h para ' + (hs.prev + h) + ' h' : '') + '.';
+    };
+    nDias.addEventListener('input', recontar); nHoras.addEventListener('input', recontar); recontar();
+    body.appendChild(conta);
+
+    const riscos = campo('Riscos que a mudança traz (um por linha)', 'textarea', { rows: 2, maxLength: 4000 });
+    const seNao = campo('Se o cliente não aprovar', 'input', { maxLength: 4000 });
+    seNao.value = 'O projeto segue o plano atual, com término em ' + dataLonga(fimISO) + '.';
+
+    const sepI = el('div', '', 'Só interno — não vai ao cliente');
+    sepI.style.cssText = 'font-weight:600;font-size:12.5px;margin:14px 0 2px;color:var(--ink-2);border-top:1px solid var(--line);padding-top:12px';
+    body.appendChild(sepI);
+    const solic = campo('Quem pediu', 'input', { maxLength: 160, placeholder: 'Helena Prado — Diretora de TI' });
+    const fp = el('div', 'field'); fp.appendChild(el('label', '', 'Prioridade'));
+    const prio = el('select', 'inp');
+    for (const par of [['urgente', 'Urgente'], ['alta', 'Alta'], ['media', 'Média'], ['baixa', 'Baixa']]) {
+      const o = el('option', '', par[1]); o.value = par[0]; prio.appendChild(o);
+    }
+    prio.value = 'media'; fp.appendChild(prio); body.appendChild(fp);
+    const alt = campo('Alternativas consideradas', 'textarea', { rows: 2, maxLength: 4000 });
+    const rec = campo('Equipe e terceiros', 'textarea', { rows: 2, maxLength: 4000 });
+    const dep = campo('Projetos dependentes', 'textarea', { rows: 2, maxLength: 4000 });
+
+    const sepE = el('div', '', 'Enviar para o de acordo');
+    sepE.style.cssText = 'font-weight:600;font-size:12.5px;margin:14px 0 2px;color:var(--ink-2);border-top:1px solid var(--line);padding-top:12px';
+    body.appendChild(sepE);
+    const tD = campo('Destinatários', 'textarea', { rows: 3 });
+    tD.placeholder = 'Um por linha. Ex.:\nHelena Prado <helena@cliente.com.br>';
+    const fv = el('div', 'field'); fv.appendChild(el('label', '', 'A proposta vale por (dias)'));
+    const nVal = el('input', 'inp'); nVal.type = 'number'; nVal.min = '1'; nVal.max = '90'; nVal.value = '10';
+    fv.appendChild(nVal); body.appendChild(fv);
+    body.appendChild(el('div', 'hint', 'Todos os destinatários recebem o MESMO link, e o de acordo é um só: quem responder ' +
+      'primeiro responde pela empresa. Sem prazo de validade não existe proposta, existe promessa — por isso o campo é obrigatório.'));
+
+    const aviso = el('div', 'hint'); aviso.style.color = 'var(--critical)'; aviso.hidden = true; body.appendChild(aviso);
+    const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
+    const bC = el('button', 'btn', 'Cancelar'); bC.addEventListener('click', close);
+    const bOk = el('button', 'btn primary', 'Enviar para aprovação');
+    const errar = t => { aviso.textContent = t; aviso.hidden = false; bOk.disabled = false; bOk.textContent = 'Enviar para aprovação'; };
+    bOk.addEventListener('click', async () => {
+      if (!titulo.value.trim()) return errar('A mudança precisa de um título.');
+      if (!desc.value.trim()) return errar('Descreva o que muda.');
+      if (!just.value.trim()) return errar('Explique por que a mudança é necessária.');
+      const vale = Math.round(Number(nVal.value) || 0);
+      if (!(vale >= 1 && vale <= 90)) return errar('A validade da proposta precisa ficar entre 1 e 90 dias.');
+      const dest = lerDestinatarios(tD.value);
+      if (!dest.length) return errar('Informe ao menos um destinatário.');
+      const ruins = dest.filter(y => !y.ok);
+      if (ruins.length) return errar('E-mail inválido: ' + ruins.map(y => y.email).join(', '));
+      if (dest.length > 10) return errar('No máximo 10 destinatários por envio.');
+      aviso.hidden = true; bOk.disabled = true; bOk.textContent = 'Enviando…';
+      const d = Math.max(0, Math.round(Number(nDias.value) || 0));
+      const h = Math.max(0, Number(nHoras.value) || 0);
+      const r = await chamarFuncao('enviarMudanca', {
+        projetoId: x.id,
+        destinatarios: dest.map(y => ({ nome: y.nome, email: y.email })),
+        mudanca: {
+          titulo: titulo.value, descricao: desc.value, justificativa: just.value,
+          escopo: escopo.value, riscos: riscos.value, seNaoAprovar: seNao.value,
+          dias: d, horas: h, valor: Number(nValor.value) || 0, valePorDias: vale,
+          terminoAtual: dataLonga(fimISO), terminoNovo: dataLonga(maisTarde(d)),
+          horasAtuais: hs.prev || 0, horasNovas: (hs.prev || 0) + h,
+          interno: { solicitante: solic.value, prioridade: prio.value,
+            alternativas: alt.value, recursos: rec.value, dependencias: dep.value }
+        }
+      });
+      if (r.indisponivel) return errar('O envio ainda não está ligado (falta publicar as funções do servidor).');
+      if (!r.ok) return errar('Não consegui enviar: ' + r.motivo);
+      close(); resultadoMudanca(r);
+      ST.portfolioEm = 0; if (VIEW === 'formularios') refresh();
+    });
+    linha.appendChild(bC); linha.appendChild(bOk); body.appendChild(linha);
+  }, []);
+}
+
+/** Depois do envio: o link, sempre — mesmo quando o e-mail saiu. É o que o
+    gestor cola no WhatsApp quando o cliente disser que não achou. */
+function resultadoMudanca(r) {
+  modal((r.codigo || 'Mudança') + ' enviada', (body, close) => {
+    const itens = r.itens || [], ok = itens.filter(i => i.enviado), falhou = itens.filter(i => !i.enviado);
+    body.appendChild(el('div', 'hint', ok.length + ' e-mail(s) enviado(s).' +
+      (falhou.length ? ' Para ' + falhou.length + ' não saiu (' + falhou[0].erro + ').' : '') +
+      ' O link é o mesmo para todos e aceita uma resposta só.'));
+    const l = el('div'); l.style.cssText = 'display:flex;gap:6px;align-items:center;margin-top:10px';
+    const t = el('input', 'inp'); t.value = r.link || ''; t.readOnly = true;
+    const b = el('button', 'btn', 'Copiar');
+    b.addEventListener('click', async () => { try { await navigator.clipboard.writeText(r.link); b.textContent = 'Copiado'; } catch (e) { t.select(); } });
+    l.appendChild(t); l.appendChild(b); body.appendChild(l);
+    const fim = el('div'); fim.style.cssText = 'display:flex;justify-content:flex-end;margin-top:12px';
+    const bb = el('button', 'btn primary', 'Fechar'); bb.addEventListener('click', close); fim.appendChild(bb); body.appendChild(fim);
+  }, []);
+}
+
+function modalVerMudanca(m, nomeProj) {
+  const mu = m.mudanca || {}, e = estadoMudanca(m);
+  modal((m.codigo || 'Mudança') + ' — ' + (mu.titulo || ''), (body, close) => {
+    const top = el('div', 'hint');
+    const st = el('b', '', e.rot); st.style.color = e.cor;
+    top.appendChild(st);
+    top.appendChild(document.createTextNode(' · ' + nomeProj +
+      (m.enviadaEm ? ' · enviada em ' + new Date(m.enviadaEm).toLocaleDateString('pt-BR') : '')));
+    body.appendChild(top);
+
+    const linhas = [];
+    if (mu.dias) linhas.push(['Prazo', '+' + mu.dias + ' dias úteis' + (mu.terminoNovo ? ' · término ' + mu.terminoAtual + ' → ' + mu.terminoNovo : '')]);
+    if (mu.horas) linhas.push(['Esforço', '+' + mu.horas + ' h' + (mu.horasNovas ? ' · de ' + mu.horasAtuais + ' h para ' + mu.horasNovas + ' h' : '')]);
+    if (mu.valor) linhas.push(['Investimento', moedaBR(mu.valor)]);
+    if (m.respondidoEm) {
+      const r = m.resposta || {};
+      const q = m.respondidoEm && m.respondidoEm.toDate ? m.respondidoEm.toDate() : null;
+      linhas.push(['Respondido por', (r.nome || '—') + (r.cargo ? ' · ' + r.cargo : '') + (r.email ? ' · ' + r.email : '')]);
+      linhas.push(['Data e hora', q ? q.toLocaleString('pt-BR') + ' (relógio do servidor)' : '—']);
+      if (r.observacao) linhas.push(['Observação do cliente', r.observacao]);
+    } else {
+      linhas.push(['Vale até', m.expiraEm ? new Date(m.expiraEm).toLocaleDateString('pt-BR') : '—']);
+      linhas.push(['Enviado para', (m.destinatarios || []).map(x => x.email).join(', ') || '—']);
+    }
+    const tb = el('table', 'data'); const tbody = el('tbody');
+    for (const par of linhas) {
+      const tr = el('tr');
+      const td1 = el('td', '', par[0]); td1.style.cssText = 'width:34%;color:var(--ink-2)';
+      tr.appendChild(td1); tr.appendChild(el('td', '', par[1])); tbody.appendChild(tr);
+    }
+    tb.appendChild(tbody); body.appendChild(tb);
+
+    const texto = (rot, t) => {
+      if (!String(t || '').trim()) return;
+      const h = el('div', '', rot); h.style.cssText = 'font-weight:600;font-size:12.5px;margin:12px 0 3px';
+      body.appendChild(h);
+      const p = el('div'); p.style.cssText = 'font-size:13px;line-height:1.55;white-space:pre-wrap';
+      p.textContent = t; body.appendChild(p);
+    };
+    texto('O que muda', mu.descricao);
+    texto('Por que', mu.justificativa);
+    texto('Entregas afetadas', mu.escopo);
+    texto('Riscos', mu.riscos);
+    texto('Se não aprovar', mu.seNaoAprovar);
+
+    /* O lado interno vive noutra coleção, que o cliente não alcança: o
+       documento dele tem `allow get: if true`. Por isso é lido aqui. */
+    const alvo = el('div'); body.appendChild(alvo);
+    ST.db.doc(dProjeto(m.projetoId) + '/mudancas/' + m.token).get().then(s => {
+      if (!s.exists) return;
+      const i = s.data() || {};
+      const PR = { urgente: 'Urgente', alta: 'Alta', media: 'Média', baixa: 'Baixa' };
+      const pares = [['Quem pediu', i.solicitante], ['Prioridade', PR[i.prioridade] || i.prioridade],
+        ['Alternativas consideradas', i.alternativas], ['Equipe e terceiros', i.recursos],
+        ['Projetos dependentes', i.dependencias]].filter(par => String(par[1] || '').trim());
+      if (!pares.length) return;
+      const cab = el('div', '', 'Só interno');
+      cab.style.cssText = 'font-weight:600;font-size:12.5px;margin:14px 0 3px;color:var(--ink-2);border-top:1px solid var(--line);padding-top:10px';
+      alvo.appendChild(cab);
+      for (const par of pares) {
+        const l = el('div'); l.style.cssText = 'font-size:13px;line-height:1.5;margin-top:4px';
+        l.appendChild(el('b', '', par[0] + ': ')); l.appendChild(document.createTextNode(par[1]));
+        alvo.appendChild(l);
+      }
+    }).catch(() => { });
+
+    const fim = el('div'); fim.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;margin-top:14px';
+    if (!m.respondidoEm) {
+      const bl = el('button', 'btn', 'Copiar link');
+      const link = location.origin + location.pathname + '?formulario=' + ST.orgId + '.' + m.token;
+      bl.addEventListener('click', async () => { try { await navigator.clipboard.writeText(link); bl.textContent = 'Copiado'; } catch (er) { } });
+      fim.appendChild(bl);
+    }
+    const bb = el('button', 'btn primary', 'Fechar'); bb.addEventListener('click', close);
+    fim.appendChild(bb); body.appendChild(fim);
+  }, []);
+}
+
 /* A página pública do aceite de mudança. Mora no mesmo arquivo do sistema
    porque o cliente não instala nada: ele abre um link e recebe o index.html
    de sempre, que se reconhece como formulário antes de montar o app. É a
@@ -15194,7 +15531,6 @@ function renderPainel() {
 
     /* ---- a distribuição, em anéis ---- */
     depois.appendChild(painelAvanco(lista));
-    if (ST.mode === 'db' && ST.comLogin && ST.orgId) depois.appendChild(painelPesquisas(lista));
     depois.appendChild(painelCapacidade());
     depois.appendChild(pizzasPortfolio(lista, r));
 
