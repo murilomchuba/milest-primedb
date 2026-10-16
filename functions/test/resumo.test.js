@@ -142,3 +142,68 @@ test('falha de envio não derruba as outras empresas', async () => {
   assert.equal(r.falhas, 1);
   assert.equal(r.enviados, 1);
 });
+
+/* ---- saldo, consumo, IDP e IDC ------------------------------------------
+   Os quatro saem de campos que o retrato JÁ gravava: nada aqui depende de o
+   navegador gravar um retrato novo, e por isso valem para a carteira inteira
+   desde o primeiro envio. */
+const { corpoResumo: corpoR } = require('../resumo');
+
+const retrato = (x) => Object.assign({
+  cliente: 'Cliente', nome: 'Projeto', planPct: 50, real: 40,
+  horasPrev: 100, horasFeitas: 48, IDP: 0.8, IDC: 1.2, em: Date.parse('2026-10-15T12:00:00Z')
+}, x || {});
+const cfgTudo = { incluirPausados: true };
+
+test('a linha traz saldo, consumo, IDP e IDC', () => {
+  const l = linhasDoResumo([retrato()], cfgTudo, '2026-10-16')[0];
+  assert.equal(l.saldo, 52);
+  assert.equal(Math.round(l.consumo * 10) / 10, 48);
+  assert.equal(l.IDP, 0.8);
+  assert.equal(l.IDC, 1.2);
+});
+
+test('estouro de horas vira saldo NEGATIVO, não zero', () => {
+  // esconder o sinal esconderia exatamente o problema que o número existe para mostrar
+  const l = linhasDoResumo([retrato({ horasPrev: 100, horasFeitas: 130 })], cfgTudo, '2026-10-16')[0];
+  assert.equal(l.saldo, -30);
+  assert.equal(l.consumo, 130);
+});
+
+test('sem horas previstas não existe percentual de consumo', () => {
+  // 0% diria "não gastou nada"; o certo é "não sei"
+  const l = linhasDoResumo([retrato({ horasPrev: 0, horasFeitas: 0 })], cfgTudo, '2026-10-16')[0];
+  assert.equal(l.consumo, null);
+  assert.equal(l.saldo, 0);
+});
+
+test('indicador ausente ou inválido vira null, nunca NaN', () => {
+  const l = linhasDoResumo([retrato({ IDP: null, IDC: undefined })], cfgTudo, '2026-10-16')[0];
+  assert.equal(l.IDP, null);
+  assert.equal(l.IDC, null);
+  const l2 = linhasDoResumo([retrato({ IDP: Infinity })], cfgTudo, '2026-10-16')[0];
+  assert.equal(l2.IDP, null);
+});
+
+test('o e-mail mostra as quatro colunas novas', () => {
+  const d = { linhas: linhasDoResumo([retrato()], cfgTudo, '2026-10-16'), hoje: '2026-10-16' };
+  const html = corpoR(d, 'Empresa');
+  for (const c of ['IDP', 'IDC', 'Saldo', 'Consumo']) assert.ok(html.includes(c), c);
+  assert.ok(html.includes('52 h'), 'o saldo aparece');
+  assert.ok(html.includes('48,0%'), 'o consumo aparece');
+  assert.ok(html.includes('0,80') && html.includes('1,20'), 'os dois índices aparecem');
+  assert.ok(!/NaN|undefined|Infinity/.test(html), 'nada quebrado no HTML');
+});
+
+test('saldo negativo sai com o sinal e em vermelho', () => {
+  const d = { linhas: linhasDoResumo([retrato({ horasFeitas: 130 })], cfgTudo, '2026-10-16'), hoje: '2026-10-16' };
+  const html = corpoR(d, 'Empresa');
+  assert.ok(html.includes('-30 h'), 'o sinal do estouro aparece');
+  assert.ok(html.includes('#B3322B'), 'e vem marcado em vermelho');
+});
+
+test('projeto sem previsto não inventa saldo no e-mail', () => {
+  const d = { linhas: linhasDoResumo([retrato({ horasPrev: 0, horasFeitas: 0 })], cfgTudo, '2026-10-16'), hoje: '2026-10-16' };
+  const html = corpoR(d, 'Empresa');
+  assert.ok(!/0 h/.test(html.split('Saldo')[1] || ''), 'saldo sem previsto não vira "0 h"');
+});

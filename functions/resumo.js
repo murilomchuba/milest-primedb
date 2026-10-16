@@ -87,6 +87,15 @@ function linhasDoResumo(retratos, cfg, hoje) {
       real: (r.real == null || !isFinite(r.real)) ? null : r.real,
       horasPrev: Number(r.horasPrev) || 0,
       horasFeitas: Number(r.horasFeitas) || 0,
+      /* Saldo e consumo são DERIVADOS, não campos novos do retrato: calcular
+         aqui vale para todo retrato já gravado, inclusive os de antes desta
+         mudança. Sem horas previstas não existe percentual de consumo — e
+         zero ali diria "não gastou nada", que é o oposto de "não sei". */
+      saldo: (Number(r.horasPrev) || 0) - (Number(r.horasFeitas) || 0),
+      consumo: (Number(r.horasPrev) || 0) > 0
+        ? 100 * (Number(r.horasFeitas) || 0) / (Number(r.horasPrev) || 0) : null,
+      IDP: (r.IDP == null || !isFinite(r.IDP)) ? null : Number(r.IDP),
+      IDC: (r.IDC == null || !isFinite(r.IDC)) ? null : Number(r.IDC),
       medidoEm: diaDoRetrato(r),
       idade: diasEntre(diaDoRetrato(r), hoje)
     }))
@@ -125,6 +134,9 @@ const esc = s => String(s == null ? '' : s)
 const num = (v, d) => (v == null || !isFinite(v)) ? '—' : Number(v).toFixed(d == null ? 0 : d).replace('.', ',');
 const BR = s => { const p = soData(s).split('-'); return p.length === 3 ? p[2] + '/' + p[1] + '/' + p[0].slice(2) : '—'; };
 const horas = v => !isFinite(v) || v <= 0 ? '—' : num(v) + ' h';
+/* O saldo é a única hora que pode ser NEGATIVA, e o sinal é a informação:
+   `horas()` devolveria '—' para -52, que esconderia exatamente o estouro. */
+const horasSaldo = v => !isFinite(v) ? '—' : num(v) + ' h';
 
 function assuntoResumo(d, nomeEmpresa) {
   const n = d.linhas.length;
@@ -147,9 +159,16 @@ function celula(txt, extra) {
 }
 
 function corpoResumo(d, nomeEmpresa) {
-  const cab = ['Cliente', 'Projeto', 'Previsto', 'Realizado', 'H. prev.', 'H. real.', 'Medido em']
-    .map((t, i) => '<th style="padding:0 10px 7px 0;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;'
-      + 'color:#8A99A8;text-align:' + (i >= 2 && i <= 5 ? 'right' : 'left') + ';border-bottom:1px solid #E6ECF2;white-space:nowrap">'
+  /* Onze colunas: as duas de texto nas pontas e nove números no meio, todos
+     alinhados à direita. O índice do alinhamento é calculado da lista em vez
+     de cravado em números — foi assim que a versão anterior quase saiu com a
+     coluna errada alinhada quando ganhou campos. */
+  const COLS = ['Cliente', 'Projeto', 'Previsto', 'Realizado', 'IDP', 'IDC',
+    'H. prev.', 'H. real.', 'Saldo', 'Consumo', 'Medido em'];
+  const aDireita = i => i >= 2 && i <= COLS.length - 2;
+  const cab = COLS
+    .map((t, i) => '<th style="padding:0 8px 7px ' + (i === COLS.length - 1 ? '14px' : '0') + ';font-size:10px;letter-spacing:.05em;text-transform:uppercase;'
+      + 'color:#8A99A8;text-align:' + (aDireita(i) ? 'right' : 'left') + ';border-bottom:1px solid #E6ECF2;white-space:nowrap">'
       + t + '</th>').join('');
 
   const corpo = d.linhas.map(l => '<tr>'
@@ -157,9 +176,15 @@ function corpoResumo(d, nomeEmpresa) {
     + celula(esc(l.nome) + (l.pausado ? ' <span style="color:#8A99A8">(pausado)</span>' : ''), 'font-weight:600')
     + celula(num(l.planPct, 1) + '%', 'text-align:right;white-space:nowrap;color:#5A6B7B')
     + celula(num(l.real, 1) + '%', 'text-align:right;white-space:nowrap;font-weight:700;color:' + corDoAvanco(l))
+    + celula(num(l.IDP, 2), 'text-align:right;white-space:nowrap;color:#5A6B7B')
+    + celula(num(l.IDC, 2), 'text-align:right;white-space:nowrap;color:#5A6B7B')
     + celula(horas(l.horasPrev), 'text-align:right;white-space:nowrap;color:#5A6B7B')
     + celula(horas(l.horasFeitas), 'text-align:right;white-space:nowrap')
-    + celula(esc(BR(l.medidoEm)), 'text-align:left;white-space:nowrap;color:#8A99A8;font-size:11.5px')
+    + celula(l.horasPrev > 0 ? horasSaldo(l.saldo) : '—',
+        'text-align:right;white-space:nowrap;font-weight:600;color:' + (l.saldo < 0 ? '#B3322B' : '#5A6B7B'))
+    + celula(l.consumo == null ? '—' : num(l.consumo, 1) + '%',
+        'text-align:right;white-space:nowrap;color:' + (l.consumo != null && l.consumo > 100 ? '#B3322B' : '#5A6B7B'))
+    + celula(esc(BR(l.medidoEm)), 'text-align:left;white-space:nowrap;color:#8A99A8;font-size:11.5px;padding-left:14px')
     + '</tr>').join('');
 
   return '<div style="font-family:Arial,Helvetica,sans-serif;color:#17202A;background:#FFF;border:1px solid #E6ECF2;border-radius:10px;overflow:hidden">'
@@ -177,7 +202,11 @@ function corpoResumo(d, nomeEmpresa) {
     + 'Os números de cada projeto são os da última vez que ele foi aberto no MILEST — '
     + 'a coluna <b>Medido em</b> diz quando foi. O previsto cresce com o calendário, '
     + 'então num projeto medido há vários dias ele aparece menor do que já é hoje. '
-    + 'Para um número do dia, basta abrir o projeto no sistema.'
+    + 'Para um número do dia, basta abrir o projeto no sistema.<br><br>'
+    + '<b>Saldo</b> é o que resta das horas contratadas, e fica vermelho quando estoura. '
+    + '<b>Consumo</b> é quanto das previstas já foi lançado: acima do realizado, o projeto '
+    + 'gasta mais rápido do que entrega. <b>IDP</b> compara entregue com planejado e '
+    + '<b>IDC</b> compara entregue com consumido — nos dois, 1,00 é estar em dia.'
     + '</div></div></div>';
 }
 
