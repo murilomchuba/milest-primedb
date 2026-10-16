@@ -1184,7 +1184,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-10-16.1830';
+const VERSAO = '2026-10-16.1843';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -14511,7 +14511,17 @@ function painelMudancas(lista) {
       const tdA = el('td'); tdA.style.cssText = 'white-space:nowrap;text-align:right';
       const bV = el('button', 'btn', 'Ver');
       bV.addEventListener('click', () => modalVerMudanca(m, nome(m.projetoId)));
-      tdA.appendChild(bV); l.appendChild(tdA);
+      const bX = el('button', 'btn', 'Excluir'); bX.style.marginLeft = '5px';
+      /* Respondida não se apaga, e o botão diz por quê em vez de sumir: um
+         botão ausente parece falta de recurso; um desabilitado que explica
+         ensina a regra. */
+      if (m.respondidoEm) { bX.disabled = true; bX.title = 'O cliente já respondeu — o registro de um aceite não se apaga.'; }
+      else if (!podeEditar()) { bX.disabled = true; bX.title = 'Só quem edita o projeto pode excluir.'; }
+      else {
+        bX.style.color = 'var(--critical)';
+        bX.addEventListener('click', () => modalExcluirMudanca(m, nome(m.projetoId), () => renderFormularios()));
+      }
+      tdA.appendChild(bV); tdA.appendChild(bX); l.appendChild(tdA);
       tbody.appendChild(l);
     }
     tb.appendChild(tbody); corpo.appendChild(tb);
@@ -14722,6 +14732,9 @@ function modalVerMudanca(m, nomeProj) {
     }).catch(() => { });
 
     const fim = el('div'); fim.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;margin-top:14px';
+    const bP = el('button', 'btn', '📄 Baixar PDF');
+    bP.addEventListener('click', () => gerarPDFMudanca(m, nomeProj));
+    fim.appendChild(bP);
     if (!m.respondidoEm) {
       const bl = el('button', 'btn', 'Copiar link');
       const link = location.origin + location.pathname + '?formulario=' + ST.orgId + '.' + m.token;
@@ -14730,6 +14743,240 @@ function modalVerMudanca(m, nomeProj) {
     }
     const bb = el('button', 'btn primary', 'Fechar'); bb.addEventListener('click', close);
     fim.appendChild(bb); body.appendChild(fim);
+  }, []);
+}
+
+
+/* ---- o CR em PDF ----
+   Mesma máquina do resto do sistema: SVG → JPEG → montarPDFMulti. A4 em pé,
+   porque isto é um documento de texto e não um painel.
+
+   O que NÃO entra: o lado interno. O PDF é a prova do que o cliente viu e do
+   que ele respondeu, e é o arquivo que o gestor encaminha sem pensar duas
+   vezes — prioridade e alternativas descartadas dentro dele acabariam no
+   e-mail do cliente mais cedo ou mais tarde.
+
+   A folha pagina sozinha: texto é de tamanho imprevisível, e encolher a fonte
+   até caber (como faz o Canvas) num documento que pode virar prova é pior que
+   usar duas folhas.                                                        */
+function paginasMudancaSVG(m, nomeProj) {
+  const PW = 595.28, PH = 841.89, M = 46, LARG = PW - 2 * M, FIM = PH - 56;
+  const est = getComputedStyle(document.body);
+  const fBody = (est.getPropertyValue('--f-body') || 'sans-serif').trim();
+  const fDisp = (est.getPropertyValue('--f-display') || fBody).trim();
+  const fMono = (est.getPropertyValue('--f-mono') || 'monospace').trim();
+  const mu = m.mudanca || {}, r = m.resposta || {};
+  const paginas = []; let pg = null, y = 0;
+
+  const T = (x, yy, txt, fs, peso, cor, fam, anc) => {
+    const e = sv('text', { x: x, y: yy, 'font-size': fs, 'font-weight': peso || 400,
+      fill: cor || 'var(--ink)', 'font-family': fam || fBody });
+    if (anc) e.setAttribute('text-anchor', anc);
+    e.textContent = txt == null ? '' : String(txt);
+    pg.appendChild(e); return e;
+  };
+  const risco = (yy, cor) => pg.appendChild(sv('line', { x1: M, y1: yy, x2: PW - M, y2: yy,
+    stroke: cor || 'var(--line)', 'stroke-width': 1 }));
+  const caixa = (x, yy, w, h, fill, traco, rx) => pg.appendChild(sv('rect', { x: x, y: yy,
+    width: Math.max(0, w), height: Math.max(0, h), rx: rx == null ? 6 : rx, fill: fill || 'none',
+    stroke: traco || 'none', 'stroke-width': traco ? 1 : 0 }));
+
+  const nova = () => {
+    pg = sv('svg', { xmlns: SVGNS, viewBox: '0 0 ' + PW + ' ' + PH, width: PW, height: PH });
+    paginas.push(pg);
+    caixa(0, 0, PW, PH, 'var(--surface)', null, 0);
+    T(M, 34, 'MILEST', 13, 800, 'var(--accent)', fDisp);
+    T(PW - M, 34, m.empresaNome || '', 9, 400, 'var(--ink-3)', fMono, 'end');
+    risco(44);
+    y = 72;
+  };
+  /* Quando uma seção atravessa a folha, o rótulo volta no alto da seguinte.
+     Sem isso o leitor da página 2 não sabe se está lendo os riscos ou a
+     justificativa — e este documento pode virar prova. */
+  let secAtual = '';
+  const cabe = h => {
+    if (y + h <= FIM) return;
+    nova();
+    if (secAtual) { T(M, y, secAtual.toUpperCase() + ' (CONTINUAÇÃO)', 7.6, 600, 'var(--ink-3)', fMono); y += 14; }
+  };
+
+  nova();
+
+  /* ---- identificação ---- */
+  const cw = medirTexto(m.codigo || 'CR', 10, 700, fMono) + 16;
+  caixa(M, y - 12, cw, 18, 'var(--accent)', null, 4);
+  T(M + 8, y + 1, m.codigo || 'CR', 10, 700, '#FFFFFF', fMono);
+  y += 28;
+  T(M, y, 'Aceite de mudança de escopo', 19, 700, 'var(--ink)', fDisp); y += 20;
+  for (const l of quebrarTexto(mu.titulo || '', LARG, 13, fDisp, 600)) { T(M, y, l, 13, 600, 'var(--ink)', fDisp); y += 16; }
+  y += 4;
+  for (const l of quebrarTexto('Projeto ' + nomeProj, LARG, 10, fBody, 400)) { T(M, y, l, 10, 400, 'var(--ink-2)', fBody); y += 13; }
+  const dmy = v => { try { return new Date(v).toLocaleDateString('pt-BR'); } catch (e) { return '—'; } };
+  T(M, y, 'Solicitada em ' + (m.enviadaEm ? dmy(m.enviadaEm) : '—') +
+    (m.respondidoEm ? '' : ' · vale até ' + (m.expiraEm ? dmy(m.expiraEm) : '—')), 10, 400, 'var(--ink-2)', fBody);
+  y += 22;
+
+  /* ---- o estado, que é o que se procura num documento destes ---- */
+  const e2 = estadoMudanca(m);
+  caixa(M, y - 1, LARG, 28, 'var(--surface-2)');
+  T(M + 11, y + 18, e2.rot, 11.5, 700, e2.cor, fBody);
+  y += 46;
+
+  const secao = (rot, txt, comoLista) => {
+    const ls = String(txt == null ? '' : txt).split('\n').map(x => x.trim()).filter(Boolean);
+    if (!ls.length) return;
+    cabe(44);
+    T(M, y, rot.toUpperCase(), 7.6, 600, 'var(--ink-3)', fMono); y += 14;
+    secAtual = rot;
+    for (const bruta of ls) {
+      const linhas = quebrarTexto((comoLista ? '•  ' : '') + bruta, LARG, 10.2, fBody, 400);
+      for (let i = 0; i < linhas.length; i++) {
+        cabe(14);
+        T(comoLista && i > 0 ? M + 10 : M, y, linhas[i], 10.2, 400, 'var(--ink)', fBody);
+        y += 13.5;
+      }
+      y += 3;
+    }
+    secAtual = '';
+    y += 12;
+  };
+
+  /* ---- o registro do aceite, quando existe: é a razão do documento ---- */
+  if (m.respondidoEm) {
+    const q = m.respondidoEm && m.respondidoEm.toDate ? m.respondidoEm.toDate() : null;
+    const pares = [['Respondido por', (r.nome || '—') + (r.cargo ? ' · ' + r.cargo : '')],
+      ['E-mail', r.email || '—'],
+      ['Data e hora', q ? q.toLocaleString('pt-BR') : '—'],
+      ['Relógio', 'Servidor do MILEST — não o computador de quem respondeu']];
+    cabe(32 + pares.length * 17);
+    T(M, y, 'O REGISTRO', 7.6, 600, 'var(--ink-3)', fMono); y += 13;
+    const alto = pares.length * 17 + 10;
+    caixa(M, y - 2, LARG, alto, 'none', 'var(--line)');
+    y += 12;
+    for (const par of pares) {
+      T(M + 11, y, par[0], 9.4, 400, 'var(--ink-2)', fBody);
+      T(PW - M - 11, y, par[1], 9.4, 600, 'var(--ink)', fBody, 'end');
+      y += 17;
+    }
+    y += 16;
+  }
+
+  /* ---- o impacto: só o que não é zero ---- */
+  const cx = [];
+  if (mu.dias) cx.push(['Prazo', '+' + mu.dias + ' du',
+    mu.terminoAtual && mu.terminoNovo ? mu.terminoAtual + ' → ' + mu.terminoNovo : '', 'var(--warn)']);
+  if (mu.horas) cx.push(['Esforço', '+' + mu.horas + ' h',
+    mu.horasAtuais && mu.horasNovas ? mu.horasAtuais + ' h → ' + mu.horasNovas + ' h' : '', 'var(--ink)']);
+  if (mu.valor) cx.push(['Investimento', moedaBR(mu.valor), 'Conforme o contrato', 'var(--ink)']);
+  if (cx.length) {
+    cabe(90);
+    T(M, y, 'O QUE ESTA MUDANÇA CUSTA', 7.6, 600, 'var(--ink-3)', fMono); y += 13;
+    const w = (LARG - (cx.length - 1) * 9) / cx.length;
+    for (let i = 0; i < cx.length; i++) {
+      const x = M + i * (w + 9);
+      caixa(x, y, w, 56, 'none', 'var(--line)');
+      T(x + 10, y + 17, cx[i][0], 8.6, 400, 'var(--ink-2)', fBody);
+      T(x + 10, y + 36, cx[i][1], 15, 700, cx[i][3], fMono);
+      if (cx[i][2]) T(x + 10, y + 49, cx[i][2], 8, 400, 'var(--ink-2)', fBody);
+    }
+    y += 74;
+  }
+
+  secao('O que muda', mu.descricao, false);
+  secao('Por que', mu.justificativa, false);
+  secao('O que muda nas entregas', mu.escopo, true);
+  secao('Riscos que esta mudança traz', mu.riscos, true);
+  secao('Se não for aprovada', mu.seNaoAprovar, false);
+  if (m.respondidoEm && r.observacao) secao('Observação de quem respondeu', r.observacao, false);
+  if (!m.respondidoEm) secao('Enviado para', (m.destinatarios || []).map(d => (d.nome ? d.nome + ' — ' : '') + d.email).join('\n'), true);
+
+  /* ---- rodapé ---- */
+  const hoje = new Date().toLocaleDateString('pt-BR');
+  paginas.forEach((p2, i) => {
+    const l = sv('line', { x1: M, y1: PH - 42, x2: PW - M, y2: PH - 42, stroke: 'var(--line)', 'stroke-width': 1 });
+    p2.appendChild(l);
+    const t = sv('text', { x: M, y: PH - 28, 'font-size': 7.4, fill: 'var(--ink-3)', 'font-family': fMono });
+    t.textContent = (m.codigo || '') + ' · emitido em ' + hoje + ' pelo MILEST';
+    p2.appendChild(t);
+    const n = sv('text', { x: PW - M, y: PH - 28, 'font-size': 7.4, fill: 'var(--ink-3)',
+      'font-family': fMono, 'text-anchor': 'end' });
+    n.textContent = 'página ' + (i + 1) + ' de ' + paginas.length;
+    p2.appendChild(n);
+  });
+  return paginas;
+}
+
+async function gerarPDFMudanca(m, nomeProj) {
+  try {
+    toast('Gerando o PDF…');
+    const folhas = [];
+    for (const pg of paginasMudancaSVG(m, nomeProj)) {
+      resolverVarsDOM(pg);
+      folhas.push(await svgParaJPEG(pg, 595.28, 841.89, 3.2, 0.93));
+    }
+    await offerDownload((m.codigo || 'mudanca') + '-' + slug(nomeProj) + '.pdf',
+      new Blob([montarPDFMulti(folhas)], { type: 'application/pdf' }));
+  } catch (e) {
+    toast('Não consegui gerar o PDF: ' + ((e && e.message) || 'erro'));
+  }
+}
+
+/* ---- excluir uma solicitação ----
+   A regra do Firestore só deixa apagar o que ainda NÃO foi respondido, e isso
+   é de propósito: um aceite comercial que o próprio emissor pode apagar não
+   prova nada. A tela não tenta contornar — ela explica. */
+async function excluirMudanca(m) {
+  await ST.db.doc(cFormularios() + '/' + m.token).delete();
+  /* o lado interno vai junto, mas depois: se o público falhar (respondido,
+     sem permissão), o interno tem de continuar lá para a linha voltar
+     inteira na próxima leitura. */
+  try { await ST.db.doc(dProjeto(m.projetoId) + '/mudancas/' + m.token).delete(); } catch (e) { }
+}
+
+function modalExcluirMudanca(m, nomeProj, aoFim) {
+  const mu = m.mudanca || {};
+  modal('Excluir ' + (m.codigo || 'a solicitação') + '?', (body, close) => {
+    const alvo = el('div', '', (m.codigo || '') + ' — ' + (mu.titulo || ''));
+    alvo.style.cssText = 'font-weight:600;font-size:14px;margin-bottom:2px';
+    body.appendChild(alvo);
+    body.appendChild(el('div', 'hint', nomeProj + ' · enviada para ' +
+      ((m.destinatarios || []).map(d => d.email).join(', ') || '—')));
+
+    const aviso = el('div', 'hint');
+    aviso.innerHTML = 'O link que o cliente recebeu <b>para de funcionar na hora</b>. Se ele abrir, vai ver ' +
+      '“documento não encontrado”. O número do CR não é reaproveitado: a próxima solicitação deste projeto ' +
+      'continua a contagem.<br><br>Não há como desfazer.';
+    body.appendChild(aviso);
+
+    const f = el('div', 'field');
+    f.appendChild(el('label', '', 'Digite CONFIRMAR para liberar a exclusão'));
+    const inp = el('input', 'inp'); inp.placeholder = 'CONFIRMAR'; inp.autocomplete = 'off';
+    f.appendChild(inp); body.appendChild(f);
+
+    const erro = el('div', 'hint'); erro.style.color = 'var(--critical)'; erro.hidden = true; body.appendChild(erro);
+    const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
+    const bC = el('button', 'btn', 'Cancelar'); bC.addEventListener('click', close);
+    const bOk = el('button', 'btn primary', 'Excluir definitivamente');
+    bOk.disabled = true;
+    bOk.style.background = 'var(--critical)'; bOk.style.borderColor = 'var(--critical)';
+    const valida = () => { bOk.disabled = semAcento(inp.value) !== 'confirmar'; };
+    inp.addEventListener('input', valida);
+    inp.addEventListener('keydown', ev => { if (ev.key === 'Enter' && !bOk.disabled) bOk.click(); });
+    bOk.addEventListener('click', async () => {
+      bOk.disabled = true; bOk.textContent = 'Excluindo…'; erro.hidden = true;
+      try {
+        await excluirMudanca(m);
+        close(); toast((m.codigo || 'A solicitação') + ' foi excluída.');
+        if (aoFim) aoFim();
+      } catch (e) {
+        bOk.textContent = 'Excluir definitivamente'; valida();
+        erro.textContent = 'Não consegui excluir: ' + ((e && e.message) || 'erro') +
+          '. Se o cliente respondeu agora há pouco, o registro passou a ser definitivo.';
+        erro.hidden = false;
+      }
+    });
+    linha.appendChild(bC); linha.appendChild(bOk); body.appendChild(linha);
+    setTimeout(() => inp.focus(), 30);
   }, []);
 }
 
