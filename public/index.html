@@ -1185,7 +1185,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-10-16.1929';
+const VERSAO = '2026-10-16.1935';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -14435,13 +14435,21 @@ function renderFormularios() {
   });
 }
 
+/* Os dois documentos têm os mesmos três estados e palavras diferentes para
+   eles: ninguém "aprova" um encerramento, concorda com ele. A tela do cliente
+   já falava certo; a tabela e o PDF ainda falavam de mudança, e um documento
+   que se contradiz entre a tela e o papel não serve de prova. */
 const EST_MUD = {
-  aprovado:  { rot: 'Aprovado', cor: 'var(--ok)' },
-  rejeitado: { rot: 'Não aprovado', cor: 'var(--critical)' },
-  conversar: { rot: 'Quer conversar', cor: 'var(--warn)' }
+  aprovado:  { rot: 'Aprovado', termo: 'Encerramento aceito', cor: 'var(--ok)' },
+  rejeitado: { rot: 'Não aprovado', termo: 'Não concorda em encerrar', cor: 'var(--critical)' },
+  conversar: { rot: 'Quer conversar', termo: 'Com ressalvas', cor: 'var(--warn)' }
 };
 function estadoMudanca(m) {
-  if (m.respondidoEm) return EST_MUD[(m.resposta || {}).decisao] || { rot: 'Respondido', cor: 'var(--ink-2)' };
+  if (m.respondidoEm) {
+    const e = EST_MUD[(m.resposta || {}).decisao];
+    if (!e) return { rot: 'Respondido', cor: 'var(--ink-2)' };
+    return { rot: m.tipo === 'encerramento' ? e.termo : e.rot, cor: e.cor };
+  }
   if (Date.now() >= (m.expiraEm || 0)) return { rot: 'Venceu sem resposta', cor: 'var(--ink-3)' };
   return { rot: 'Aguardando', cor: 'var(--accent)' };
 }
@@ -14750,7 +14758,8 @@ function modalVerMudanca(m, nomeProj) {
     }).catch(() => { });
 
     const fim = el('div'); fim.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;margin-top:14px';
-    const bP = el('button', 'btn', '📄 Baixar PDF');
+    const bP = el('button', 'btn' + (m.respondidoEm ? ' primary' : ''),
+      m.respondidoEm ? '📄 Baixar PDF assinado' : '📄 Baixar PDF');
     bP.addEventListener('click', () => gerarPDFMudanca(m, nomeProj));
     fim.appendChild(bP);
     if (!m.respondidoEm) {
@@ -15127,7 +15136,10 @@ async function gerarPDFMudanca(m, nomeProj) {
       resolverVarsDOM(pg);
       folhas.push(await svgParaJPEG(pg, 595.28, 841.89, 3.2, 0.93));
     }
-    await offerDownload((m.codigo || 'mudanca') + '-' + slug(nomeProj) + '.pdf',
+    /* O "-assinado" no nome é para o arquivo se achar sozinho na pasta do
+       gestor seis meses depois, que é quando ele precisa dele. */
+    await offerDownload((m.codigo || 'documento') + '-' + slug(nomeProj) +
+      (m.respondidoEm ? '-assinado' : '') + '.pdf',
       new Blob([montarPDFMulti(folhas)], { type: 'application/pdf' }));
   } catch (e) {
     toast('Não consegui gerar o PDF: ' + ((e && e.message) || 'erro'));
