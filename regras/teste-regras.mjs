@@ -574,6 +574,65 @@ await caso('NÃO responde duas vezes', () =>
 await caso('NÃO responde pesquisa vencida', () =>
   assertFails(updateDoc(doc(anonimo(), 'orgs/varejo/pesquisas', 'codigoVencido'), { respostas: { q1: 9 }, respondidaEm: serverTimestamp() })));
 
+console.log('\nACEITE DE MUDANÇA DE ESCOPO');
+/* O peso aqui é outro: isto é um compromisso comercial. O que os casos
+   abaixo protegem é que o texto aprovado NÃO possa ser reescrito depois —
+   nem pela empresa — e que a hora do aceite venha do servidor. */
+await env.withSecurityRulesDisabled(async ctx => {
+  const db = ctx.firestore();
+  const cr = (extra) => Object.assign({
+    tipo: 'mudanca', projetoId: 'p9', titulo: 'Inclusão do Pix',
+    descricao: 'O checkout aceita Pix.', dias: 10, horas: 80, valor: 12800,
+    respondidoEm: null, resposta: null, expiraEm: Date.now() + DIA
+  }, extra || {});
+  await setDoc(doc(db, 'orgs/varejo/formularios', 'crSecreto1'), cr());
+  await setDoc(doc(db, 'orgs/varejo/formularios', 'crVencido'), cr({ expiraEm: Date.now() - 1000 }));
+  await setDoc(doc(db, 'orgs/varejo/formularios', 'crRespondido'), cr({
+    respondidoEm: Date.now() - 1000, resposta: { decisao: 'aprovado', nome: 'Helena' } }));
+});
+const aceite = (x) => Object.assign({ decisao: 'aprovado', nome: 'Helena Prado',
+  cargo: 'Diretora de TI', email: 'helena@cliente.com.br', observacao: '' }, x || {});
+
+await caso('quem tem o link lê o aceite sem login', () =>
+  assertSucceeds(getDoc(doc(anonimo(), 'orgs/varejo/formularios', 'crSecreto1'))));
+await caso('sem login NÃO lista os formulários da empresa', () =>
+  assertFails(getDocs(collection(anonimo(), 'orgs/varejo/formularios'))));
+await caso('ninguém cria formulário pelo navegador', () =>
+  assertFails(setDoc(doc(conta(BRUNO), 'orgs/varejo/formularios', 'novo'), { respondidoEm: null, expiraEm: Date.now() + DIA })));
+await caso('o texto aprovado NÃO pode ser reescrito junto com a resposta', () =>
+  assertFails(updateDoc(doc(anonimo(), 'orgs/varejo/formularios', 'crSecreto1'),
+    { resposta: aceite(), respondidoEm: serverTimestamp(), valor: 1 })));
+await caso('nem a própria empresa reescreve o documento enviado', () =>
+  assertFails(updateDoc(doc(conta(BRUNO), 'orgs/varejo/formularios', 'crSecreto1'), { valor: 1 })));
+await caso('a hora do aceite tem de ser a do SERVIDOR', () =>
+  assertFails(updateDoc(doc(anonimo(), 'orgs/varejo/formularios', 'crSecreto1'),
+    { resposta: aceite(), respondidoEm: Date.now() })));
+await caso('decisão fora das três opções é recusada', () =>
+  assertFails(updateDoc(doc(anonimo(), 'orgs/varejo/formularios', 'crSecreto1'),
+    { resposta: aceite({ decisao: 'talvez' }), respondidoEm: serverTimestamp() })));
+await caso('aceite sem nome é recusado', () =>
+  assertFails(updateDoc(doc(anonimo(), 'orgs/varejo/formularios', 'crSecreto1'),
+    { resposta: aceite({ nome: '' }), respondidoEm: serverTimestamp() })));
+await caso('observação gigante é recusada', () =>
+  assertFails(updateDoc(doc(anonimo(), 'orgs/varejo/formularios', 'crSecreto1'),
+    { resposta: aceite({ observacao: 'x'.repeat(2001) }), respondidoEm: serverTimestamp() })));
+await caso('NÃO responde formulário vencido', () =>
+  assertFails(updateDoc(doc(anonimo(), 'orgs/varejo/formularios', 'crVencido'),
+    { resposta: aceite(), respondidoEm: serverTimestamp() })));
+await caso('NÃO responde um que já foi respondido', () =>
+  assertFails(updateDoc(doc(anonimo(), 'orgs/varejo/formularios', 'crRespondido'),
+    { resposta: aceite({ decisao: 'rejeitado' }), respondidoEm: serverTimestamp() })));
+await caso('quem tem o link dá o de acordo, sem login', () =>
+  assertSucceeds(updateDoc(doc(anonimo(), 'orgs/varejo/formularios', 'crSecreto1'),
+    { resposta: aceite(), respondidoEm: serverTimestamp() })));
+await caso('e NÃO dá duas vezes', () =>
+  assertFails(updateDoc(doc(anonimo(), 'orgs/varejo/formularios', 'crSecreto1'),
+    { resposta: aceite({ decisao: 'rejeitado' }), respondidoEm: serverTimestamp() })));
+await caso('o escritório apaga um pedido NÃO respondido', () =>
+  assertSucceeds(deleteDoc(doc(conta(BRUNO), 'orgs/varejo/formularios', 'crVencido'))));
+await caso('mas NÃO apaga um aceite já dado', () =>
+  assertFails(deleteDoc(doc(conta(BRUNO), 'orgs/varejo/formularios', 'crRespondido'))));
+
 console.log('\nÍNDICE DO ENVIO AGENDADO');
 // Esta coleção fica FORA da árvore da empresa para o servidor poder perguntar
 // "o que vence nesta hora?" numa busca só. Por isso ela é o ponto onde o

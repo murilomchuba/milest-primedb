@@ -341,6 +341,44 @@ service cloud.firestore {
         allow delete: if editaOrg(org);
       }
 
+      // ---- formulários enviados ao cliente para ACEITE ----------------------
+      // Mudança de escopo hoje; termo de encerramento depois. Mesmo mecanismo
+      // da pesquisa: criado só pela função do servidor, aberto pelo código
+      // aleatório do link, respondido sem login e uma vez só.
+      //
+      // A diferença é o peso: isto é um aceite comercial. Por isso o documento
+      // inteiro é IMUTÁVEL depois de criado — `hasOnly` deixa mexer apenas na
+      // resposta, então o texto que o cliente aprovou não pode ser reescrito
+      // depois por ninguém, nem pela empresa. Não existe "cópia congelada"
+      // separada porque não precisa: o original já não muda.
+      //
+      // `respondidoEm == request.time` é o relógio do SERVIDOR. Num aceite,
+      // a hora vinda do computador de quem responde não vale nada.
+      match /formularios/{codigo} {
+        allow get: if true;
+        allow list: if veOrg(org) || suporteAtivo(org);
+        allow create: if false;
+        allow update: if resource.data.respondidoEm == null
+                      && request.time.toMillis() < resource.data.expiraEm
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['resposta', 'respondidoEm'])
+                      && request.resource.data.respondidoEm == request.time
+                      && request.resource.data.resposta is map
+                      && request.resource.data.resposta.size() <= 8
+                      && request.resource.data.resposta.decisao in ['aprovado', 'rejeitado', 'conversar']
+                      && request.resource.data.resposta.nome is string
+                      && request.resource.data.resposta.nome.size() > 0
+                      && request.resource.data.resposta.nome.size() <= 160
+                      && request.resource.data.resposta.get('cargo', '') is string
+                      && request.resource.data.resposta.get('cargo', '').size() <= 160
+                      && request.resource.data.resposta.get('email', '') is string
+                      && request.resource.data.resposta.get('email', '').size() <= 160
+                      && request.resource.data.resposta.get('observacao', '') is string
+                      && request.resource.data.resposta.get('observacao', '').size() <= 2000;
+        // Só o escritório apaga, e apagar NÃO é desfazer um aceite: é limpar
+        // um pedido que nunca foi respondido.
+        allow delete: if editaOrg(org) && resource.data.respondidoEm == null;
+      }
+
       // ---- histórico do suporte: só se acrescenta, ninguém apaga ----------
       match /suporteLog/{registro} {
         allow read: if veOrg(org) || souPlataforma();

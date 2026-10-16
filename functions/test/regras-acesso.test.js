@@ -273,3 +273,87 @@ test('semAssento devolve motivo legível, não código', () => {
   assert.ok(!/undefined|NaN|\[object/.test(m));
   assert.equal(semAssento(comLimite(2, 2, 'gerente')), null);
 });
+
+/* ---- aceite de mudança de escopo ---------------------------------------
+   Um "de acordo" é um compromisso comercial. O que estes casos protegem não é
+   a tela: é não sair um pedido de aceite sobre documento vazio, sem prazo de
+   validade, ou de alguém que não responde por aquele projeto. */
+const { decidirMudanca } = require('../regras-acesso');
+
+const MUD = () => ({
+  titulo: 'Inclusão do gateway Pix',
+  descricao: 'O checkout passa a aceitar Pix.',
+  justificativa: '38% dos pagamentos foram abandonados.',
+  escopo: 'Checkout, integração financeira.',
+  riscos: 'A janela de homologação é do banco.',
+  seNaoAprovar: 'O projeto segue sem Pix.',
+  dias: 10, horas: 80, valor: 12800, valePorDias: 10
+});
+const baseM = () => ({
+  quem: 'ana@unimed.com.br', agora: AGORA,
+  idxQuem: { orgId: 'o1' }, membroQuem: { papel: 'admin', ativo: true },
+  org: { ativo: true, expiraEm: 0 },
+  projeto: { name: 'Projeto', gp: 'helo@unimed.com.br', gpExtra: [] },
+  destinatarios: [{ nome: 'Helena', email: 'helena@cliente.com.br' }],
+  mudanca: MUD()
+});
+const okM = p => decidirMudanca(p).ok;
+const comMud = x => Object.assign(baseM(), { mudanca: Object.assign(MUD(), x) });
+
+test('admin e gerente pedem aceite; leitor e analista não', () => {
+  assert.equal(okM(baseM()), true);
+  assert.equal(okM({ ...baseM(), membroQuem: { papel: 'gerente', ativo: true } }), true);
+  assert.equal(okM({ ...baseM(), membroQuem: { papel: 'leitor', ativo: true } }), false);
+  assert.equal(okM({ ...baseM(), membroQuem: { papel: 'analista', ativo: true } }), false);
+  assert.equal(okM({ ...baseM(), membroQuem: { papel: 'admin', ativo: false } }), false);
+});
+
+test('o gerente de projetos pede aceite SÓ do projeto dele', () => {
+  const gp = { ...baseM(), quem: 'helo@unimed.com.br', membroQuem: { papel: 'gp', ativo: true } };
+  assert.equal(okM(gp), true, 'é o titular');
+  const sub = { ...gp, quem: 'rui@unimed.com.br',
+    projeto: { name: 'P', gp: 'helo@unimed.com.br', gpExtra: ['rui@unimed.com.br'] } };
+  assert.equal(okM(sub), true, 'é substituto');
+  const outro = { ...gp, quem: 'zeca@unimed.com.br' };
+  assert.equal(okM(outro), false, 'não é o projeto dele');
+});
+
+test('empresa suspensa ou vencida não pede aceite', () => {
+  assert.equal(okM({ ...baseM(), org: { ativo: false } }), false);
+  assert.equal(okM({ ...baseM(), org: { ativo: true, expiraEm: AGORA - 1 } }), false);
+});
+
+test('documento vazio não vira pedido de aceite', () => {
+  // o cliente estaria concordando com o nada, e o registro nao valeria
+  assert.equal(okM(comMud({ titulo: '   ' })), false);
+  assert.equal(okM(comMud({ descricao: '' })), false);
+  assert.equal(okM(comMud({ justificativa: '' })), false);
+  assert.match(decidirMudanca(comMud({ descricao: '' })).motivo, /descreva/i);
+});
+
+test('campos gigantes são recusados', () => {
+  assert.equal(okM(comMud({ titulo: 'x'.repeat(161) })), false);
+  assert.equal(okM(comMud({ descricao: 'x'.repeat(4001) })), false);
+  assert.equal(okM(comMud({ riscos: 'x'.repeat(4001) })), false);
+  assert.equal(okM(comMud({ descricao: 'x'.repeat(4000) })), true);
+});
+
+test('números do impacto: zero vale, negativo e texto não', () => {
+  assert.equal(okM(comMud({ dias: 0, horas: 0, valor: 0 })), true, 'mudança sem custo existe');
+  assert.equal(okM(comMud({ dias: -1 })), false);
+  assert.equal(okM(comMud({ horas: 'oito' })), false);
+  assert.equal(okM(comMud({ valor: -0.01 })), false);
+});
+
+test('sem validade não é proposta, é promessa', () => {
+  assert.equal(okM(comMud({ valePorDias: 0 })), false);
+  assert.equal(okM(comMud({ valePorDias: 91 })), false);
+  assert.equal(okM(comMud({ valePorDias: 1 })), true);
+  assert.equal(okM(comMud({ valePorDias: 90 })), true);
+});
+
+test('destinatários: pelo menos um, no máximo dez, todos válidos', () => {
+  assert.equal(okM({ ...baseM(), destinatarios: [] }), false);
+  assert.equal(okM({ ...baseM(), destinatarios: Array(11).fill({ email: 'a@b.com' }) }), false);
+  assert.equal(okM({ ...baseM(), destinatarios: [{ email: 'nao-e-email' }] }), false);
+});

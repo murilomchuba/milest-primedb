@@ -256,5 +256,58 @@ function decidirStatus(p) {
   return { ok: true, orgId };
 }
 
-module.exports = { decidir, decidirExclusao, decidirBackup, decidirPesquisa, decidirStatus,
+/**
+ * Pode enviar uma solicitação de mudança de escopo para o de acordo do cliente?
+ * Mesma régua da pesquisa e do status — administrador ou gerente ativo, empresa
+ * ativa e no prazo —, mais os limites do que vai no documento.
+ *
+ * O gerente de projetos entra aqui, e de propósito: quem negocia escopo com o
+ * cliente é quem toca o projeto. Mas só o projeto DELE, conferido no servidor
+ * como no `decidirStatus` — sem isso o papel que não enxerga o projeto do
+ * colega poderia pedir aceite sobre ele.
+ */
+function decidirMudanca(p) {
+  const orgId = p.idxQuem && p.idxQuem.orgId;
+  if (!orgId) return { ok: false, motivo: 'sua conta não está em nenhuma empresa.' };
+  const m = p.membroQuem, org = p.org;
+  if (!m || m.ativo === false || !['admin', 'gerente', 'gp'].includes(m.papel))
+    return { ok: false, motivo: 'só administradores e gerentes pedem aceite de mudança.' };
+  if (!org || org.ativo === false) return { ok: false, motivo: 'empresa suspensa.' };
+  if (org.expiraEm && p.agora >= org.expiraEm) return { ok: false, motivo: 'o prazo de acesso da empresa venceu.' };
+  if (!p.projeto) return { ok: false, motivo: 'projeto não encontrado.' };
+  if (m.papel === 'gp') {
+    const eu = chave(p.quem || (p.idxQuem && p.idxQuem.email) || '');
+    const titular = chave(p.projeto.gp || '');
+    const subs = (Array.isArray(p.projeto.gpExtra) ? p.projeto.gpExtra : []).map(chave);
+    if (!eu || (eu !== titular && !subs.includes(eu)))
+      return { ok: false, motivo: 'este projeto não é seu.' };
+  }
+  /* Um aceite não pode sair pedindo concordância com um documento vazio: o
+     cliente estaria assinando o nada, e o registro não valeria. */
+  const d = p.mudanca || {};
+  if (!String(d.titulo || '').trim()) return { ok: false, motivo: 'a mudança precisa de um título.' };
+  if (String(d.titulo).length > 160) return { ok: false, motivo: 'o título passou de 160 caracteres.' };
+  if (!String(d.descricao || '').trim()) return { ok: false, motivo: 'descreva o que muda.' };
+  if (!String(d.justificativa || '').trim()) return { ok: false, motivo: 'explique por que a mudança é necessária.' };
+  for (const [k, rot] of [['descricao', 'o que muda'], ['justificativa', 'o porquê'],
+                          ['escopo', 'as entregas afetadas'], ['riscos', 'os riscos'], ['seNaoAprovar', 'o cenário de não aprovar']])
+    if (String(d[k] || '').length > 4000) return { ok: false, motivo: rot + ' passou de 4000 caracteres.' };
+  const n = v => v == null || v === '' ? 0 : Number(v);
+  for (const [k, rot] of [['dias', 'os dias'], ['horas', 'as horas'], ['valor', 'o valor']]) {
+    const x = n(d[k]);
+    if (!isFinite(x)) return { ok: false, motivo: rot + ' precisa ser um número.' };
+    if (x < 0) return { ok: false, motivo: rot + ' não pode ser negativo.' };
+  }
+  const dest = Array.isArray(p.destinatarios) ? p.destinatarios : [];
+  if (!dest.length) return { ok: false, motivo: 'informe ao menos um destinatário.' };
+  if (dest.length > 10) return { ok: false, motivo: 'no máximo 10 destinatários por envio.' };
+  if (dest.some(x => !EMAIL_OK.test(chave(x && x.email)))) return { ok: false, motivo: 'há e-mail inválido na lista.' };
+  /* A validade é o que impede um aceite de ser dado meses depois, sobre uma
+     estimativa que já não vale. Sem prazo não há proposta, há promessa. */
+  const dias = Math.round(Number(d.valePorDias) || 0);
+  if (!(dias >= 1 && dias <= 90)) return { ok: false, motivo: 'a validade da proposta precisa ficar entre 1 e 90 dias.' };
+  return { ok: true, orgId };
+}
+
+module.exports = { decidir, decidirExclusao, decidirBackup, decidirPesquisa, decidirStatus, decidirMudanca,
   senhaValida, chave, DONO, PAPEIS_ASSENTO, TODOS_OS_PAPEIS, contarAssentos, semAssento, fraseDosAssentos };
