@@ -1135,7 +1135,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-10-15.2002';
+const VERSAO = '2026-10-16.1129';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -5700,6 +5700,8 @@ function renderOverview() {
 const CORES_ST = {
   planejado: '#014479', realizado: '#17ADC5',
   saudavel: '#92D050', atencao: '#E97132', critico: '#C00000', neutro: '#7F7F7F',
+  // 'sem' = tem projeto, mas não dá para calcular o indicador ainda
+  sem: '#7F7F7F',
   // cinza-azulado de propósito: pausado não é bom nem ruim, é parado
   pausado: '#5B6B7A',
   tinta: '#1A1A1A', tinta2: '#4A4A4A', tinta3: '#7A7A7A',
@@ -5707,22 +5709,30 @@ const CORES_ST = {
 };
 const FONTE_ST = 'Calibri, Aptos, Arial, Helvetica, sans-serif';
 
-const ROT_ST = { saudavel: 'Saudável', atencao: 'Atenção', critico: 'Crítico', neutro: 'Não iniciado', pausado: 'Pausado' };
+const ROT_ST = { saudavel: 'Saudável', atencao: 'Atenção', critico: 'Crítico',
+  neutro: 'Não iniciado', sem: 'Sem medição', pausado: 'Pausado' };
 function statusPor(meta, ind) {
-  // Aderência: quanto do planejado foi cumprido. Passar de 100% não faz sentido
-  // na leitura de aderência — adiantamento aparece no IDP, na Visão geral.
+  /* A ADERÊNCIA continua saindo daqui: ela é o cartão "Aderência" da folha e
+     do e-mail, e a média da carteira na capa do PDF. Passar de 100% não faz
+     sentido nessa leitura — adiantamento aparece no IDP. */
   const ader = ind.plan.pct > 0 ? Math.min(100, 100 * ind.real / ind.plan.pct) : null;
-  let id = 'neutro';
-  if (ader != null) id = ader >= 95 ? 'saudavel' : ader >= 80 ? 'atencao' : 'critico';
-  const auto = id;
-  const forcado = meta && meta.statusManual;
-  if (forcado && CORES_ST[forcado]) id = forcado;
-  // a pausa vem por último e ganha de tudo: é fato, não avaliação
-  if (ehPausado(meta)) id = 'pausado';
+
+  /* A SITUAÇÃO deixou de sair daqui e passou a vir de `semaforoDe`, a mesma
+     função que a carteira usa. Antes eram duas réguas: a folha lia aderência,
+     a carteira lia o indicador — e o mesmo projeto, no mesmo dia, saía
+     "Crítico" na coluna Situação do PDF e "Saudável" no Portfólio. Uma régua
+     só, e ela obedece ao seletor "Semáforo por".
+
+     O que se traduz aqui é só a COR: `semaforoDe` devolve variável de CSS, que
+     não resolve dentro do SVG que vira PDF. A tabela CORES_ST é a versão em
+     hexadecimal das mesmas cores. */
+  const sem = semaforoDe(ind, meta);
+  const id = CORES_ST[sem.id] ? sem.id : 'neutro';
   return {
-    ader: ader, id: id, rot: ROT_ST[id], cor: CORES_ST[id],
-    forcado: !!(forcado && CORES_ST[forcado] && !ehPausado(meta)),
-    autoRot: ROT_ST[auto], motivo: String(((meta || {}).statusMotivo || '')).trim()
+    ader: ader, id: id, rot: ROT_ST[id] || sem.rot, cor: CORES_ST[id] || CORES_ST.neutro,
+    forcado: !!sem.forcado,
+    autoRot: sem.autoRot || ROT_ST[id],
+    motivo: String(((meta || {}).statusMotivo || '')).trim()
   };
 }
 function statusDoProjeto() {
