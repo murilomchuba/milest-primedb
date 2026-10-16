@@ -19,7 +19,7 @@ const { defineSecret } = require('firebase-functions/params');
 const crypto = require('crypto');
 const { setGlobalOptions } = require('firebase-functions/v2');
 const admin = require('firebase-admin');
-const { decidir, decidirExclusao, decidirBackup, decidirPesquisa, decidirStatus, decidirMudanca, senhaValida, chave,
+const { decidir, decidirExclusao, decidirBackup, decidirPesquisa, decidirStatus, decidirMudanca, decidirEncerramento, senhaValida, chave,
   PAPEIS_ASSENTO, contarAssentos } = require('./regras-acesso');
 
 admin.initializeApp();
@@ -694,13 +694,13 @@ async function mandarMudanca(chaveApi, o) {
 /* O número do CR sai de uma transação, não de uma contagem. Contar documentos
    e somar um dá dois CR-007 quando o botão é clicado duas vezes — e o número
    do aceite é o que o cliente vai citar no e-mail dele. */
-async function proximoCodigo(db, orgId, pid) {
-  const ref = db.doc(`orgs/${orgId}/projects/${pid}/config/mudancas`);
+async function proximoCodigo(db, orgId, pid, cfg, prefixo) {
+  const ref = db.doc(`orgs/${orgId}/projects/${pid}/config/${cfg || 'mudancas'}`);
   return db.runTransaction(async t => {
     const s = await t.get(ref);
     const n = ((s.exists && Number(s.data().seq)) || 0) + 1;
     t.set(ref, { seq: n }, { merge: true });
-    return 'CR-' + String(n).padStart(3, '0');
+    return (prefixo || 'CR') + '-' + String(n).padStart(3, '0');
   });
 }
 
@@ -780,5 +780,132 @@ exports.enviarMudanca = onCall({ cors: ORIGENS, secrets: [RESEND_API_KEY], timeo
   }
   await ref.set({ email: saida }, { merge: true });
   console.log('enviarMudanca', { quem, orgId, pid, codigo, n: saida.length, enviados: saida.filter(x => x.enviado).length });
+  return { codigo, token, link, itens: saida };
+});
+
+
+/* ---- termo de encerramento do projeto ----
+   O mesmo caminho do aceite de mudança: um documento, um token, o sponsor
+   assina sem login e a hora vem do relógio do servidor. A coleção é a mesma
+   (`formularios`), distinguida por `tipo` — e por isso as regras do Firestore
+   não precisaram de uma linha nova: `resposta` já era decisao/nome/cargo/
+   e-mail/observação, que é exatamente o que um de acordo precisa.
+
+   O termo NÃO mostra horas. O sponsor assina que o projeto acabou, não que
+   o orçamento fechou; um estouro aparecendo na hora da assinatura convida
+   discussão no pior momento possível, e a conversa comercial tem o lugar
+   dela, que não é este.
+
+   Publicar: firebase deploy --only functions:enviarEncerramento          */
+const REMETENTE_TERMO = 'encerramento@milest.com.br';
+
+const DECLARACAO_PADRAO = 'Em conformidade com a política de qualidade e satisfação do cliente, este termo, ' +
+  'assinado pelo Sponsor do projeto, representa o encerramento do projeto acima mencionado.';
+
+function corpoEncerramento(o) {
+  const e = o.termo;
+  const lin = (k, v) => v ? `<tr><td style="padding:7px 0;border-bottom:1px solid #EDF1F4;font-size:13px;color:#47596A">${esc(k)}</td>
+<td style="padding:7px 0;border-bottom:1px solid #EDF1F4;font-size:13px;font-weight:bold;text-align:right">${esc(v)}</td></tr>` : '';
+  return `<!doctype html><html><body style="margin:0;background:#F3F7FA;font-family:Arial,Helvetica,sans-serif;color:#0E1E2B">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:28px 12px">
+<table role="presentation" width="580" cellpadding="0" cellspacing="0" style="max-width:580px;background:#fff;border:1px solid #D8E3EC;border-radius:10px">
+<tr><td style="padding:26px 30px 6px;font-size:13px;color:#47596A">${esc(o.empresa)}</td></tr>
+<tr><td style="padding:0 30px 4px">
+<span style="display:inline-block;background:#014479;color:#fff;font-size:12px;font-weight:bold;padding:4px 9px;border-radius:5px">${esc(o.codigo)}</span></td></tr>
+<tr><td style="padding:8px 30px 0;font-size:21px;font-weight:bold;line-height:1.3">Termo de encerramento do projeto</td></tr>
+<tr><td style="padding:12px 30px 0;font-size:15px;line-height:1.55;color:#243646">
+Olá${o.nome ? ', ' + esc(o.nome) : ''}!<br><br>O projeto <b>${esc(o.projeto)}</b> foi concluído, e o seu de acordo encerra formalmente o trabalho.</td></tr>
+<tr><td style="padding:18px 30px 0">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+${lin('Projeto', o.projeto)}${lin('Cliente', e.cliente)}${lin('Proposta comercial', e.proposta)}
+${lin('Sponsor', e.sponsor)}${lin('Data de início', e.dataInicio)}${lin('Data de fim', e.dataFim)}
+</table></td></tr>
+<tr><td style="padding:22px 30px 6px"><a href="${esc(o.link)}" style="display:inline-block;background:#1F8A5B;color:#fff;text-decoration:none;font-weight:bold;font-size:15px;padding:13px 24px;border-radius:7px">Ver o termo e dar o de acordo</a></td></tr>
+<tr><td style="padding:8px 30px 24px;font-size:12px;color:#7A8D9C;line-height:1.5">
+O link vale até ${esc(o.ate)} e aceita uma resposta só. A data e hora do aceite vêm do relógio do servidor.<br>
+Se o botão não abrir, copie este endereço: ${esc(o.link)}</td></tr>
+</table>
+<div style="font-size:11px;color:#7A8D9C;padding-top:12px">Enviado por ${esc(o.remetente)} pelo MILEST · milest.com.br</div>
+</td></tr></table></body></html>`;
+}
+
+async function mandarEncerramento(chaveApi, o) {
+  if (!chaveApi || chaveApi.length < 10 || !chaveApi.startsWith('re_')) return { enviado: false, erro: 'envio de e-mail ainda não configurado' };
+  try {
+    const r = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + chaveApi, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: `${o.empresa.replace(/[<>"]/g, '')} via MILEST <${REMETENTE_TERMO}>`,
+        to: [o.email], reply_to: o.remetente,
+        subject: `${o.codigo} · termo de encerramento — ${o.projeto}`,
+        html: corpoEncerramento(o)
+      })
+    });
+    if (r.ok) return { enviado: true };
+    const j = await r.json().catch(() => ({}));
+    return { enviado: false, erro: (j && j.message) || ('erro ' + r.status + ' no envio') };
+  } catch (e) { return { enviado: false, erro: 'falha de rede no envio' }; }
+}
+
+exports.enviarEncerramento = onCall({ cors: ORIGENS, secrets: [RESEND_API_KEY], timeoutSeconds: 120 }, async (req) => {
+  const tok = req.auth && req.auth.token;
+  if (!tok || !tok.email || tok.email_verified !== true)
+    throw new HttpsError('unauthenticated', 'entre com uma conta confirmada.');
+  const d = req.data || {};
+  const db = admin.firestore();
+  const quem = chave(tok.email);
+  const idxQuem = await ler(db.doc('users/' + quem));
+  const orgId = idxQuem && idxQuem.orgId;
+  const pid = String(d.projetoId || '');
+  if (!/^[A-Za-z0-9_-]{1,80}$/.test(pid)) throw new HttpsError('invalid-argument', 'projeto inválido.');
+  const [membroQuem, org, projeto] = orgId ? await Promise.all([
+    ler(db.doc(`orgs/${orgId}/members/${quem}`)), ler(db.doc('orgs/' + orgId)),
+    ler(db.doc(`orgs/${orgId}/projects/${pid}`))
+  ]) : [null, null, null];
+  const v = decidirEncerramento({ idxQuem, membroQuem, org, projeto, quem,
+    encerramento: d.encerramento, destinatarios: d.destinatarios, agora: Date.now() });
+  if (!v.ok) throw new HttpsError('permission-denied', v.motivo);
+
+  const corte = (s, n) => String(s == null ? '' : s).slice(0, n).trim();
+  const e = d.encerramento || {};
+  /* A cópia congelada. Datas e entregas vêm da tela porque o cronograma só
+     existe lá; o servidor registra o que foi mostrado ao sponsor. */
+  const termo = {
+    cliente: corte(e.cliente, 160), proposta: corte(e.proposta, 4000),
+    sponsor: corte(e.sponsor, 160),
+    dataInicio: corte(e.dataInicio, 40), dataFim: corte(e.dataFim, 40),
+    terminoPlanejado: corte(e.terminoPlanejado, 40), terminoReal: corte(e.terminoReal, 40),
+    entregas: corte(e.entregas, 4000), pendencias: corte(e.pendencias, 4000),
+    declaracao: corte(e.declaracao, 4000) || DECLARACAO_PADRAO
+  };
+
+  const agora = Date.now();
+  const expira = agora + Math.round(Number(e.valePorDias) || 0) * 86400000;
+  const codigo = await proximoCodigo(db, orgId, pid, 'encerramentos', 'TEP');
+  const token = crypto.randomBytes(18).toString('base64url');
+  const link = APP_URL + '?formulario=' + encodeURIComponent(orgId) + '.' + token;
+  const ref = db.doc(`orgs/${orgId}/formularios/${token}`);
+
+  await ref.set({
+    tipo: 'encerramento', codigo, projetoId: pid,
+    projetoNome: projeto.name || 'Projeto', cliente: termo.cliente || projeto.client || '',
+    empresaNome: org.nome || '', termo,
+    destinatarios: d.destinatarios.map(x => ({ nome: corte(x.nome, 120), email: chave(x.email) })),
+    enviadaPor: quem, enviadaEm: agora, expiraEm: expira,
+    respondidoEm: null, resposta: null
+  });
+
+  const chaveApi = (RESEND_API_KEY.value() || '').trim();
+  const ate = new Date(expira).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+  const saida = [];
+  for (const dest of d.destinatarios) {
+    const email = chave(dest.email), nome = corte(dest.nome, 120);
+    const r = await mandarEncerramento(chaveApi, { email, nome, link, codigo, termo, ate,
+      empresa: org.nome || 'MILEST', projeto: projeto.name || 'Projeto', remetente: quem });
+    saida.push({ email, nome, enviado: r.enviado, erro: r.erro || '' });
+  }
+  await ref.set({ email: saida }, { merge: true });
+  console.log('enviarEncerramento', { quem, orgId, pid, codigo, n: saida.length, enviados: saida.filter(x => x.enviado).length });
   return { codigo, token, link, itens: saida };
 });

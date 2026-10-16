@@ -14409,6 +14409,7 @@ function renderFormularios() {
   const desenhar = lista => {
     host.textContent = '';
     host.appendChild(painelMudancas(lista));
+    host.appendChild(painelEncerramentos(lista));
     host.appendChild(painelPesquisas(lista));
   };
   const agora = Date.now();
@@ -14658,8 +14659,9 @@ function resultadoMudanca(r) {
 }
 
 function modalVerMudanca(m, nomeProj) {
-  const mu = m.mudanca || {}, e = estadoMudanca(m);
-  modal((m.codigo || 'Mudança') + ' — ' + (mu.titulo || ''), (body, close) => {
+  const eT = m.tipo === 'encerramento';
+  const mu = (eT ? m.termo : m.mudanca) || {}, e = estadoMudanca(m);
+  modal((m.codigo || (eT ? 'Termo' : 'Mudança')) + ' — ' + (eT ? nomeProj : (mu.titulo || '')), (body, close) => {
     const top = el('div', 'hint');
     const st = el('b', '', e.rot); st.style.color = e.cor;
     top.appendChild(st);
@@ -14668,9 +14670,17 @@ function modalVerMudanca(m, nomeProj) {
     body.appendChild(top);
 
     const linhas = [];
-    if (mu.dias) linhas.push(['Prazo', '+' + mu.dias + ' dias úteis' + (mu.terminoNovo ? ' · término ' + mu.terminoAtual + ' → ' + mu.terminoNovo : '')]);
-    if (mu.horas) linhas.push(['Esforço', '+' + mu.horas + ' h' + (mu.horasNovas ? ' · de ' + mu.horasAtuais + ' h para ' + mu.horasNovas + ' h' : '')]);
-    if (mu.valor) linhas.push(['Investimento', moedaBR(mu.valor)]);
+    if (eT) {
+      for (const par of [['Cliente', mu.cliente || m.cliente], ['Proposta comercial', mu.proposta],
+                         ['Sponsor', mu.sponsor], ['Período', (mu.dataInicio || '—') + ' a ' + (mu.dataFim || '—')]])
+        if (String(par[1] || '').trim()) linhas.push(par);
+      if (mu.terminoPlanejado && mu.terminoReal && mu.terminoPlanejado !== mu.terminoReal)
+        linhas.push(['Término planejado × real', mu.terminoPlanejado + ' → ' + mu.terminoReal]);
+    } else {
+      if (mu.dias) linhas.push(['Prazo', '+' + mu.dias + ' dias úteis' + (mu.terminoNovo ? ' · término ' + mu.terminoAtual + ' → ' + mu.terminoNovo : '')]);
+      if (mu.horas) linhas.push(['Esforço', '+' + mu.horas + ' h' + (mu.horasNovas ? ' · de ' + mu.horasAtuais + ' h para ' + mu.horasNovas + ' h' : '')]);
+      if (mu.valor) linhas.push(['Investimento', moedaBR(mu.valor)]);
+    }
     if (m.respondidoEm) {
       const r = m.resposta || {};
       const q = m.respondidoEm && m.respondidoEm.toDate ? m.respondidoEm.toDate() : null;
@@ -14696,16 +14706,23 @@ function modalVerMudanca(m, nomeProj) {
       const p = el('div'); p.style.cssText = 'font-size:13px;line-height:1.55;white-space:pre-wrap';
       p.textContent = t; body.appendChild(p);
     };
-    texto('O que muda', mu.descricao);
-    texto('Por que', mu.justificativa);
-    texto('Entregas afetadas', mu.escopo);
-    texto('Riscos', mu.riscos);
-    texto('Se não aprovar', mu.seNaoAprovar);
+    if (eT) {
+      texto('O que foi entregue', mu.entregas);
+      texto('Pendências conhecidas', mu.pendencias);
+      texto('Declaração', mu.declaracao);
+    } else {
+      texto('O que muda', mu.descricao);
+      texto('Por que', mu.justificativa);
+      texto('Entregas afetadas', mu.escopo);
+      texto('Riscos', mu.riscos);
+      texto('Se não aprovar', mu.seNaoAprovar);
+    }
 
     /* O lado interno vive noutra coleção, que o cliente não alcança: o
        documento dele tem `allow get: if true`. Por isso é lido aqui. */
     const alvo = el('div'); body.appendChild(alvo);
-    ST.db.doc(dProjeto(m.projetoId) + '/mudancas/' + m.token).get().then(s => {
+    /* O termo não tem lado interno: tudo nele é o que o sponsor assinou. */
+    if (!eT) ST.db.doc(dProjeto(m.projetoId) + '/mudancas/' + m.token).get().then(s => {
       if (!s.exists) return;
       const i = s.data() || {};
       const PR = { urgente: 'Urgente', alta: 'Alta', media: 'Média', baixa: 'Baixa' };
@@ -14739,6 +14756,171 @@ function modalVerMudanca(m, nomeProj) {
 }
 
 
+/* ---- termo de encerramento: a lista e o envio ----
+   Mesma coleção e mesmo caminho do aceite de mudança, distinguidos por
+   `tipo`. O que muda é o documento: aqui não há impacto a aprovar, há um
+   projeto a dar por encerrado. */
+function painelEncerramentos(lista) {
+  const p = el('div', 'panel');
+  const cab = el('h3', '', 'Termo de encerramento do projeto');
+  cab.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap';
+  const acoes = el('div'); acoes.style.cssText = 'display:flex;gap:7px;flex-wrap:wrap;align-items:center';
+  const sel = el('select', 'btn'); sel.style.cssText = 'padding:0 6px;font-size:12px;max-width:260px';
+  const ativos = (lista || []).filter(x => x && !x.erro);
+  for (const x of ativos) {
+    const o = el('option', '', (x.meta.client ? x.meta.client + ' · ' : '') + (x.meta.name || 'Projeto'));
+    o.value = x.id; sel.appendChild(o);
+  }
+  const bN = el('button', 'btn primary', '＋ Novo termo');
+  bN.disabled = !podeEditar() || !ativos.length;
+  bN.addEventListener('click', () => {
+    const x = ativos.find(y => y.id === sel.value) || ativos[0];
+    if (x) modalEnviarTermo(x);
+  });
+  acoes.appendChild(sel); acoes.appendChild(bN); cab.appendChild(acoes);
+  p.appendChild(cab);
+  const corpo = el('div'); corpo.style.padding = '6px 16px 14px'; p.appendChild(corpo);
+  corpo.appendChild(el('div', 'tagline', 'Carregando…'));
+
+  ST.db.collection(cFormularios()).get().then(snap => {
+    corpo.textContent = '';
+    const todas = snap.docs.map(d => Object.assign({ token: d.id }, d.data() || {}))
+      .filter(m => m.tipo === 'encerramento')
+      .sort((a, b) => (b.enviadaEm || 0) - (a.enviadaEm || 0));
+    const nome = pid => { const x = ativos.find(y => y.id === pid); return x ? (x.meta.name || 'Projeto') : '(projeto fora da lista)'; };
+    if (!todas.length) {
+      corpo.appendChild(el('div', 'empty', 'Nenhum termo enviado ainda. Escolha o projeto ao lado e emita o termo.'));
+      corpo.appendChild(el('div', 'tagline', 'O sponsor recebe um link, lê o termo e assina sem precisar de conta. ' +
+        'A data e hora do aceite vêm do relógio do servidor, e o link aceita uma resposta só.'));
+      return;
+    }
+    const aceitos = todas.filter(m => (m.resposta || {}).decisao === 'aprovado');
+    corpo.appendChild(el('div', 'tagline', 'Carteira: ' + todas.length + ' termo(s) · ' + aceitos.length + ' aceito(s)'));
+    const tb = el('table', 'data');
+    const th = el('thead'), trh = el('tr');
+    for (const c of ['Projeto', 'Termo', 'Sponsor', 'Período', 'Estado', '']) trh.appendChild(el('th', '', c));
+    th.appendChild(trh); tb.appendChild(th);
+    const tbody = el('tbody');
+    for (const m of todas) {
+      const t = m.termo || {}, e = estadoMudanca(m);
+      const l = el('tr');
+      l.appendChild(el('td', '', nome(m.projetoId)));
+      l.appendChild(el('td', '', m.codigo || '—'));
+      l.appendChild(el('td', '', t.sponsor || '—'));
+      l.appendChild(el('td', '', (t.dataInicio || '—') + ' a ' + (t.dataFim || '—')));
+      const tdE = el('td'); const pt = el('b', '', e.rot); pt.style.color = e.cor; tdE.appendChild(pt);
+      l.appendChild(tdE);
+      const tdA = el('td'); tdA.style.cssText = 'white-space:nowrap;text-align:right';
+      const bV = el('button', 'btn', 'Ver');
+      bV.addEventListener('click', () => modalVerMudanca(m, nome(m.projetoId)));
+      const bX = el('button', 'btn', 'Excluir'); bX.style.marginLeft = '5px';
+      if (m.respondidoEm) { bX.disabled = true; bX.title = 'O sponsor já respondeu — o registro de um aceite não se apaga.'; }
+      else if (!podeEditar()) { bX.disabled = true; bX.title = 'Só quem edita o projeto pode excluir.'; }
+      else {
+        bX.style.color = 'var(--critical)';
+        bX.addEventListener('click', () => modalExcluirMudanca(m, nome(m.projetoId), () => renderFormularios()));
+      }
+      tdA.appendChild(bV); tdA.appendChild(bX); l.appendChild(tdA);
+      tbody.appendChild(l);
+    }
+    tb.appendChild(tbody); corpo.appendChild(tb);
+    corpo.appendChild(el('div', 'tagline', 'O termo não mostra horas ao sponsor: ele assina que o projeto acabou, ' +
+      'não que o orçamento fechou. A conversa comercial tem o lugar dela, que não é este.'));
+  }).catch(e => {
+    corpo.textContent = '';
+    corpo.appendChild(el('div', 'tagline', 'Não consegui ler os termos: ' + ((e && e.message) || 'erro')));
+  });
+  return p;
+}
+
+const DECLARACAO_TEP = 'Em conformidade com a política de qualidade e satisfação do cliente, este termo, ' +
+  'assinado pelo Sponsor do projeto, representa o encerramento do projeto acima mencionado.';
+
+function modalEnviarTermo(x) {
+  const sch = computeSchedule(x.P);
+  /* O término planejado sai da LINHA DE BASE, não do plano de hoje: comparar
+     o real com um plano que já foi remexido não compara nada. */
+  const bls = (x.P.tasks || []).filter(t => t.bl && t.bl.finish).map(t => t.bl.finish).sort();
+  const planISO = bls.length ? bls[bls.length - 1] : '';
+  const fases = (x.P.tasks || []).filter(t => { const o = sch.out.get(t.id); return o && o.sum; })
+    .map(t => t.name).filter(Boolean).slice(0, 25);
+
+  modal('Termo de encerramento — ' + (x.meta.name || 'Projeto'), (body, close) => {
+    body.appendChild(el('div', 'hint', 'O MILEST preenche o que ele sabe: nome, cliente e as datas do cronograma. ' +
+      'O sponsor recebe um link, lê o termo e assina sem precisar de conta.'));
+
+    const campo = (rot, tag, cfg) => {
+      const f = el('div', 'field'); f.appendChild(el('label', '', rot));
+      const i = el(tag, 'inp'); Object.assign(i, cfg || {});
+      f.appendChild(i); body.appendChild(f); return i;
+    };
+    const dupla = (a, b) => {
+      const g = el('div'); g.style.cssText = 'display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px';
+      g.appendChild(a.parentNode); g.appendChild(b.parentNode); body.appendChild(g);
+    };
+    const cliente = campo('Cliente', 'input', { maxLength: 160 }); cliente.value = x.meta.client || '';
+    const proposta = campo('Proposta comercial', 'input', { maxLength: 160 }); proposta.value = 'N/A';
+    dupla(cliente, proposta);
+    const sponsor = campo('Sponsor — quem assina', 'input', { maxLength: 160, placeholder: 'Lucas Dias' });
+    const dIni = campo('Data de início', 'input', { maxLength: 10 }); dIni.value = dataLonga(sch.startISO);
+    const dFim = campo('Data de fim', 'input', { maxLength: 10 }); dFim.value = dataLonga(sch.finishISO);
+    dupla(dIni, dFim);
+    const tPlan = campo('Término planejado (linha de base)', 'input', { maxLength: 10 });
+    tPlan.value = planISO ? dataLonga(planISO) : '';
+    tPlan.title = 'Deixe em branco para não mostrar a comparação ao sponsor';
+    const entregas = campo('O que foi entregue (uma por linha)', 'textarea', { rows: 4, maxLength: 4000 });
+    entregas.value = fases.join('\n');
+    if (fases.length) body.appendChild(el('div', 'hint', 'Vieram as ' + fases.length +
+      ' fase(s) do cronograma. Ajuste para a linguagem do cliente antes de mandar — ele não conhece os seus nomes de fase.'));
+    const pend = campo('Pendências conhecidas (uma por linha)', 'textarea', { rows: 2, maxLength: 4000 });
+    pend.placeholder = 'Em branco se não houver. O sponsor pode aceitar com ressalvas mesmo assim.';
+    const decl = campo('A declaração que o sponsor assina', 'textarea', { rows: 3, maxLength: 4000 });
+    decl.value = DECLARACAO_TEP;
+
+    const sepE = el('div', '', 'Enviar para assinatura');
+    sepE.style.cssText = 'font-weight:600;font-size:12.5px;margin:14px 0 2px;color:var(--ink-2);border-top:1px solid var(--line);padding-top:12px';
+    body.appendChild(sepE);
+    const tD = campo('Destinatários', 'textarea', { rows: 3 });
+    tD.placeholder = 'Um por linha. Ex.:\nLucas Dias <lucas@cliente.com.br>';
+    const nVal = campo('O link vale por (dias)', 'input', { type: 'number', min: '1', max: '180' });
+    nVal.value = '30';
+
+    const aviso = el('div', 'hint'); aviso.style.color = 'var(--critical)'; aviso.hidden = true; body.appendChild(aviso);
+    const linha = el('div'); linha.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
+    const bC = el('button', 'btn', 'Cancelar'); bC.addEventListener('click', close);
+    const bOk = el('button', 'btn primary', 'Enviar para assinatura');
+    const errar = t => { aviso.textContent = t; aviso.hidden = false; bOk.disabled = false; bOk.textContent = 'Enviar para assinatura'; };
+    bOk.addEventListener('click', async () => {
+      if (!sponsor.value.trim()) return errar('Informe o sponsor que vai assinar.');
+      if (!decl.value.trim()) return errar('O termo precisa da declaração que o sponsor assina.');
+      const vale = Math.round(Number(nVal.value) || 0);
+      if (!(vale >= 1 && vale <= 180)) return errar('A validade do link precisa ficar entre 1 e 180 dias.');
+      const dest = lerDestinatarios(tD.value);
+      if (!dest.length) return errar('Informe ao menos um destinatário.');
+      const ruins = dest.filter(y => !y.ok);
+      if (ruins.length) return errar('E-mail inválido: ' + ruins.map(y => y.email).join(', '));
+      if (dest.length > 10) return errar('No máximo 10 destinatários por envio.');
+      aviso.hidden = true; bOk.disabled = true; bOk.textContent = 'Enviando…';
+      const r = await chamarFuncao('enviarEncerramento', {
+        projetoId: x.id,
+        destinatarios: dest.map(y => ({ nome: y.nome, email: y.email })),
+        encerramento: {
+          cliente: cliente.value, proposta: proposta.value, sponsor: sponsor.value,
+          dataInicio: dIni.value, dataFim: dFim.value,
+          terminoPlanejado: tPlan.value, terminoReal: dFim.value,
+          entregas: entregas.value, pendencias: pend.value,
+          declaracao: decl.value, valePorDias: vale
+        }
+      });
+      if (r.indisponivel) return errar('O envio ainda não está ligado (falta publicar as funções do servidor).');
+      if (!r.ok) return errar('Não consegui enviar: ' + r.motivo);
+      close(); resultadoMudanca(r);
+      ST.portfolioEm = 0; if (VIEW === 'formularios') refresh();
+    });
+    linha.appendChild(bC); linha.appendChild(bOk); body.appendChild(linha);
+  }, []);
+}
+
 /* ---- o CR em PDF ----
    Mesma máquina do resto do sistema: SVG → JPEG → montarPDFMulti. A4 em pé,
    porque isto é um documento de texto e não um painel.
@@ -14757,7 +14939,8 @@ function paginasMudancaSVG(m, nomeProj) {
   const fBody = (est.getPropertyValue('--f-body') || 'sans-serif').trim();
   const fDisp = (est.getPropertyValue('--f-display') || fBody).trim();
   const fMono = (est.getPropertyValue('--f-mono') || 'monospace').trim();
-  const mu = m.mudanca || {}, r = m.resposta || {};
+  const eT = m.tipo === 'encerramento';
+  const mu = (eT ? m.termo : m.mudanca) || {}, r = m.resposta || {};
   const paginas = []; let pg = null, y = 0;
 
   const T = (x, yy, txt, fs, peso, cor, fam, anc) => {
@@ -14799,12 +14982,12 @@ function paginasMudancaSVG(m, nomeProj) {
   caixa(M, y - 12, cw, 18, 'var(--accent)', null, 4);
   T(M + 8, y + 1, m.codigo || 'CR', 10, 700, '#FFFFFF', fMono);
   y += 28;
-  T(M, y, 'Aceite de mudança de escopo', 19, 700, 'var(--ink)', fDisp); y += 20;
-  for (const l of quebrarTexto(mu.titulo || '', LARG, 13, fDisp, 600)) { T(M, y, l, 13, 600, 'var(--ink)', fDisp); y += 16; }
+  T(M, y, eT ? 'Termo de encerramento do projeto' : 'Aceite de mudança de escopo', 19, 700, 'var(--ink)', fDisp); y += 20;
+  if (!eT) for (const l of quebrarTexto(mu.titulo || '', LARG, 13, fDisp, 600)) { T(M, y, l, 13, 600, 'var(--ink)', fDisp); y += 16; }
   y += 4;
   for (const l of quebrarTexto('Projeto ' + nomeProj, LARG, 10, fBody, 400)) { T(M, y, l, 10, 400, 'var(--ink-2)', fBody); y += 13; }
   const dmy = v => { try { return new Date(v).toLocaleDateString('pt-BR'); } catch (e) { return '—'; } };
-  T(M, y, 'Solicitada em ' + (m.enviadaEm ? dmy(m.enviadaEm) : '—') +
+  T(M, y, (eT ? 'Emitido em ' : 'Solicitada em ') + (m.enviadaEm ? dmy(m.enviadaEm) : '—') +
     (m.respondidoEm ? '' : ' · vale até ' + (m.expiraEm ? dmy(m.expiraEm) : '—')), 10, 400, 'var(--ink-2)', fBody);
   y += 22;
 
@@ -14833,6 +15016,29 @@ function paginasMudancaSVG(m, nomeProj) {
     y += 12;
   };
 
+  /* ---- a identificação, que só o termo tem ---- */
+  if (eT) {
+    const ident = [['Cliente', mu.cliente || m.cliente || ''], ['Proposta comercial', mu.proposta || ''],
+      ['Sponsor', mu.sponsor || ''], ['Data de início', mu.dataInicio || ''], ['Data de fim', mu.dataFim || '']];
+    if (mu.terminoPlanejado && mu.terminoReal && mu.terminoPlanejado !== mu.terminoReal) {
+      ident.push(['Término planejado', mu.terminoPlanejado]);
+      ident.push(['Término real', mu.terminoReal]);
+    }
+    const uteis = ident.filter(l => String(l[1] || '').trim());
+    if (uteis.length) {
+      cabe(32 + uteis.length * 17);
+      T(M, y, 'O PROJETO', 7.6, 600, 'var(--ink-3)', fMono); y += 13;
+      caixa(M, y - 2, LARG, uteis.length * 17 + 10, 'none', 'var(--line)');
+      y += 12;
+      for (const par of uteis) {
+        T(M + 11, y, par[0], 9.4, 400, 'var(--ink-2)', fBody);
+        T(PW - M - 11, y, par[1], 9.4, 600, 'var(--ink)', fBody, 'end');
+        y += 17;
+      }
+      y += 16;
+    }
+  }
+
   /* ---- o registro do aceite, quando existe: é a razão do documento ---- */
   if (m.respondidoEm) {
     const q = m.respondidoEm && m.respondidoEm.toDate ? m.respondidoEm.toDate() : null;
@@ -14855,11 +15061,11 @@ function paginasMudancaSVG(m, nomeProj) {
 
   /* ---- o impacto: só o que não é zero ---- */
   const cx = [];
-  if (mu.dias) cx.push(['Prazo', '+' + mu.dias + ' du',
+  if (!eT && mu.dias) cx.push(['Prazo', '+' + mu.dias + ' du',
     mu.terminoAtual && mu.terminoNovo ? mu.terminoAtual + ' → ' + mu.terminoNovo : '', 'var(--warn)']);
-  if (mu.horas) cx.push(['Esforço', '+' + mu.horas + ' h',
+  if (!eT && mu.horas) cx.push(['Esforço', '+' + mu.horas + ' h',
     mu.horasAtuais && mu.horasNovas ? mu.horasAtuais + ' h → ' + mu.horasNovas + ' h' : '', 'var(--ink)']);
-  if (mu.valor) cx.push(['Investimento', moedaBR(mu.valor), 'Conforme o contrato', 'var(--ink)']);
+  if (!eT && mu.valor) cx.push(['Investimento', moedaBR(mu.valor), 'Conforme o contrato', 'var(--ink)']);
   if (cx.length) {
     cabe(90);
     T(M, y, 'O QUE ESTA MUDANÇA CUSTA', 7.6, 600, 'var(--ink-3)', fMono); y += 13;
@@ -14874,11 +15080,17 @@ function paginasMudancaSVG(m, nomeProj) {
     y += 74;
   }
 
-  secao('O que muda', mu.descricao, false);
-  secao('Por que', mu.justificativa, false);
-  secao('O que muda nas entregas', mu.escopo, true);
-  secao('Riscos que esta mudança traz', mu.riscos, true);
-  secao('Se não for aprovada', mu.seNaoAprovar, false);
+  if (eT) {
+    secao('O que foi entregue', mu.entregas, true);
+    secao('Pendências conhecidas', mu.pendencias, true);
+    secao('Declaração', mu.declaracao, false);
+  } else {
+    secao('O que muda', mu.descricao, false);
+    secao('Por que', mu.justificativa, false);
+    secao('O que muda nas entregas', mu.escopo, true);
+    secao('Riscos que esta mudança traz', mu.riscos, true);
+    secao('Se não for aprovada', mu.seNaoAprovar, false);
+  }
   if (m.respondidoEm && r.observacao) secao('Observação de quem respondeu', r.observacao, false);
   if (!m.respondidoEm) secao('Enviado para', (m.destinatarios || []).map(d => (d.nome ? d.nome + ' — ' : '') + d.email).join('\n'), true);
 
@@ -15021,22 +15233,31 @@ async function bootFormulario() {
      ver o que assinou. Então o recibo é a tela, e não um aviso. */
   if (d.respondidoEm) return recibo(d);
   if (Date.now() >= (d.expiraEm || 0)) {
-    recado('Esta proposta venceu.', 'Os prazos e valores precisam ser refeitos. Fale com o gestor do projeto para receber um link novo.');
+    recado(d.tipo === 'encerramento' ? 'Este link venceu.' : 'Esta proposta venceu.',
+      d.tipo === 'encerramento'
+        ? 'Fale com o gestor do projeto para receber um link novo.'
+        : 'Os prazos e valores precisam ser refeitos. Fale com o gestor do projeto para receber um link novo.');
     return;
   }
 
-  const m = d.mudanca || {};
-  corpo.appendChild(el('div', 'cod', d.codigo || 'CR'));
-  corpo.appendChild(el('h1', '', 'Mudança de escopo para o seu de acordo'));
+  /* Dois documentos, uma página. A coleção é a mesma e o caminho é o mesmo;
+     muda o miolo e mudam as palavras dos botões — ninguém "aprova uma
+     mudança" num termo de encerramento, dá o de acordo com o encerramento. */
+  const ehTermo = d.tipo === 'encerramento';
+  const m = (ehTermo ? d.termo : d.mudanca) || {};
+  corpo.appendChild(el('div', 'cod', d.codigo || (ehTermo ? 'TEP' : 'CR')));
+  corpo.appendChild(el('h1', '', ehTermo ? 'Termo de encerramento do projeto' : 'Mudança de escopo para o seu de acordo'));
   const sub = el('p', 'proj');
   sub.appendChild(document.createTextNode('Projeto '));
   const nb = el('b', '', d.projetoNome || 'Projeto'); sub.appendChild(nb);
-  if (d.enviadaEm) sub.appendChild(document.createTextNode(' · solicitada em ' + dia(d.enviadaEm)));
+  if (d.enviadaEm) sub.appendChild(document.createTextNode((ehTermo ? ' · emitido em ' : ' · solicitada em ') + dia(d.enviadaEm)));
   corpo.appendChild(sub);
   const val = el('div', 'val');
-  val.appendChild(document.createTextNode('Esta proposta vale até '));
+  val.appendChild(document.createTextNode(ehTermo ? 'Este link vale até ' : 'Esta proposta vale até '));
   val.appendChild(el('b', '', dia(d.expiraEm)));
-  val.appendChild(document.createTextNode('. Depois dessa data os prazos e valores precisam ser refeitos.'));
+  val.appendChild(document.createTextNode(ehTermo
+    ? ' e aceita uma resposta só. Depois disso, fale com o gestor do projeto para receber um link novo.'
+    : '. Depois dessa data os prazos e valores precisam ser refeitos.'));
   corpo.appendChild(val);
 
   const bloco = (rot, texto, comoLista, titulo) => {
@@ -15053,8 +15274,32 @@ async function bootFormulario() {
     corpo.appendChild(s);
   };
 
-  bloco('O que muda', m.descricao, false, m.titulo || '');
-  bloco('Por que', m.justificativa, false);
+  /* ---- a tabela de identificação, que só o termo tem ---- */
+  if (ehTermo) {
+    const reg = el('div', 'reg');
+    reg.appendChild(el('div', 'h', 'O projeto'));
+    const lin = (k, v) => {
+      if (!String(v || '').trim()) return;
+      const l = el('div', 'l'); l.appendChild(el('span', '', k)); l.appendChild(el('b', '', v));
+      reg.appendChild(l);
+    };
+    lin('Projeto', d.projetoNome || '');
+    lin('Cliente', m.cliente || d.cliente || '');
+    lin('Proposta comercial', m.proposta || '');
+    lin('Sponsor', m.sponsor || '');
+    lin('Data de início', m.dataInicio || '');
+    lin('Data de fim', m.dataFim || '');
+    /* O término planejado só aparece quando difere do real: iguais, a linha
+       não informa nada e só dá ao sponsor mais um número para conferir. */
+    if (m.terminoPlanejado && m.terminoReal && m.terminoPlanejado !== m.terminoReal) {
+      lin('Término planejado', m.terminoPlanejado);
+      lin('Término real', m.terminoReal);
+    }
+    corpo.appendChild(reg);
+  }
+
+  if (!ehTermo) bloco('O que muda', m.descricao, false, m.titulo || '');
+  if (!ehTermo) bloco('Por que', m.justificativa, false);
 
   /* O que é zero não aparece. "+0 h" ao lado do pedido faz o cliente parar
      para entender o que o zero quer dizer, e essa pausa é atrito puro. */
@@ -15079,9 +15324,19 @@ async function bootFormulario() {
     s.appendChild(g); corpo.appendChild(s);
   }
 
-  bloco('O que muda nas entregas', m.escopo, true);
-  bloco('Riscos que esta mudança traz', m.riscos, true);
-  bloco('Se você não aprovar', m.seNaoAprovar, false);
+  if (ehTermo) {
+    bloco('O que foi entregue', m.entregas, true);
+    bloco('Pendências conhecidas', m.pendencias, true);
+    const dec = el('div', 'sec');
+    const t = el('p', '', m.declaracao || '');
+    t.style.cssText = 'font-size:15px;line-height:1.65';
+    dec.appendChild(t);
+    corpo.appendChild(dec);
+  } else {
+    bloco('O que muda nas entregas', m.escopo, true);
+    bloco('Riscos que esta mudança traz', m.riscos, true);
+    bloco('Se você não aprovar', m.seNaoAprovar, false);
+  }
 
   /* ---- o de acordo ---- */
   const ac = el('div', 'aceite');
@@ -15107,9 +15362,9 @@ async function bootFormulario() {
   ac.appendChild(dup); ac.appendChild(fEmail.c); ac.appendChild(fObs.c);
 
   const av = el('div', 'aviso'); av.hidden = true;
-  const btSim = el('button', 'bt-ok', 'De acordo com a mudança'); btSim.type = 'button';
-  const btFalar = el('button', 'bt-2', 'Preciso conversar antes'); btFalar.type = 'button';
-  const btNao = el('button', 'bt-2 bt-nao', 'Não aprovo'); btNao.type = 'button';
+  const btSim = el('button', 'bt-ok', ehTermo ? 'De acordo com o encerramento' : 'De acordo com a mudança'); btSim.type = 'button';
+  const btFalar = el('button', 'bt-2', ehTermo ? 'Tenho ressalvas' : 'Preciso conversar antes'); btFalar.type = 'button';
+  const btNao = el('button', 'bt-2 bt-nao', ehTermo ? 'Não concordo em encerrar' : 'Não aprovo'); btNao.type = 'button';
   const dd = el('div', 'bt-dupla'); dd.appendChild(btFalar); dd.appendChild(btNao);
   ac.appendChild(av); ac.appendChild(btSim); ac.appendChild(dd);
   ac.appendChild(el('div', 'nota',
@@ -15130,8 +15385,10 @@ async function bootFormulario() {
        conversar" sem assunto faz a reunião começar do zero. */
     if (decisao !== 'aprovado' && !fObs.i.value.trim()) {
       erro(decisao === 'rejeitado'
-        ? 'Escreva na observação por que não aprova — sem isso o gestor não tem o que resolver.'
-        : 'Escreva na observação o que precisa conversar, para o gestor chegar preparado.');
+        ? (ehTermo ? 'Escreva na observação o que falta para encerrar — sem isso o gestor não tem o que resolver.'
+                   : 'Escreva na observação por que não aprova — sem isso o gestor não tem o que resolver.')
+        : (ehTermo ? 'Escreva na observação quais são as ressalvas, para o gestor chegar preparado.'
+                   : 'Escreva na observação o que precisa conversar, para o gestor chegar preparado.'));
       fObs.i.focus(); return;
     }
     av.hidden = true;
@@ -15163,15 +15420,21 @@ async function bootFormulario() {
      meses depois — o registro não muda, e é isso que ele promete. */
   function recibo(dd2) {
     const r = dd2.resposta || {};
-    const mm = dd2.mudanca || {};
+    /* Lê o tipo do próprio documento, e não da variável lá de cima: esta
+       função é chamada antes dela existir, e `const` em TDZ estoura. */
+    const eT = dd2.tipo === 'encerramento';
+    const mm = (eT ? dd2.termo : dd2.mudanca) || {};
     const quando = dd2.respondidoEm && dd2.respondidoEm.toDate ? dd2.respondidoEm.toDate() : null;
     const cor = r.decisao === 'rejeitado' ? 'var(--critical)' : r.decisao === 'conversar' ? 'var(--warn)' : 'var(--ok)';
-    const tit = r.decisao === 'rejeitado' ? 'Resposta registrada: não aprovado'
-      : r.decisao === 'conversar' ? 'Resposta registrada: conversar antes' : 'De acordo registrado';
+    const tit = r.decisao === 'rejeitado'
+        ? (eT ? 'Resposta registrada: não concorda em encerrar' : 'Resposta registrada: não aprovado')
+      : r.decisao === 'conversar'
+        ? (eT ? 'Resposta registrada: com ressalvas' : 'Resposta registrada: conversar antes')
+      : (eT ? 'Encerramento aceito' : 'De acordo registrado');
     cx.textContent = ''; cx.appendChild(topo);
     const fx = el('div', 'faixa'); fx.style.background = cor;
     fx.appendChild(el('div', 't', tit));
-    fx.appendChild(el('div', 's', (dd2.codigo || 'A mudança') + ' · o gestor do projeto já foi avisado.'));
+    fx.appendChild(el('div', 's', (dd2.codigo || (eT ? 'O termo' : 'A mudança')) + ' · o gestor do projeto já foi avisado.'));
     cx.appendChild(fx);
     corpo = el('div', 'corpo'); cx.appendChild(corpo);
 
@@ -15191,14 +15454,19 @@ async function bootFormulario() {
     const s = el('div', 'sec');
     s.appendChild(el('div', 'rot', 'O que foi respondido'));
     const cab = el('p', '');
-    cab.appendChild(el('b', '', (dd2.codigo || '') + ' — ' + (mm.titulo || '')));
+    cab.appendChild(el('b', '', (dd2.codigo || '') + ' — ' + (eT ? (dd2.projetoNome || 'Projeto') : (mm.titulo || ''))));
     s.appendChild(cab);
-    const partes = [];
-    if (mm.dias) partes.push('+' + mm.dias + ' dias úteis');
-    if (mm.horas) partes.push('+' + mm.horas + ' h');
-    if (mm.valor) partes.push(reais(mm.valor));
-    if (partes.length) s.appendChild(el('p', '', partes.join(' · ')));
-    if (mm.terminoNovo) s.appendChild(el('p', '', 'Novo término: ' + mm.terminoNovo));
+    if (eT) {
+      if (mm.dataInicio || mm.dataFim) s.appendChild(el('p', '', 'Período: ' + (mm.dataInicio || '—') + ' a ' + (mm.dataFim || '—')));
+      if (mm.declaracao) s.appendChild(el('p', '', mm.declaracao));
+    } else {
+      const partes = [];
+      if (mm.dias) partes.push('+' + mm.dias + ' dias úteis');
+      if (mm.horas) partes.push('+' + mm.horas + ' h');
+      if (mm.valor) partes.push(reais(mm.valor));
+      if (partes.length) s.appendChild(el('p', '', partes.join(' · ')));
+      if (mm.terminoNovo) s.appendChild(el('p', '', 'Novo término: ' + mm.terminoNovo));
+    }
     if (r.observacao) {
       s.appendChild(el('div', 'rot', 'A sua observação'));
       s.appendChild(el('p', '', r.observacao));

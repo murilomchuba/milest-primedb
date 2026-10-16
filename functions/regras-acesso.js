@@ -309,5 +309,46 @@ function decidirMudanca(p) {
   return { ok: true, orgId };
 }
 
-module.exports = { decidir, decidirExclusao, decidirBackup, decidirPesquisa, decidirStatus, decidirMudanca,
+/**
+ * Pode mandar o termo de encerramento deste projeto?
+ *
+ * Mesma régua do aceite de mudança, com um campo a menos e um a mais: aqui
+ * não há impacto para validar, mas há a declaração que o sponsor assina — e
+ * um termo sem declaração é uma assinatura em branco.
+ */
+function decidirEncerramento(p) {
+  const orgId = p.idxQuem && p.idxQuem.orgId;
+  if (!orgId) return { ok: false, motivo: 'sua conta não está em nenhuma empresa.' };
+  const m = p.membroQuem, org = p.org;
+  if (!m || m.ativo === false || !['admin', 'gerente', 'gp'].includes(m.papel))
+    return { ok: false, motivo: 'só administradores e gerentes encerram projeto.' };
+  if (!org || org.ativo === false) return { ok: false, motivo: 'empresa suspensa.' };
+  if (org.expiraEm && p.agora >= org.expiraEm) return { ok: false, motivo: 'o prazo de acesso da empresa venceu.' };
+  if (!p.projeto) return { ok: false, motivo: 'projeto não encontrado.' };
+  if (m.papel === 'gp') {
+    const eu = chave(p.quem || (p.idxQuem && p.idxQuem.email) || '');
+    const titular = chave(p.projeto.gp || '');
+    const subs = (Array.isArray(p.projeto.gpExtra) ? p.projeto.gpExtra : []).map(chave);
+    if (!eu || (eu !== titular && !subs.includes(eu)))
+      return { ok: false, motivo: 'este projeto não é seu.' };
+  }
+  const d = p.encerramento || {};
+  if (!String(d.sponsor || '').trim()) return { ok: false, motivo: 'informe o sponsor que vai assinar.' };
+  if (String(d.sponsor).length > 160) return { ok: false, motivo: 'o nome do sponsor passou de 160 caracteres.' };
+  if (!String(d.declaracao || '').trim()) return { ok: false, motivo: 'o termo precisa da declaração que o sponsor assina.' };
+  for (const [k, rot] of [['declaracao', 'a declaração'], ['entregas', 'as entregas'],
+                          ['pendencias', 'as pendências'], ['proposta', 'a proposta comercial']])
+    if (String(d[k] || '').length > 4000) return { ok: false, motivo: rot + ' passou de 4000 caracteres.' };
+  const dest = Array.isArray(p.destinatarios) ? p.destinatarios : [];
+  if (!dest.length) return { ok: false, motivo: 'informe ao menos um destinatário.' };
+  if (dest.length > 10) return { ok: false, motivo: 'no máximo 10 destinatários por envio.' };
+  if (dest.some(x => !EMAIL_OK.test(chave(x && x.email)))) return { ok: false, motivo: 'há e-mail inválido na lista.' };
+  /* O termo não é proposta, mas o LINK precisa de prazo: sem ele o documento
+     fica aberto para sempre, e a regra do Firestore não teria o que comparar. */
+  const dias = Math.round(Number(d.valePorDias) || 0);
+  if (!(dias >= 1 && dias <= 180)) return { ok: false, motivo: 'a validade do link precisa ficar entre 1 e 180 dias.' };
+  return { ok: true, orgId };
+}
+
+module.exports = { decidir, decidirExclusao, decidirBackup, decidirPesquisa, decidirStatus, decidirMudanca, decidirEncerramento,
   senhaValida, chave, DONO, PAPEIS_ASSENTO, TODOS_OS_PAPEIS, contarAssentos, semAssento, fraseDosAssentos };
