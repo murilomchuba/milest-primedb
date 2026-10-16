@@ -549,6 +549,48 @@ body.modopesquisa > *:not(#pesqPag){display:none!important}
 #pesqPag .enviar:disabled{opacity:.5;cursor:default}
 #pesqPag .aviso{margin-top:10px;font-size:13px;color:var(--critical)}
 #pesqPag .rod{margin-top:18px;font-size:11.5px;color:var(--ink-3);text-align:center}
+body.modoformulario > *:not(#formPag){display:none!important}
+#formPag{min-height:100vh;background:var(--paper);display:flex;justify-content:center;padding:28px 16px}
+#formPag .caixa{width:100%;max-width:680px;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);align-self:flex-start;overflow:hidden}
+#formPag .topo{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:15px 26px;border-bottom:1px solid var(--line)}
+#formPag .marcaTop{display:flex;align-items:center;gap:9px;font:800 17px var(--f-display)}
+#formPag .cli{font:12px var(--f-mono);color:var(--ink-2)}
+#formPag .corpo{padding:24px 26px 28px;display:flex;flex-direction:column;gap:19px}
+#formPag .cod{align-self:flex-start;background:var(--accent);color:#fff;font:600 12px var(--f-mono);padding:4px 9px;border-radius:5px}
+#formPag h1{font:700 23px/1.25 var(--f-display);margin:0}
+#formPag h2{font:700 17px var(--f-display);margin:0}
+#formPag .proj{font-size:14px;color:var(--ink-2);margin:0}
+#formPag .val{background:var(--accent-soft);border-radius:8px;padding:11px 14px;font-size:13px;line-height:1.5}
+#formPag .sec{border-top:1px solid var(--line);padding-top:17px;display:flex;flex-direction:column;gap:9px}
+#formPag .rot{font:600 10.5px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
+#formPag p{margin:0;font-size:14.5px;line-height:1.6}
+#formPag ul{margin:0;padding-left:20px;font-size:14px;line-height:1.75}
+#formPag .custos{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+#formPag .cx{border:1px solid var(--line);border-radius:9px;padding:13px 12px;display:flex;flex-direction:column;gap:3px}
+#formPag .cx .k{font-size:11.5px;color:var(--ink-2)}
+#formPag .cx .v{font:600 20px var(--f-mono)}
+#formPag .cx .n{font-size:11.5px;color:var(--ink-2);line-height:1.45}
+#formPag .campo{display:flex;flex-direction:column;gap:5px}
+#formPag label{font-size:12.5px;font-weight:500;color:var(--ink-2)}
+#formPag input,#formPag textarea{box-sizing:border-box;width:100%;border:1px solid var(--line-strong);border-radius:8px;padding:0 12px;height:44px;font:14px var(--f-body);background:var(--surface);color:var(--ink)}
+#formPag textarea{height:auto;min-height:78px;padding:10px 12px;resize:vertical}
+#formPag .dupla{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}
+#formPag .aceite{border-top:2px solid var(--accent);padding-top:19px;display:flex;flex-direction:column;gap:13px}
+#formPag .bt-ok{height:50px;border:0;border-radius:9px;background:var(--ok);color:#fff;font:600 15.5px var(--f-display);cursor:pointer}
+#formPag .bt-dupla{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:9px}
+#formPag .bt-2{height:46px;border:1px solid var(--line-strong);border-radius:9px;background:var(--surface);color:var(--ink);font:500 14px var(--f-body);cursor:pointer}
+#formPag .bt-nao{border-color:var(--critical);color:var(--critical)}
+#formPag button:disabled{opacity:.5;cursor:default}
+#formPag .nota{font-size:12px;line-height:1.6;color:var(--ink-2);background:var(--paper);border-radius:8px;padding:12px 14px}
+#formPag .aviso{font-size:13px;color:var(--critical)}
+#formPag .faixa{padding:22px 26px;display:flex;flex-direction:column;gap:5px;background:var(--ok);color:#fff}
+#formPag .faixa .t{font:700 20px var(--f-display)}
+#formPag .faixa .s{font-size:13.5px}
+#formPag .reg{border:1px solid var(--line);border-radius:9px;overflow:hidden}
+#formPag .reg .h{padding:9px 14px;background:var(--paper);border-bottom:1px solid var(--line);font:600 10.5px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
+#formPag .reg .l{display:flex;justify-content:space-between;gap:14px;padding:9px 14px;border-top:1px solid var(--line)}
+#formPag .reg .l:first-of-type{border-top:0}
+#formPag .reg .l b{text-align:right;font-weight:600}
 .avanco{padding:6px 16px 14px}
 .av-grade{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px 12px;margin-top:4px}
 .av-card{display:flex;flex-direction:column;align-items:center;text-align:center;padding:10px 6px 8px;border:1px solid var(--line);border-radius:10px;cursor:pointer;background:var(--surface)}
@@ -14039,6 +14081,17 @@ const PESQUISA = (function () {
     return m ? { org: m[1], codigo: m[2] } : null;
   } catch (e) { return null; }
 })();
+/* O link do aceite de mudança. Mesmo formato do da pesquisa e mesma régua:
+   o token tem 144 bits, então adivinhar um é tão provável quanto adivinhar
+   uma chave — e é só isso que separa o documento de quem não deveria vê-lo. */
+const FORMULARIO = (function () {
+  try {
+    const v = new URLSearchParams(location.search).get('formulario') || '';
+    const m = /^([A-Za-z0-9_-]{1,80})\.([A-Za-z0-9_-]{16,64})$/.exec(v);
+    return m ? { org: m[1], codigo: m[2] } : null;
+  } catch (e) { return null; }
+})();
+const cFormularios = () => pre() + 'formularios';
 const PESQ_PADRAO = () => [
   { id: 'nps', tipo: 'nps', texto: 'De 0 a 10, quanto você recomendaria o nosso trabalho neste projeto a um colega?' },
   { id: 'geral', tipo: 'escala', texto: 'Satisfação geral com o projeto' },
@@ -14326,6 +14379,245 @@ async function bootPesquisa() {
   });
   cx.appendChild(aviso); cx.appendChild(bt);
   cx.appendChild(el('div', 'rod', 'Pesquisa enviada pelo MILEST · gestão de projetos'));
+}
+
+
+/* A página pública do aceite de mudança. Mora no mesmo arquivo do sistema
+   porque o cliente não instala nada: ele abre um link e recebe o index.html
+   de sempre, que se reconhece como formulário antes de montar o app. É a
+   mesma porta da pesquisa de satisfação.
+
+   O que esta página NÃO faz é calcular. Todos os números já vieram
+   congelados do servidor no momento do envio; recalcular aqui deixaria o
+   documento que o cliente aprova diferente do que ele recebeu por e-mail,
+   e é justamente essa igualdade que dá valor ao aceite.                  */
+async function bootFormulario() {
+  document.body.classList.add('modoformulario');
+  const pag = el('div'); pag.id = 'formPag';
+  const cx = el('div', 'caixa'); pag.appendChild(cx); document.body.appendChild(pag);
+
+  const topo = el('div', 'topo');
+  const marca = el('div', 'marcaTop');
+  try { marca.appendChild(marcaSVG(26)); } catch (e) { }
+  marca.appendChild(document.createTextNode('MILEST'));
+  topo.appendChild(marca);
+  const cli = el('div', 'cli'); topo.appendChild(cli);
+  cx.appendChild(topo);
+  let corpo = el('div', 'corpo'); cx.appendChild(corpo);
+
+  const recado = (t, sub) => {
+    corpo.textContent = '';
+    corpo.appendChild(el('h1', '', t));
+    if (sub) corpo.appendChild(el('p', 'proj', sub));
+  };
+  const dia = v => { try { return new Date(v).toLocaleDateString('pt-BR'); } catch (e) { return ''; } };
+  const reais = v => 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  let fs;
+  try {
+    const base = window.__FIREBASE_VENDOR__ || 'vendor/';
+    await loadScript(base + 'firebase-app-compat.js');
+    await loadScript(base + 'firebase-firestore-compat.js');
+    firebase.initializeApp(window.__FIREBASE_CONFIG__); fs = firebase.firestore();
+  } catch (e) { recado('Não foi possível abrir o documento.', 'Verifique a sua conexão e tente de novo.'); return; }
+
+  const ref = fs.doc('orgs/' + FORMULARIO.org + '/formularios/' + FORMULARIO.codigo);
+  let d;
+  try { const s = await ref.get(); d = s.exists ? s.data() : null; } catch (e) { d = null; }
+  if (!d) { recado('Documento não encontrado.', 'Confira se o link foi copiado inteiro.'); return; }
+  cli.textContent = d.empresaNome || '';
+
+  /* Quem reabre o link depois de responder não quer um "já respondido": quer
+     ver o que assinou. Então o recibo é a tela, e não um aviso. */
+  if (d.respondidoEm) return recibo(d);
+  if (Date.now() >= (d.expiraEm || 0)) {
+    recado('Esta proposta venceu.', 'Os prazos e valores precisam ser refeitos. Fale com o gestor do projeto para receber um link novo.');
+    return;
+  }
+
+  const m = d.mudanca || {};
+  corpo.appendChild(el('div', 'cod', d.codigo || 'CR'));
+  corpo.appendChild(el('h1', '', 'Mudança de escopo para o seu de acordo'));
+  const sub = el('p', 'proj');
+  sub.appendChild(document.createTextNode('Projeto '));
+  const nb = el('b', '', d.projetoNome || 'Projeto'); sub.appendChild(nb);
+  if (d.enviadaEm) sub.appendChild(document.createTextNode(' · solicitada em ' + dia(d.enviadaEm)));
+  corpo.appendChild(sub);
+  const val = el('div', 'val');
+  val.appendChild(document.createTextNode('Esta proposta vale até '));
+  val.appendChild(el('b', '', dia(d.expiraEm)));
+  val.appendChild(document.createTextNode('. Depois dessa data os prazos e valores precisam ser refeitos.'));
+  corpo.appendChild(val);
+
+  const bloco = (rot, texto, comoLista, titulo) => {
+    const linhas = String(texto == null ? '' : texto).split('\n').map(x => x.trim()).filter(Boolean);
+    if (!linhas.length) return;
+    const s = el('div', 'sec');
+    if (titulo) s.appendChild(el('h2', '', titulo));
+    s.appendChild(el('div', 'rot', rot));
+    if (comoLista && linhas.length > 1) {
+      const ul = el('ul');
+      for (const l of linhas) ul.appendChild(el('li', '', l));
+      s.appendChild(ul);
+    } else for (const l of linhas) s.appendChild(el('p', '', l));
+    corpo.appendChild(s);
+  };
+
+  bloco('O que muda', m.descricao, false, m.titulo || '');
+  bloco('Por que', m.justificativa, false);
+
+  /* O que é zero não aparece. "+0 h" ao lado do pedido faz o cliente parar
+     para entender o que o zero quer dizer, e essa pausa é atrito puro. */
+  const caixas = [];
+  if (m.dias) caixas.push(['Prazo', '+' + m.dias + ' du',
+    m.terminoAtual && m.terminoNovo ? 'Término de ' + m.terminoAtual + ' para ' + m.terminoNovo : 'Novo término no cronograma', 'var(--warn)']);
+  if (m.horas) caixas.push(['Esforço', '+' + m.horas + ' h',
+    m.horasAtuais && m.horasNovas ? 'De ' + m.horasAtuais + ' h para ' + m.horasNovas + ' h' : 'Horas contratadas no cronograma', '']);
+  if (m.valor) caixas.push(['Investimento', reais(m.valor), 'Conforme o contrato', '']);
+  if (caixas.length) {
+    const s = el('div', 'sec');
+    s.appendChild(el('div', 'rot', 'O que esta mudança custa'));
+    const g = el('div', 'custos');
+    for (const c of caixas) {
+      const b = el('div', 'cx');
+      b.appendChild(el('div', 'k', c[0]));
+      const v = el('div', 'v', c[1]); if (c[3]) v.style.color = c[3];
+      b.appendChild(v);
+      b.appendChild(el('div', 'n', c[2]));
+      g.appendChild(b);
+    }
+    s.appendChild(g); corpo.appendChild(s);
+  }
+
+  bloco('O que muda nas entregas', m.escopo, true);
+  bloco('Riscos que esta mudança traz', m.riscos, true);
+  bloco('Se você não aprovar', m.seNaoAprovar, false);
+
+  /* ---- o de acordo ---- */
+  const ac = el('div', 'aceite');
+  ac.appendChild(el('h2', '', 'O seu de acordo'));
+  const campo = (id, rot, tipo, max) => {
+    const c = el('div', 'campo');
+    const l = el('label', '', rot); l.htmlFor = 'f_' + id;
+    const i = el(tipo === 'ta' ? 'textarea' : 'input');
+    i.id = 'f_' + id; i.maxLength = max;
+    if (tipo === 'email') i.type = 'email';
+    c.appendChild(l); c.appendChild(i);
+    return { c, i };
+  };
+  /* Nome e e-mail NÃO vêm preenchidos, mesmo o servidor sabendo para quem
+     mandou. O link pode ser repassado dentro do cliente, e um campo já
+     preenchido com o nome de outra pessoa produz um registro falso — num
+     aceite comercial, esse é o erro que não se conserta depois. */
+  const fNome = campo('nome', 'Nome completo', 'text', 160);
+  const fCargo = campo('cargo', 'Cargo', 'text', 160);
+  const fEmail = campo('email', 'E-mail', 'email', 160);
+  const fObs = campo('obs', 'Observação', 'ta', 2000);
+  const dup = el('div', 'dupla'); dup.appendChild(fNome.c); dup.appendChild(fCargo.c);
+  ac.appendChild(dup); ac.appendChild(fEmail.c); ac.appendChild(fObs.c);
+
+  const av = el('div', 'aviso'); av.hidden = true;
+  const btSim = el('button', 'bt-ok', 'De acordo com a mudança'); btSim.type = 'button';
+  const btFalar = el('button', 'bt-2', 'Preciso conversar antes'); btFalar.type = 'button';
+  const btNao = el('button', 'bt-2 bt-nao', 'Não aprovo'); btNao.type = 'button';
+  const dd = el('div', 'bt-dupla'); dd.appendChild(btFalar); dd.appendChild(btNao);
+  ac.appendChild(av); ac.appendChild(btSim); ac.appendChild(dd);
+  ac.appendChild(el('div', 'nota',
+    'Ao responder, o MILEST registra o seu nome, o seu e-mail e a data e hora do servidor — não a do seu computador. ' +
+    'O texto acima fica congelado nesse registro, e o gestor do projeto é avisado. Este link aceita uma resposta só.'));
+  corpo.appendChild(ac);
+
+  const erro = t => { av.textContent = t; av.hidden = false; };
+  const travar = (sim, rot) => {
+    for (const b of [btSim, btFalar, btNao]) b.disabled = sim;
+    if (sim && rot) rot.textContent = 'Registrando…';
+  };
+
+  async function responder(decisao, bt) {
+    const nome = fNome.i.value.trim();
+    if (!nome) { erro('Preencha o seu nome antes de responder.'); return; }
+    /* Um "não" sem motivo não dá ao gestor nada para resolver, e um "vamos
+       conversar" sem assunto faz a reunião começar do zero. */
+    if (decisao !== 'aprovado' && !fObs.i.value.trim()) {
+      erro(decisao === 'rejeitado'
+        ? 'Escreva na observação por que não aprova — sem isso o gestor não tem o que resolver.'
+        : 'Escreva na observação o que precisa conversar, para o gestor chegar preparado.');
+      fObs.i.focus(); return;
+    }
+    av.hidden = true;
+    const rotulo = bt.textContent;
+    travar(true, bt);
+    try {
+      await ref.update({
+        resposta: {
+          decisao, nome: nome.slice(0, 160),
+          cargo: fCargo.i.value.trim().slice(0, 160),
+          email: fEmail.i.value.trim().slice(0, 160),
+          observacao: fObs.i.value.trim().slice(0, 2000)
+        },
+        respondidoEm: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      let novo = d;
+      try { const s = await ref.get(); if (s.exists) novo = s.data(); } catch (e) { }
+      recibo(novo);
+    } catch (e) {
+      travar(false); bt.textContent = rotulo;
+      erro('Não consegui registrar. Talvez este documento já tenha sido respondido ou a proposta tenha vencido. Recarregue a página.');
+    }
+  }
+  btSim.addEventListener('click', () => responder('aprovado', btSim));
+  btFalar.addEventListener('click', () => responder('conversar', btFalar));
+  btNao.addEventListener('click', () => responder('rejeitado', btNao));
+
+  /* O recibo. É a mesma tela para quem acabou de responder e para quem volta
+     meses depois — o registro não muda, e é isso que ele promete. */
+  function recibo(dd2) {
+    const r = dd2.resposta || {};
+    const mm = dd2.mudanca || {};
+    const quando = dd2.respondidoEm && dd2.respondidoEm.toDate ? dd2.respondidoEm.toDate() : null;
+    const cor = r.decisao === 'rejeitado' ? 'var(--critical)' : r.decisao === 'conversar' ? 'var(--warn)' : 'var(--ok)';
+    const tit = r.decisao === 'rejeitado' ? 'Resposta registrada: não aprovado'
+      : r.decisao === 'conversar' ? 'Resposta registrada: conversar antes' : 'De acordo registrado';
+    cx.textContent = ''; cx.appendChild(topo);
+    const fx = el('div', 'faixa'); fx.style.background = cor;
+    fx.appendChild(el('div', 't', tit));
+    fx.appendChild(el('div', 's', (dd2.codigo || 'A mudança') + ' · o gestor do projeto já foi avisado.'));
+    cx.appendChild(fx);
+    corpo = el('div', 'corpo'); cx.appendChild(corpo);
+
+    const reg = el('div', 'reg');
+    reg.appendChild(el('div', 'h', 'O registro'));
+    const lin = (k, v) => {
+      if (!v) return;
+      const l = el('div', 'l'); l.appendChild(el('span', '', k)); l.appendChild(el('b', '', v));
+      reg.appendChild(l);
+    };
+    lin('Respondido por', r.nome + (r.cargo ? ' · ' + r.cargo : ''));
+    lin('E-mail', r.email || '');
+    lin('Data e hora', quando ? quando.toLocaleString('pt-BR') : '');
+    lin('Relógio', 'Servidor do MILEST');
+    corpo.appendChild(reg);
+
+    const s = el('div', 'sec');
+    s.appendChild(el('div', 'rot', 'O que foi respondido'));
+    const cab = el('p', '');
+    cab.appendChild(el('b', '', (dd2.codigo || '') + ' — ' + (mm.titulo || '')));
+    s.appendChild(cab);
+    const partes = [];
+    if (mm.dias) partes.push('+' + mm.dias + ' dias úteis');
+    if (mm.horas) partes.push('+' + mm.horas + ' h');
+    if (mm.valor) partes.push(reais(mm.valor));
+    if (partes.length) s.appendChild(el('p', '', partes.join(' · ')));
+    if (mm.terminoNovo) s.appendChild(el('p', '', 'Novo término: ' + mm.terminoNovo));
+    if (r.observacao) {
+      s.appendChild(el('div', 'rot', 'A sua observação'));
+      s.appendChild(el('p', '', r.observacao));
+    }
+    corpo.appendChild(s);
+    corpo.appendChild(el('div', 'nota',
+      'Este texto é a cópia congelada do que estava na tela quando você respondeu. Se a solicitação for editada depois, ' +
+      'este registro não muda. O link não aceita uma segunda resposta — para mudar algo, fale com o gestor do projeto.'));
+  }
 }
 
 /** Avanço de cada projeto: a barra é o realizado, o traço é onde deveria estar
@@ -20084,6 +20376,7 @@ function bootEmbutido() {
 /* ============ inicialização ============ */
 async function boot() {
   if (PESQUISA) return bootPesquisa();
+  if (FORMULARIO) return bootFormulario();
   if (EMBUTIDO) return bootEmbutido();
   if (ARQUIVO) return bootArquivo();
   // 1) começa local para a página abrir imediatamente
