@@ -1184,7 +1184,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-10-16.1935';
+const VERSAO = '2026-10-16.1942';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -16163,6 +16163,10 @@ function desenharPainelSVG(lista, LW, LH) {
 
   /* ---- horas por projeto ---- */
   T(M, y, 'HORAS PREVISTAS × CONSUMIDAS, POR PROJETO', 7.6, 700, 'var(--ink-3)', famMono);
+  /* A coluna da direita era dois números sem nome. Quem abre o PDF sem ter
+     feito o gráfico não tem como saber qual é qual — e errar a leitura aqui
+     é ler o estouro de horas ao contrário. */
+  T(PW - M, y, 'REALIZADAS / PREVISTAS', 7.6, 700, 'var(--ink-3)', famMono, 'end');
   y += 10;
   const bons = (lista || []).filter(x => x && !x.erro && x.ind)
     .map(x => ({ nome: x.meta.name || 'Projeto', cliente: x.meta.client || '', i: x.ind, h: x.ind.horas || { prev: 0, feitas: 0, saldo: 0 } }))
@@ -16173,12 +16177,23 @@ function desenharPainelSVG(lista, LW, LH) {
     T(M, y + 14, 'Nenhum projeto com horas previstas ou lançadas.', 10, 400, 'var(--ink-3)', famBody);
   } else {
     const lh = clamp(disp / bons.length, 12, 60);
-    const LAB = 250, DIR = 120, x0 = M + LAB, larg = PW - M - DIR - x0;
+    const LAB = 300, DIR = 120, x0 = M + LAB, larg = PW - M - DIR - x0;
     const teto = Math.max(1, ...bons.map(b => Math.max(b.h.prev, b.h.feitas)));
     const fs = clamp(lh * 0.42, 6, 10);
     bons.forEach((b, i) => {
       const yy = y + i * lh, meio = yy + lh / 2;
-      T(M, meio + fs * 0.36, b.nome, fs, 600, 'var(--ink)', famDisp, null, LAB - 8);
+      /* O cliente vai em linha própria, acima do projeto: numa carteira com
+         sete "Migração OCI" é ele que diz de qual se está falando, e
+         empilhar "Cliente · Projeto" numa linha só espremeria os dois. Em
+         carteira grande a linha fica baixa demais para duas, e aí volta a
+         ser uma só, com o cliente na frente. */
+      if (b.cliente && lh >= 22) {
+        T(M, meio - 1.5, b.cliente, fs * 0.82, 600, 'var(--ink-3)', famMono, null, LAB - 8);
+        T(M, meio + fs * 0.98, b.nome, fs, 600, 'var(--ink)', famDisp, null, LAB - 8);
+      } else {
+        T(M, meio + fs * 0.36, (b.cliente ? b.cliente + ' · ' : '') + b.nome,
+          fs, 600, 'var(--ink)', famDisp, null, LAB - 8);
+      }
       const hb = Math.max(6, lh * 0.42), yb = meio - hb / 2;
       const wPrev = b.h.prev > 0 ? larg * b.h.prev / teto : 0;
       const wFeito = larg * Math.min(b.h.feitas, teto) / teto;
