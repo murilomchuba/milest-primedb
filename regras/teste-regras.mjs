@@ -7,7 +7,11 @@ import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, collectionGroup,
 
 const env = await initializeTestEnvironment({
   projectId: 'milest-teste',
-  firestore: { rules: readFileSync('../firestore.rules', 'utf8'), host: '127.0.0.1', port: 8080 }
+  /* 8422, e não 8080: a porta padrão é a mais disputada de um Mac de
+     desenvolvedor, e quando está ocupada o Firebase não diz "porta ocupada" —
+     diz "Failed to make request to …:securityRules", que parece erro de REGRA
+     e manda procurar no lugar errado. A mesma porta está em firebase.json. */
+  firestore: { rules: readFileSync('../firestore.rules', 'utf8'), host: '127.0.0.1', port: 8422 }
 });
 
 const conta = email => env.authenticatedContext(email, { email, email_verified: true }).firestore();
