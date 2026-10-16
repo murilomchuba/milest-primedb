@@ -540,6 +540,12 @@ select.dipill{padding:3px 8px;font-size:12px;border-radius:999px;font-weight:600
 .pq-resp h5{margin:0 0 6px;font-size:12.5px}
 .pq-resp .q{font-size:12px;color:var(--ink-2);margin-top:6px}
 .pq-resp .a{font-size:13px;margin-top:2px}
+/* O body do sistema é uma janela fixa: height:100vh, flex column e
+   overflow:hidden, porque o Gantt rola por dentro. Para as páginas públicas
+   isso é veneno — elas são documentos, e documento rola. Sem estas duas
+   linhas tudo o que passa de uma tela some, sem barra e sem aviso.
+   Vale para a pesquisa também: ela só escapou porque seis perguntas cabem. */
+body.modopesquisa, body.modoformulario{height:auto;min-height:100vh;display:block;overflow:visible}
 body.modopesquisa > *:not(#pesqPag){display:none!important}
 #pesqPag{min-height:100vh;background:var(--paper);display:flex;justify-content:center;padding:28px 16px}
 #pesqPag .caixa{width:100%;max-width:640px;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:26px 26px 22px;align-self:flex-start}
@@ -1178,7 +1184,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-10-16.1758';
+const VERSAO = '2026-10-16.1830';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
