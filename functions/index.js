@@ -19,7 +19,7 @@ const { defineSecret } = require('firebase-functions/params');
 const crypto = require('crypto');
 const { setGlobalOptions } = require('firebase-functions/v2');
 const admin = require('firebase-admin');
-const { decidir, decidirExclusao, decidirBackup, decidirPesquisa, decidirStatus, senhaValida, chave,
+const { decidir, decidirExclusao, decidirBackup, decidirPesquisa, decidirStatus, decidirMudanca, senhaValida, chave,
   PAPEIS_ASSENTO, contarAssentos } = require('./regras-acesso');
 
 admin.initializeApp();
@@ -605,4 +605,165 @@ exports.medicaoAgora = onCall({ cors: ORIGENS, timeoutSeconds: 540, memory: '512
   }
   const doc = (await ler(db.doc('medicao/' + mes))) || { mes, orgs: {} };
   return { mes, corrida, doc, excedentes: excedentes(doc) };
+});
+
+
+/* ---- aceite de mudança de escopo ----
+   Mesma arquitetura da pesquisa de satisfação, com uma diferença que muda o
+   desenho: isto é um aceite comercial. Por isso são UM documento e UM token
+   para a mudança inteira, e não um por destinatário como na pesquisa. Três
+   pessoas recebendo o mesmo link dão um de acordo, não três — e quem
+   responde primeiro responde pela empresa. As regras do Firestore fecham a
+   porta atrás dele: `respondidoEm == null` deixa de valer.
+
+   O documento guarda a CÓPIA do que foi proposto. Se a solicitação for
+   editada depois, o que o cliente aprovou não muda — é isso que faz o
+   registro valer alguma coisa. E a hora do aceite vem de `request.time`, o
+   relógio do servidor, nunca o do computador do cliente.
+
+   Publicar: firebase deploy --only functions:enviarMudanca                */
+const REMETENTE_MUDANCA = 'aceite@milest.com.br';
+
+const reais = v => 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const dia = ms => new Date(ms).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+
+function caixaCusto(rot, valor, nota, cor, larg) {
+  return `<td width="${larg}" valign="top" style="padding:0 5px">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #D8E3EC;border-radius:9px"><tr><td height="76" valign="top" style="padding:12px 12px 13px;height:76px">
+<div style="font-size:11.5px;color:#47596A">${esc(rot)}</div>
+<div style="font-size:19px;font-weight:bold;padding-top:3px;color:${cor || '#0E1E2B'}">${esc(valor)}</div>
+<div style="font-size:11.5px;color:#47596A;padding-top:4px;line-height:1.45">${esc(nota)}</div>
+</td></tr></table></td>`;
+}
+
+function corpoMudanca(o) {
+  const m = o.mudanca;
+  const termino = m.terminoAtual && m.terminoNovo ? `Término de ${m.terminoAtual} para ${m.terminoNovo}` : 'Novo término no documento';
+  const horas = m.horasAtuais && m.horasNovas ? `De ${m.horasAtuais} h para ${m.horasNovas} h` : 'Horas contratadas no documento';
+  /* Uma mudança só de prazo não tem valor nem esforço, e mostrar "+0 h" e
+     "R$ 0,00" ao lado do pedido faz o cliente parar para entender o que
+     esses zeros querem dizer. O que é zero não aparece. */
+  const caixas = [];
+  if (m.dias) caixas.push(['Prazo', '+' + m.dias + ' du', termino, '#9C6A0E']);
+  if (m.horas) caixas.push(['Esforço', '+' + m.horas + ' h', horas, '']);
+  if (m.valor) caixas.push(['Investimento', reais(m.valor), 'Conforme o contrato', '']);
+  if (!caixas.length) caixas.push(['Impacto', 'Sem custo adicional', 'Nem prazo, nem horas, nem valor', '#1A6B48']);
+  o = Object.assign({}, o, { caixas, larg: Math.floor(100 / caixas.length) + '%' });
+  return `<!doctype html><html><body style="margin:0;background:#F3F7FA;font-family:Arial,Helvetica,sans-serif;color:#0E1E2B">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:28px 12px">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;background:#fff;border:1px solid #D8E3EC;border-radius:10px">
+<tr><td style="padding:26px 30px 6px;font-size:13px;color:#47596A">${esc(o.empresa)} · ${esc(o.projeto)}</td></tr>
+<tr><td style="padding:0 30px 4px">
+<span style="display:inline-block;background:#014479;color:#fff;font-size:12px;font-weight:bold;padding:4px 9px;border-radius:5px">${esc(o.codigo)}</span></td></tr>
+<tr><td style="padding:8px 30px 0;font-size:21px;font-weight:bold;line-height:1.3">Mudança de escopo para o seu de acordo</td></tr>
+<tr><td style="padding:14px 30px 0;font-size:16px;font-weight:bold;line-height:1.4">${esc(m.titulo)}</td></tr>
+<tr><td style="padding:10px 30px 0;font-size:14.5px;line-height:1.55;color:#243646">
+Olá${o.nome ? ', ' + esc(o.nome) : ''}!<br><br>${esc(m.descricao).replace(/\n/g, '<br>')}</td></tr>
+<tr><td style="padding:20px 25px 0">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+${o.caixas.map(c => caixaCusto(c[0], c[1], c[2], c[3], o.larg)).join('')}
+</tr></table></td></tr>
+<tr><td style="padding:22px 30px 6px"><a href="${esc(o.link)}" style="display:inline-block;background:#014479;color:#fff;text-decoration:none;font-weight:bold;font-size:15px;padding:13px 24px;border-radius:7px">Ver o documento e dar o de acordo</a></td></tr>
+<tr><td style="padding:8px 30px 24px;font-size:12px;color:#7A8D9C;line-height:1.5">
+Esta proposta vale até ${esc(dia(o.expira))}. O link aceita uma resposta só, e a data e hora do aceite vêm do relógio do servidor.<br>
+Se o botão não abrir, copie este endereço: ${esc(o.link)}</td></tr>
+</table>
+<div style="font-size:11px;color:#7A8D9C;padding-top:12px">Enviado por ${esc(o.remetente)} pelo MILEST · milest.com.br</div>
+</td></tr></table></body></html>`;
+}
+
+async function mandarMudanca(chaveApi, o) {
+  if (!chaveApi || chaveApi.length < 10 || !chaveApi.startsWith('re_')) return { enviado: false, erro: 'envio de e-mail ainda não configurado' };
+  try {
+    const r = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + chaveApi, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: `${o.empresa.replace(/[<>"]/g, '')} via MILEST <${REMETENTE_MUDANCA}>`,
+        to: [o.email], reply_to: o.remetente,
+        subject: `${o.codigo} · mudança de escopo para o seu de acordo — ${o.projeto}`,
+        html: corpoMudanca(o)
+      })
+    });
+    if (r.ok) return { enviado: true };
+    const j = await r.json().catch(() => ({}));
+    return { enviado: false, erro: (j && j.message) || ('erro ' + r.status + ' no envio') };
+  } catch (e) { return { enviado: false, erro: 'falha de rede no envio' }; }
+}
+
+/* O número do CR sai de uma transação, não de uma contagem. Contar documentos
+   e somar um dá dois CR-007 quando o botão é clicado duas vezes — e o número
+   do aceite é o que o cliente vai citar no e-mail dele. */
+async function proximoCodigo(db, orgId, pid) {
+  const ref = db.doc(`orgs/${orgId}/projects/${pid}/config/mudancas`);
+  return db.runTransaction(async t => {
+    const s = await t.get(ref);
+    const n = ((s.exists && Number(s.data().seq)) || 0) + 1;
+    t.set(ref, { seq: n }, { merge: true });
+    return 'CR-' + String(n).padStart(3, '0');
+  });
+}
+
+exports.enviarMudanca = onCall({ cors: ORIGENS, secrets: [RESEND_API_KEY], timeoutSeconds: 120 }, async (req) => {
+  const tok = req.auth && req.auth.token;
+  if (!tok || !tok.email || tok.email_verified !== true)
+    throw new HttpsError('unauthenticated', 'entre com uma conta confirmada.');
+  const d = req.data || {};
+  const db = admin.firestore();
+  const quem = chave(tok.email);
+  const idxQuem = await ler(db.doc('users/' + quem));
+  const orgId = idxQuem && idxQuem.orgId;
+  const pid = String(d.projetoId || '');
+  if (!/^[A-Za-z0-9_-]{1,80}$/.test(pid)) throw new HttpsError('invalid-argument', 'projeto inválido.');
+  const [membroQuem, org, projeto] = orgId ? await Promise.all([
+    ler(db.doc(`orgs/${orgId}/members/${quem}`)), ler(db.doc('orgs/' + orgId)),
+    ler(db.doc(`orgs/${orgId}/projects/${pid}`))
+  ]) : [null, null, null];
+  const v = decidirMudanca({ idxQuem, membroQuem, org, projeto, quem,
+    mudanca: d.mudanca, destinatarios: d.destinatarios, agora: Date.now() });
+  if (!v.ok) throw new HttpsError('permission-denied', v.motivo);
+
+  const corte = (s, n) => String(s == null ? '' : s).slice(0, n).trim();
+  const num = x => { const n = Number(x); return isFinite(n) && n >= 0 ? n : 0; };
+  const e = d.mudanca || {};
+  /* A cópia congelada. `terminoNovo` e `horasNovas` vêm da tela porque o
+     cronograma só existe lá — o servidor não recalcula, ele registra o que
+     foi mostrado ao cliente. Recalcular aqui seria manter duas contas para
+     a mesma pergunta, e elas divergiriam no primeiro feriado. */
+  const mudanca = {
+    titulo: corte(e.titulo, 160), descricao: corte(e.descricao, 4000),
+    justificativa: corte(e.justificativa, 4000), escopo: corte(e.escopo, 4000),
+    riscos: corte(e.riscos, 4000), seNaoAprovar: corte(e.seNaoAprovar, 4000),
+    dias: num(e.dias), horas: num(e.horas), valor: num(e.valor),
+    terminoAtual: corte(e.terminoAtual, 40), terminoNovo: corte(e.terminoNovo, 40),
+    horasAtuais: num(e.horasAtuais), horasNovas: num(e.horasNovas)
+  };
+
+  const agora = Date.now();
+  const expira = agora + Math.round(Number(e.valePorDias) || 0) * 86400000;
+  const codigo = await proximoCodigo(db, orgId, pid);
+  const token = crypto.randomBytes(18).toString('base64url');
+  const link = APP_URL + '?formulario=' + encodeURIComponent(orgId) + '.' + token;
+  const ref = db.doc(`orgs/${orgId}/formularios/${token}`);
+
+  await ref.set({
+    tipo: 'mudanca', codigo, projetoId: pid,
+    projetoNome: projeto.name || 'Projeto', cliente: projeto.client || '',
+    empresaNome: org.nome || '', mudanca,
+    destinatarios: d.destinatarios.map(x => ({ nome: corte(x.nome, 120), email: chave(x.email) })),
+    enviadaPor: quem, enviadaEm: agora, expiraEm: expira,
+    respondidoEm: null, resposta: null
+  });
+
+  const chaveApi = (RESEND_API_KEY.value() || '').trim();
+  const saida = [];
+  for (const dest of d.destinatarios) {
+    const email = chave(dest.email), nome = corte(dest.nome, 120);
+    const r = await mandarMudanca(chaveApi, { email, nome, link, codigo, mudanca, expira,
+      empresa: org.nome || 'MILEST', projeto: projeto.name || 'Projeto', remetente: quem });
+    saida.push({ email, nome, enviado: r.enviado, erro: r.erro || '' });
+  }
+  await ref.set({ email: saida }, { merge: true });
+  console.log('enviarMudanca', { quem, orgId, pid, codigo, n: saida.length, enviados: saida.filter(x => x.enviado).length });
+  return { codigo, token, link, itens: saida };
 });
