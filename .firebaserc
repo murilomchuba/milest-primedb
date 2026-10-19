@@ -2,7 +2,7 @@
   "projects": {
     "default": "milest-app",
     "milest": "milest-app",
-    "layout": "milest-layout"
+    "primedb": "milest-primedb"
   },
   "targets": {
     "milest-app": {
@@ -11,9 +11,9 @@
         "site": ["milest-site"]
       }
     },
-    "milest-layout": {
+    "milest-primedb": {
       "hosting": {
-        "app": ["milest-layout"]
+        "app": ["milest-primedb"]
       }
     }
   }

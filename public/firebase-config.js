@@ -31,16 +31,16 @@
     measurementId: "G-VGF340FF7V"
   };
 
-  /* O clone de layout. Preencher com os valores do projeto novo assim que
-     ele existir no console. Enquanto estiver vazio, qualquer endereço que
-     não seja de produção simplesmente não conecta — de propósito. */
+  /* O clone de layout da PrimeDB. Outro projeto no Firebase, outro banco:
+     nada do que acontece lá toca a carteira de produção. */
   var CLONE = {
-    apiKey: "",
-    authDomain: "",
-    projectId: "",
-    storageBucket: "",
-    messagingSenderId: "",
-    appId: ""
+    apiKey: "AIzaSyDor0cYcVN9cujnvZ0rUqNbqyml8Dslsdc",
+    authDomain: "milest-primedb.firebaseapp.com",
+    projectId: "milest-primedb",
+    storageBucket: "milest-primedb.firebasestorage.app",
+    messagingSenderId: "822276661024",
+    appId: "1:822276661024:web:4a2a8e59ee186117aa8145",
+    measurementId: "G-MKXF29VKME"
   };
 
   var h = String((typeof location !== 'undefined' && location.hostname) || '').toLowerCase();
