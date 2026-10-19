@@ -1,13 +1,19 @@
 {
   "projects": {
     "default": "milest-app",
-    "milest": "milest-app"
+    "milest": "milest-app",
+    "layout": "milest-layout"
   },
   "targets": {
     "milest-app": {
       "hosting": {
         "app": ["milest-app"],
         "site": ["milest-site"]
+      }
+    },
+    "milest-layout": {
+      "hosting": {
+        "app": ["milest-layout"]
       }
     }
   }
