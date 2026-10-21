@@ -1,6 +1,8 @@
 .DS_Store
 .firebase/
 backups/
+backup-local/
+*milest-backup-*.json
 Claude outputs/
 ~$*
 *.bak

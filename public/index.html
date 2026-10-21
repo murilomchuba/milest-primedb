@@ -915,6 +915,100 @@ body.embutido .view{height:100%}
   .ap .apcorpo{padding:12px 12px 48px;gap:12px}
   .ap .card{padding:13px;border-radius:10px}
 }
+
+/* ============ pele PrimeDB ============
+   Este branch é o clone da PrimeDB. O gestor deles pediu o mesmo visual dos
+   outros sistemas da casa: navegação à esquerda, agrupada e com ícones, fundo
+   claro, cartões brancos com sombra suave e acento vermelho.
+
+   As TELAS não mudam. Tudo aqui é cromo: onde a navegação mora, que cores as
+   variáveis carregam e quanto respiro os cartões têm. Portfólio, Gantt, Curva
+   S e os PDFs continuam exatamente os mesmos — é por isso que esta pele cabe
+   num bloco de CSS e um punhado de linhas de JavaScript.                    */
+:root{
+  --paper:#F4F6F9; --surface:#FFFFFF; --surface-2:#F7F8FA; --surface-3:#EDEFF3;
+  --line:#E6E9EE; --line-strong:#D4D9E0;
+  --ink:#1B2430; --ink-2:#5A6676; --ink-3:#8A94A3;
+  --accent:#D92D20; --accent-2:#F0564A; --accent-soft:#FDECEA;
+  --shadow:0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.08);
+  --lat:238px;
+}
+/* O acento acompanha o tema; as superfícies continuam as do modo escuro.
+   Vermelho sangue sobre fundo escuro vira marrom — o claro é mais vivo. */
+@media (prefers-color-scheme:dark){ :root:not([data-theme="light"]){ --accent:#F2715F; --accent-2:#F79182; --accent-soft:#3A1B16 } }
+:root[data-theme="dark"]{ --accent:#F2715F; --accent-2:#F79182; --accent-soft:#3A1B16 }
+
+/* A moldura: uma coluna fixa para a navegação, o resto empilhado à direita.
+   Grade em vez de flex porque a barra precisa atravessar as três faixas
+   (indicadores, ferramentas, tela) sem envolver nada num contêiner novo —
+   e não mexer no HTML é o que mantém o merge com o master possível. */
+body{
+  display:grid; grid-template-columns:var(--lat) 1fr; grid-template-rows:auto auto 1fr;
+  height:100vh; overflow:hidden;
+}
+.topbar{
+  grid-column:1; grid-row:1 / 4;
+  flex-direction:column; align-items:stretch; justify-content:flex-start;
+  height:100vh; overflow-y:auto; overflow-x:hidden;
+  gap:2px; padding:16px 12px 12px;
+  border-bottom:0; border-right:1px solid var(--line);
+}
+.topbar .brand{margin:2px 4px 16px}
+.topbar .projpick{width:auto; margin:0 2px 10px; flex:none; min-width:0}
+.topbar .projpick select{max-width:100%; min-width:0}
+
+.tabs{flex-direction:column; margin-left:0; overflow:visible; gap:1px; flex:none; align-self:stretch; order:10}
+.navgrupo{
+  font-family:var(--f-mono); font-size:9.5px; letter-spacing:.1em; text-transform:uppercase;
+  color:var(--ink-3); padding:15px 12px 5px;
+}
+/* `.tabs .tab` e não `.tab`: as faixas que encolhiam a fonte quando as abas
+   eram horizontais ainda estão no arquivo, e numa coluna elas não fazem
+   sentido nenhuma. Especificidade maior desliga as três de uma vez. */
+.tabs .tab{
+  justify-content:flex-start; align-self:stretch; height:auto;
+  padding:8px 11px; border-radius:8px; gap:10px;
+  font-size:13.5px; font-weight:500; box-shadow:none; color:var(--ink-2);
+}
+.tabs .tab svg{flex:none; opacity:.72}
+.tabs .tab:hover{background:var(--surface-2); color:var(--ink)}
+.tabs .tab:hover svg{opacity:1}
+.tabs .tab[aria-selected="true"]{background:var(--accent-soft); color:var(--accent); font-weight:600; box-shadow:none}
+.tabs .tab[aria-selected="true"] svg{opacity:1}
+
+/* O rodapé da barra: ferramentas, estado da sincronia e a conta. */
+.topbar > .btn{order:80; align-self:stretch; justify-content:flex-start; margin:1px 2px; gap:8px}
+.topbar .syncdot{order:90; margin:12px 2px 0; padding:0 10px; max-width:100%}
+.topbar .syncdot span{max-width:100%}
+.topbar .userchip{
+  order:99; margin-top:auto; padding:12px 8px 2px; border-top:1px solid var(--line);
+  flex-wrap:wrap; gap:6px; white-space:normal;
+}
+.topbar #userEmail{max-width:100%}
+
+/* A área de trabalho. `min-width:0` em todos: sem isso uma tabela larga
+   estica a coluna e a página inteira ganha rolagem horizontal. */
+#kpis{grid-column:2; grid-row:1; min-width:0}
+#toolbar{grid-column:2; grid-row:2; min-width:0}
+.view{grid-column:2; grid-row:3; min-width:0; min-height:0}
+
+.panel{border-radius:12px; border-color:var(--line); box-shadow:var(--shadow)}
+.scrollview{padding:20px; gap:18px}
+
+/* Em tela estreita a barra deixa de ser coluna e volta a ser topo: 238px de
+   menu num notebook de 1280 ainda cabe, num tablet não. */
+@media (max-width:900px){
+  body{grid-template-columns:1fr}
+  .topbar{grid-column:1; grid-row:1; flex-direction:row; align-items:center; height:auto;
+    overflow-x:auto; border-right:0; border-bottom:1px solid var(--line); padding:0 12px; gap:12px}
+  .topbar .brand{margin:0}
+  .topbar .projpick{margin:0}
+  .tabs{flex-direction:row; order:0; align-self:stretch}
+  .navgrupo{display:none}
+  .topbar > .btn, .topbar .syncdot, .topbar .userchip{order:0; margin:0; border-top:0; padding:0}
+  #kpis,#toolbar,.view{grid-column:1}
+  #kpis{grid-row:2} #toolbar{grid-row:3} .view{grid-row:4}
+}
 </style>
 
 <div class="topbar">
@@ -1185,7 +1279,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-10-19.1319';
+const VERSAO = '2026-10-21.1254';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -9348,6 +9442,94 @@ function avisoDePausa() {
 
    Esconder não apaga nada. Os dados de uma aba escondida continuam no projeto,
    nos relatórios e no backup — ela volta na mesma janela em que saiu. */
+/* ---- a navegação lateral da pele PrimeDB ----
+   As abas continuam sendo os MESMOS botões: `setView`, `aplicarPermissoes` e
+   as abas escondidas pelo cadastro da empresa seguem mexendo neles. Esta
+   função só os reorganiza em grupos e põe um ícone na frente. Recriar os
+   botões quebraria as três coisas de uma vez. */
+const ICONES_ABA = {
+  overview:    'M3 3h7v7H3z|M14 3h7v7h-7z|M3 14h7v7H3z|M14 14h7v7h-7z',
+  kpi:         'M3 20h18|M7 20v-5|M12 20V8|M17 20v-9',
+  canvas:      'M3 4h18v15H3z|M9 4v15|M15 4v15',
+  kickoff:     'M12 2c3 3 4.5 7 4.5 10L12 16l-4.5-4C7.5 9 9 5 12 2z|M9.5 16L6 21l5-2.5|M14.5 16l3.5 5-5-2.5',
+  schedule:    'M4 6h10|M7 12h12|M4 18h8',
+  resources:   'M9 11a3 3 0 100-6 3 3 0 000 6z|M3 20a6 6 0 0112 0|M17 5.2a3 3 0 010 5.6|M16.5 20H21a5 5 0 00-3.5-4.8',
+  raci:        'M3 5h18v14H3z|M3 10h18|M9.5 5v14',
+  horas:       'M12 21a9 9 0 100-18 9 9 0 000 18z|M12 7.5V12l3 2',
+  status:      'M6 3h8l4 4v14H6z|M14 3v4h4|M9 14l2 2 4-4',
+  formularios: 'M9 3h6v3H9z|M7 4.5H5V21h14V4.5h-2|M9 12h6|M9 16h4',
+  diario:      'M5 3h14v18H5z|M9 3v18|M12 8h4|M12 12h4',
+  docs:        'M3 7h6l2 2h10v10H3z',
+  curve:       'M3 20h18|M4 17c4.5 0 6-10 16-12.5',
+  settings:    'M4 6h16v15H4z|M4 11h16|M8 3v4|M16 3v4',
+  users:       'M12 12a4 4 0 100-8 4 4 0 000 8z|M4 21a8 8 0 0116 0',
+  plataforma:  'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z'
+};
+
+/* Os grupos espelham como o trabalho é feito, não a ordem em que as abas
+   foram construídas: primeiro o que se olha todo dia, depois o projeto por
+   dentro, depois o que vai ao cliente, e por último a administração. */
+const GRUPOS_LATERAL = [
+  { rot: '',                ids: ['overview', 'kpi'] },
+  { rot: 'Projeto',         ids: ['schedule', 'canvas', 'kickoff', 'resources', 'raci', 'curve', 'settings'] },
+  { rot: 'Acompanhamento',  ids: ['status', 'diario', 'docs', 'formularios'] },
+  { rot: 'Horas',           ids: ['horas'] },
+  { rot: 'Administração',   ids: ['users', 'plataforma'] }
+];
+
+function enfeitarAba(b) {
+  if (b.dataset.enfeitada) return;
+  b.dataset.enfeitada = '1';
+  const texto = b.textContent;
+  b.textContent = '';
+  const d = ICONES_ABA[b.dataset.view];
+  if (d) {
+    const s = sv('svg', { viewBox: '0 0 24 24', width: 17, height: 17, fill: 'none',
+      stroke: 'currentColor', 'stroke-width': 1.7, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' });
+    for (const p of d.split('|')) s.appendChild(sv('path', { d: p }));
+    b.appendChild(s);
+  }
+  b.appendChild(el('span', '', texto));
+}
+
+function montarLateral() {
+  const tira = document.querySelector('.tabs');
+  if (!tira || tira.dataset.lateral) return;
+  tira.dataset.lateral = '1';
+  const porId = new Map();
+  for (const b of tira.querySelectorAll('.tab[data-view]')) porId.set(b.dataset.view, b);
+  for (const g of GRUPOS_LATERAL) {
+    if (g.rot) {
+      const h = el('div', 'navgrupo', g.rot);
+      h.dataset.grupo = g.ids.join(' ');
+      tira.appendChild(h);
+    }
+    for (const id of g.ids) {
+      const b = porId.get(id);
+      if (b) { enfeitarAba(b); tira.appendChild(b); }
+    }
+  }
+  /* Qualquer aba que apareça no futuro e eu tenha esquecido de agrupar vai
+     para o fim da lista, visível. Sumir em silêncio seria pior. */
+  for (const b of tira.querySelectorAll('.tab[data-view]')) {
+    if (!b.dataset.enfeitada) { enfeitarAba(b); tira.appendChild(b); }
+  }
+  ajustarGruposLaterais();
+}
+
+/* O rótulo de um grupo não pode ficar sozinho: a aba Usuários depende do
+   papel, a de Horas do indicador, e o cadastro da empresa esconde outras.
+   Quando o grupo inteiro sai, o título sai junto. */
+function ajustarGruposLaterais() {
+  for (const h of document.querySelectorAll('.navgrupo[data-grupo]')) {
+    const ids = h.dataset.grupo.split(' ');
+    h.hidden = !ids.some(id => {
+      const b = document.querySelector('.tab[data-view="' + id + '"]');
+      return b && !b.hidden;
+    });
+  }
+}
+
 const ABAS_ESCONDIVEIS = [
   { id: 'kpi', rot: 'Visão', desc: 'Cartões com o retrato da carteira' },
   { id: 'canvas', rot: 'Canvas', desc: 'Project Model Canvas, os treze blocos' },
@@ -13408,6 +13590,7 @@ function setView(v) {
   VIEW = v;
   document.querySelectorAll('.tab').forEach(b => b.setAttribute('aria-selected', String(b.dataset.view === v)));
   document.querySelectorAll('.view').forEach(x => x.classList.toggle('on', x.id === 'view-' + v));
+  ajustarGruposLaterais();
   $('#toolbar').style.display = v === 'schedule' ? '' : 'none';
   $('#kpis').style.display = (v === 'overview' || v === 'kpi' || v === 'canvas' || v === 'kickoff' || v === 'docs' || v === 'diario' || v === 'formularios' || v === 'users' || v === 'plataforma') ? 'none' : '';
   refresh();
@@ -21395,6 +21578,7 @@ async function boot() {
     ST.mode = 'local'; ST.db = null; setSync('local', 'Neste navegador');
   }
 }
+montarLateral();
 boot();
 </script>
 
