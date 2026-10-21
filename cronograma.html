@@ -1327,7 +1327,7 @@ body{
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-10-21.1335';
+const VERSAO = '2026-10-21.1649';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -11589,6 +11589,26 @@ async function baixarBackup(comAnexos) {
  *  estiver no backup — sobrescrever é menos destrutivo do que limpar. */
 /** Confere se dá para gravar na empresa antes de começar. Uma restauração
  *  interrompida no meio deixa metade dos dados — é melhor não começar. */
+/* O Firestore recusa leitura e escrita com a mesma frase seca — "Missing or
+   insufficient permissions" —, e ela não diz nada a quem não escreveu as
+   regras. Pior: as mensagens úteis desta tela ficam todas DEPOIS da leitura
+   que foi negada, então quem mais precisa delas é justamente quem não as vê.
+
+   Do navegador não dá para separar as causas: a leitura que diria qual é
+   também é negada. Então a mensagem lista as três e põe o e-mail da conta na
+   frente, porque entrar com a conta errada é a causa mais comum e a mais
+   invisível de todas — a tela fica exatamente igual. */
+function ehNegacao(e) {
+  return !!e && (e.code === 'permission-denied'
+    || /insufficient permissions|permission[- ]denied/i.test((e && e.message) || ''));
+}
+function explicarNegacao(oque) {
+  return 'O banco recusou ' + oque + ' para a conta ' + (ST.userEmail || '(sem conta)') + '. '
+    + 'São três as causas possíveis: esta conta não está cadastrada como usuária desta empresa; '
+    + 'a empresa está suspensa; ou você entrou com uma conta diferente da de sempre. '
+    + 'Confira o e-mail acima primeiro — é o que mais engana.';
+}
+
 async function verificarDestino(orgAlvo) {
   if (ST.mode !== 'db' || !orgAlvo) return { ok: true };
   try {
@@ -11596,7 +11616,10 @@ async function verificarDestino(orgAlvo) {
     if (!o.exists) return { ok: false, causa: 'A empresa escolhida não existe mais.' };
     if ((o.data() || {}).ativo === false) return { ok: false, causa: 'A empresa está suspensa. Reative-a antes de restaurar.' };
   } catch (e) {
-    return { ok: false, causa: 'Não consegui ler o cadastro da empresa: ' + ((e && e.message) || 'erro') };
+    return { ok: false, negado: ehNegacao(e),
+      causa: ehNegacao(e)
+        ? explicarNegacao('a leitura do cadastro desta empresa')
+        : 'Não consegui ler o cadastro da empresa: ' + ((e && e.message) || 'erro') };
   }
   let m = null;
   try { m = await ST.db.doc(dOrg(orgAlvo) + '/members/' + chaveEmail(ST.userEmail)).get(); } catch (e) { }
