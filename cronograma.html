@@ -1035,7 +1035,10 @@ body{
 /* O cartão de projetos ativos era um bloco cheio de cor. Na referência não
    há cartão em destaque: o primeiro é igual aos outros, e o que o distingue
    é ocupar duas colunas. */
-.vgcard.forte{background:var(--surface); border-color:var(--line)}
+/* Na referência não há cartão largo: todos iguais, e a grade fecha certa.
+   Ocupando duas colunas, o primeiro empurrava os outros e a última fileira
+   saía torta. */
+.vgcard.forte{background:var(--surface); border-color:var(--line); grid-column:span 1}
 .vgcard.forte .vgnum{color:var(--accent); font-size:36px}
 .vgcard.forte .vgrot{color:var(--ink)}
 .vgcard.forte .vgsub{color:var(--ink-3)}
