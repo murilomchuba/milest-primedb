@@ -948,7 +948,14 @@ body{
 .topbar{
   grid-column:1; grid-row:1 / 4;
   flex-direction:column; align-items:stretch; justify-content:flex-start;
-  height:100vh; overflow-y:auto; overflow-x:hidden;
+  /* `height:100vh` aqui esmagava as duas faixas de cima. Um item que
+     atravessa as três linhas com altura FIXA faz a grade entregar a altura
+     toda a ele e deixar as linhas `auto` com zero — os indicadores do
+     cronograma ficavam com 1px, que é só a borda de baixo. A barra já ocupa
+     a altura inteira por atravessar as linhas; `align-self:stretch` diz isso
+     sem fixar número, e o `max-height` mantém a rolagem interna quando o
+     menu for mais alto que a janela. */
+  align-self:stretch; max-height:100vh; overflow-y:auto; overflow-x:hidden;
   gap:2px; padding:16px 12px 12px;
   border-bottom:0; border-right:1px solid var(--line);
 }
@@ -1327,7 +1334,7 @@ body{
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-10-21.1750';
+const VERSAO = '2026-10-21.1759';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
