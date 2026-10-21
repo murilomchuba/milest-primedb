@@ -1185,7 +1185,7 @@ body.embutido .view{height:100%}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-10-21.1649';
+const VERSAO = '2026-10-21.1734';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -11372,8 +11372,14 @@ function ehNegacao(e) {
   return !!e && (e.code === 'permission-denied'
     || /insufficient permissions|permission[- ]denied/i.test((e && e.message) || ''));
 }
-function explicarNegacao(oque) {
-  return 'O banco recusou ' + oque + ' para a conta ' + (ST.userEmail || '(sem conta)') + '. '
+function explicarNegacao(oque, org) {
+  /* O id da empresa entra na mensagem. Sem ele, "esta empresa" pode ser a que
+     está na tela ou outra qualquer que a janela escolheu, e descobrir qual
+     custou uma tarde: o console lia a empresa aberta sem problema enquanto o
+     app recusava outra. Um identificador no texto teria encurtado isso para
+     trinta segundos. */
+  return 'O banco recusou ' + oque + (org ? ' (' + org + ')' : '')
+    + ' para a conta ' + (ST.userEmail || '(sem conta)') + '. '
     + 'São três as causas possíveis: esta conta não está cadastrada como usuária desta empresa; '
     + 'a empresa está suspensa; ou você entrou com uma conta diferente da de sempre. '
     + 'Confira o e-mail acima primeiro — é o que mais engana.';
@@ -11388,7 +11394,7 @@ async function verificarDestino(orgAlvo) {
   } catch (e) {
     return { ok: false, negado: ehNegacao(e),
       causa: ehNegacao(e)
-        ? explicarNegacao('a leitura do cadastro desta empresa')
+        ? explicarNegacao('a leitura do cadastro desta empresa', orgAlvo)
         : 'Não consegui ler o cadastro da empresa: ' + ((e && e.message) || 'erro') };
   }
   let m = null;
