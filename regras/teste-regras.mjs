@@ -26,6 +26,8 @@ const ELI = 'eli@unimed.com.br';       // analista da Unimed, na equipe do p1
 const IGOR = 'igor@unimed.com.br';     // analista da Unimed, fora de toda equipe
 const FORA = 'estranho@outra.com';
 const DORA = 'dora@teste.com.br';       // administradora de duas empresas de teste
+const FABIO = 'fabio@unimed.com.br';
+const HELOR = 'helo@restaurada.com.br';
 const GI = 'gi@unimed.com.br';          // gerente de projetos da Unimed: titular do p1, substituta no p3
 const HELO = 'helo@unimed.com.br';      // gerente de projetos da Unimed: titular do p2 e do p3
 
@@ -103,6 +105,17 @@ await env.withSecurityRulesDisabled(async ctx => {
   await setDoc(doc(db, 'orgs/vencida/projects', 'v1'), { name: 'Piloto', gp: GI, gpExtra: [] });
   await setDoc(doc(db, 'orgs', 'noprazo'), { nome: 'Teste Corrente', ativo: true, semDono: false, expiraEm: Date.now() + 7 * DIA });
   await setDoc(doc(db, 'orgs/noprazo/members', DORA), { email: DORA, papel: 'admin', ativo: true });
+
+  /* Restaurar um backup grava o cadastro de membro como ele veio do arquivo,
+     e arquivo antigo não tem `ativo`. Nas regras, ler campo inexistente é
+     erro, não nulo — e o erro trancava a pessoa para fora em silêncio. Estes
+     dois documentos são exatamente o estado que apareceu no clone. */
+  await setDoc(doc(db, 'users', FABIO), { email: FABIO, orgId: 'unimed' });
+  await setDoc(doc(db, 'orgs/unimed/members', FABIO), { email: FABIO, papel: 'admin' });
+  await setDoc(doc(db, 'orgs', 'semcampo'), { nome: 'Empresa restaurada', semDono: false });
+  await setDoc(doc(db, 'users', HELOR), { email: HELOR, orgId: 'semcampo' });
+  await setDoc(doc(db, 'orgs/semcampo/members', HELOR), { email: HELOR, papel: 'admin', ativo: true });
+  await setDoc(doc(db, 'orgs/semcampo/projects', 's1'), { name: 'Projeto restaurado' });
   await setDoc(doc(db, 'orgs/noprazo/projects', 'n1'), { name: 'Piloto' });
 });
 
@@ -763,6 +776,16 @@ await caso('com o prazo vencido, a Gi ainda lê o projeto dela', () =>
   assertSucceeds(getDoc(doc(conta(GI), 'orgs/vencida/projects', 'v1'))));
 await caso('mas não escreve nada nele', () =>
   assertFails(setDoc(doc(conta(GI), 'orgs/vencida/projects/v1/tasks', 'tX'), { name: 'não' })));
+
+console.log('\nCADASTRO SEM O CAMPO `ativo` (vindo de restore)');
+await caso('membro sem `ativo` lê o cadastro da própria empresa', () =>
+  assertSucceeds(getDoc(doc(conta(FABIO), 'orgs', 'unimed'))));
+await caso('membro sem `ativo` lê projeto da própria empresa', () =>
+  assertSucceeds(getDoc(doc(conta(FABIO), 'orgs/unimed/projects', 'p1'))));
+await caso('membro sem `ativo` grava na própria empresa', () =>
+  assertSucceeds(setDoc(doc(conta(FABIO), 'orgs/unimed/projects', 'pF'), { name: 'Novo' })));
+await caso('empresa sem o campo `ativo` continua viva para o membro', () =>
+  assertSucceeds(getDoc(doc(conta(HELOR), 'orgs/semcampo/projects', 's1'))));
 
 console.log('\n' + ok + ' passaram, ' + falhou + ' falharam.');
 await env.cleanup();
