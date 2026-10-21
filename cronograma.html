@@ -1042,7 +1042,7 @@ body{
   </div>
 </div>
 
-<div class="kpis" id="kpis"></div>
+<div class="kpis" id="kpis" style="display:none"></div>
 
 <div class="arqbar" id="arqBar"></div>
 
@@ -1052,7 +1052,7 @@ body{
 <div class="avisopausa" id="avisoPausa"></div>
 <div class="avisoleitura" id="avisoLeitura"><span>🔒</span><span>Seu acesso é somente leitura: você consulta os cronogramas e baixa os relatórios, mas não altera dados.</span></div>
 
-<div class="toolbar" id="toolbar">
+<div class="toolbar" id="toolbar" style="display:none">
   <button class="btn" id="btnAdd">＋ Atividade</button>
   <button class="btn icon" id="btnIndent" title="Recuar (tornar subatividade)">→|</button>
   <button class="btn icon" id="btnOutdent" title="Avançar nível">|←</button>
@@ -1278,7 +1278,7 @@ body{
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-10-21.1254';
+const VERSAO = '2026-10-21.1259';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
