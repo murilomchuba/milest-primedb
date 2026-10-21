@@ -11608,6 +11608,12 @@ function explicarNegacao(oque, org) {
 }
 
 async function verificarDestino(orgAlvo) {
+  /* Um destino que não seja texto não é destino: montar `orgs/` + objeto
+     produz um caminho que o banco nega, e a recusa chega disfarçada de
+     problema de permissão da empresa. */
+  if (orgAlvo != null && typeof orgAlvo !== 'string')
+    return { ok: false, causa: 'A empresa de destino chegou inválida a esta janela (' + typeof orgAlvo + '). '
+      + 'Isso é defeito do sistema, não da sua conta — recarregue a página e tente de novo.' };
   if (ST.mode !== 'db' || !orgAlvo) return { ok: true };
   try {
     const o = await ST.db.doc(dOrg(orgAlvo)).get();
@@ -11699,6 +11705,10 @@ async function aplicarBackup(d, orgAlvo) {
 }
 
 function restaurarBackup(orgAlvo, nomeAlvo) {
+  /* Blindagem no lugar certo: quem chama errado é corrigido aqui, e não em
+     cada ponto de chamada. Sem empresa de destino a restauração entra na
+     empresa da sessão, que é o que este botão sempre quis dizer. */
+  if (typeof orgAlvo !== 'string' || !orgAlvo) { orgAlvo = null; nomeAlvo = null; }
   const inp = el('input'); inp.type = 'file'; inp.accept = '.json,application/json';
   inp.addEventListener('change', async () => {
     const f = inp.files && inp.files[0]; if (!f) return;
@@ -11753,7 +11763,11 @@ function painelBackup() {
   const acoes = el('div'); acoes.style.display = 'flex'; acoes.style.gap = '7px';
   const bD = el('button', 'btn primary', 'Baixar backup desta empresa');
   const bR = el('button', 'btn reqedit', 'Restaurar de um arquivo');
-  bR.addEventListener('click', restaurarBackup);
+  /* `addEventListener('click', restaurarBackup)` entregava o PointerEvent no
+     primeiro parâmetro, que é a empresa de destino. O caminho virava
+     `orgs/[object PointerEvent]`, o banco negava — como negaria qualquer
+     caminho inventado — e a tela culpava as permissões da empresa. */
+  bR.addEventListener('click', () => restaurarBackup());
   acoes.appendChild(bD); acoes.appendChild(bR); h.appendChild(acoes);
   p.appendChild(h);
   p.appendChild(el('div', 'tagline',
