@@ -933,21 +933,24 @@ body.embutido .view{height:100%}
    Grade em vez de flex porque a barra precisa atravessar as três faixas
    (indicadores, ferramentas, tela) sem envolver nada num contêiner novo —
    e não mexer no HTML é o que mantém o merge com o master possível. */
+/* `min-content` e não `auto` nas duas primeiras linhas. A barra lateral
+   atravessa as três, e um item que atravessa linhas faz a grade distribuir
+   a altura dele entre elas: com `auto`, as duas de cima acabavam com zero e
+   os indicadores do cronograma ficavam com 1px — só a borda de baixo.
+   `min-content` prende cada uma ao tamanho do próprio conteúdo antes de
+   qualquer distribuição.
+
+   Tentei antes tirar o `height:100vh` da barra. Também consertava a faixa,
+   e esvaziava o menu. Este conserto não encosta na barra. */
 body{
-  display:grid; grid-template-columns:var(--lat) 1fr; grid-template-rows:auto auto 1fr;
+  display:grid; grid-template-columns:var(--lat) 1fr;
+  grid-template-rows:min-content min-content 1fr;
   height:100vh; overflow:hidden;
 }
 .topbar{
   grid-column:1; grid-row:1 / 4;
   flex-direction:column; align-items:stretch; justify-content:flex-start;
-  /* `height:100vh` aqui esmagava as duas faixas de cima. Um item que
-     atravessa as três linhas com altura FIXA faz a grade entregar a altura
-     toda a ele e deixar as linhas `auto` com zero — os indicadores do
-     cronograma ficavam com 1px, que é só a borda de baixo. A barra já ocupa
-     a altura inteira por atravessar as linhas; `align-self:stretch` diz isso
-     sem fixar número, e o `max-height` mantém a rolagem interna quando o
-     menu for mais alto que a janela. */
-  align-self:stretch; max-height:100vh; overflow-y:auto; overflow-x:hidden;
+  height:100vh; overflow-y:auto; overflow-x:hidden;
   gap:2px; padding:16px 12px 12px;
   border-bottom:0; border-right:1px solid var(--line);
 }
