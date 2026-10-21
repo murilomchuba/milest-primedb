@@ -1327,7 +1327,7 @@ body{
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-10-21.1334';
+const VERSAO = '2026-10-21.1335';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -16131,10 +16131,11 @@ function vgCard(destino, opcoes) {
     const s2 = el('div', 'vgselo', opcoes.selo);
     const cor = opcoes.cor || 'var(--accent)';
     s2.style.background = cor;
-    /* A mesma cor também como variável: aqui ela é fundo, mas uma pele pode
-       querer o contrário — selo claro com o glifo colorido. Guardar a cor
-       custa uma linha e evita que a pele tenha de adivinhá-la. */
-    s2.style.setProperty('--selo', cor);
+    /* A cor também como variável, e no CARTÃO e não no selo: aqui ela é o
+       fundo do selo, mas uma pele pode querer o contrário — selo claro com o
+       glifo colorido — ou pintar outra coisa do cartão com ela. Posta no pai,
+       o selo herda e o resto do cartão alcança. */
+    d.style.setProperty('--selo', cor);
     d.appendChild(s2);
   }
   const n = el('div', 'vgnum', opcoes.valor);
