@@ -38,7 +38,7 @@ service cloud.firestore {
     function docOrg(org)    { return /databases/$(database)/documents/orgs/$(org); }
 
     function orgViva(org) {
-      return exists(docOrg(org)) && get(docOrg(org)).data.ativo != false;
+      return exists(docOrg(org)) && get(docOrg(org)).data.get('ativo', true) != false;
     }
 
     // Prazo de acesso (avaliação ou assinatura). `expiraEm` é a data em
@@ -50,9 +50,15 @@ service cloud.firestore {
       return get(docOrg(org)).data.get('expiraEm', 0) == 0
           || request.time.toMillis() < get(docOrg(org)).data.expiraEm;
     }
+    /* `data.get('ativo', true)` e não `data.ativo`: ler campo inexistente nas
+       regras não devolve nulo, dá erro, e o erro derruba a função inteira para
+       falso. Um cadastro de membro sem o campo — um backup restaurado, uma
+       importação, qualquer caminho que não seja `criarEmpresa` — trancava a
+       pessoa para fora sem que nada na tela explicasse por quê. Quarenta
+       linhas abaixo, `naEquipe` já fazia do jeito certo. */
     function daOrg(org) {
       return logado() && exists(docMembro(org))
-          && get(docMembro(org)).data.ativo != false
+          && get(docMembro(org)).data.get('ativo', true) != false
           && orgViva(org);
     }
     function papelNa(org) { return get(docMembro(org)).data.get('papel', 'leitor'); }
