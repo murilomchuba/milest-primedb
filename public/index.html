@@ -1328,7 +1328,7 @@ body{
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-10-21.1748';
+const VERSAO = '2026-10-21.1750';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
@@ -11663,41 +11663,71 @@ async function verificarDestino(orgAlvo) {
 /** Regrava o backup. `orgAlvo` diz em qual empresa — sem isso, com o painel
  *  da plataforma aberto e nenhuma empresa em uso, os dados voltariam para a
  *  raiz do banco, que é a estrutura antiga. */
+/* Devolve o que conseguiu e o que não conseguiu, em vez de prometer que deu
+   tudo certo. A versão anterior engolia as falhas de membros e índices com
+   `.catch(() => {})` e ainda anunciava "Backup restaurado"; e uma falha num
+   projeto interrompia o laço, deixando os seguintes sem nem serem tentados.
+   As duas coisas produzem o mesmo estrago: metade do estado escrito e
+   ninguém sabendo. */
 async function aplicarBackup(d, orgAlvo) {
-  const emLotes = async (itens, fn) => {
-    for (let i = 0; i < itens.length; i += 15) await Promise.all(itens.slice(i, i + 15).map(fn));
+  const falhas = [];
+  const anota = (oque, e) => {
+    const causa = ehNegacao(e) ? 'sem permissão' : ((e && e.message) || 'erro');
+    if (!falhas.some(f => f.oque === oque && f.causa === causa)) falhas.push({ oque: oque, causa: causa });
+  };
+  /* Um item que falha não derruba o lote: os outros catorze seguem, e a falha
+     vira linha no relatório do fim. */
+  const emLotes = async (itens, fn, oque) => {
+    for (let i = 0; i < itens.length; i += 15)
+      await Promise.all(itens.slice(i, i + 15).map(x =>
+        Promise.resolve().then(() => fn(x)).catch(e => anota(oque || 'registros', e))));
   };
   const raiz = orgAlvo ? (dOrg(orgAlvo) + '/') : pre();
   const alvoProjeto = id => raiz + 'projects/' + id;
   const alvoRecurso = id => raiz + 'resources/' + id;
+  let feitos = 0;
   if (ST.mode === 'db') {
     for (const p of d.projects) {
+      const nome = (p.meta && p.meta.name) || p.id;
       const base = alvoProjeto(p.id);
       const meta = Object.assign({}, p.meta); delete meta.id;
-      await ST.db.doc(base).set(meta);
-      await emLotes(p.tasks || [], t => ST.db.doc(base + '/tasks/' + t.id).set(t));
-      await emLotes(p.versions || [], v => ST.db.doc(base + '/versions/' + v.id).set(v));
-      await emLotes(p.versionsData || [], v => ST.db.doc(base + '/versionsData/' + v.id).set(v));
-      await emLotes(p.docs || [], v => ST.db.doc(base + '/docs/' + v.id).set(v));
-      await emLotes(p.docsData || [], v => ST.db.doc(base + '/docsData/' + v.id).set(v));
+      /* Projeto que falha não interrompe os outros. Antes, o primeiro erro
+         abortava o laço e os seguintes nem chegavam a ser tentados — e o
+         usuário via "parou no meio" sem saber onde ficava o meio. */
+      try { await ST.db.doc(base).set(meta); }
+      catch (e) { anota('projeto "' + nome + '"', e); continue; }
+      feitos++;
+      await emLotes(p.tasks || [], t => ST.db.doc(base + '/tasks/' + t.id).set(t), 'atividades de "' + nome + '"');
+      await emLotes(p.versions || [], v => ST.db.doc(base + '/versions/' + v.id).set(v), 'versões de "' + nome + '"');
+      await emLotes(p.versionsData || [], v => ST.db.doc(base + '/versionsData/' + v.id).set(v), 'versões de "' + nome + '"');
+      await emLotes(p.docs || [], v => ST.db.doc(base + '/docs/' + v.id).set(v), 'documentos de "' + nome + '"');
+      await emLotes(p.docsData || [], v => ST.db.doc(base + '/docsData/' + v.id).set(v), 'anexos de "' + nome + '"');
       /* O diário era coletado no backup e não voltava na restauração: o
          arquivo tinha os dados, a restauração os descartava em silêncio, e só
          se descobriria no dia em que fizessem falta. */
-      await emLotes(p.diario || [], v => ST.db.doc(base + '/diario/' + v.id).set(v));
-      await emLotes(p.horas || [], v => ST.db.doc(base + '/horas/' + v.id).set(v));
-      await emLotes(p.equipe || [], v => ST.db.doc(base + '/equipe/' + v.id).set(v));
+      await emLotes(p.diario || [], v => ST.db.doc(base + '/diario/' + v.id).set(v), 'diário de "' + nome + '"');
+      await emLotes(p.horas || [], v => ST.db.doc(base + '/horas/' + v.id).set(v), 'horas de "' + nome + '"');
+      await emLotes(p.equipe || [], v => ST.db.doc(base + '/equipe/' + v.id).set(v), 'equipe de "' + nome + '"');
     }
-    await emLotes(d.resources || [], r => ST.db.doc(alvoRecurso(r.id)).set(r));
-    if (ehAdmin() && !orgAlvo) await emLotes(d.users || [], u => ST.db.doc('users/' + u.id).set(u).catch(() => { }));
+    await emLotes(d.resources || [], r => ST.db.doc(alvoRecurso(r.id)).set(r), 'o cadastro de equipe');
+    if (ehAdmin() && !orgAlvo) await emLotes(d.users || [], u => ST.db.doc('users/' + u.id).set(u), 'o índice de contas');
     // acessos da empresa: sem eles a restauração devolve os dados e deixa a
     // equipe do lado de fora. O próprio operador nunca é sobrescrito — um
     // backup antigo poderia rebaixá-lo e trancar a porta por dentro.
     if (ehAdmin() && orgAlvo && Array.isArray(d.membros)) {
       const eu = chaveEmail(ST.userEmail);
+      /* O cadastro sai normalizado: `ativo` e `papel` garantidos. Arquivo
+         antigo sem esses campos criava gente trancada para fora — a regra lê
+         campo inexistente e recusa tudo. Foi o que apareceu no clone. */
       await emLotes(d.membros.filter(m => chaveEmail(m.id || m.email) !== eu),
-        m => ST.db.doc(dOrg(orgAlvo) + '/members/' + (m.id || chaveEmail(m.email))).set(m).catch(() => { }));
+        m => ST.db.doc(dOrg(orgAlvo) + '/members/' + (m.id || chaveEmail(m.email))).set(
+          Object.assign({}, m, {
+            ativo: m.ativo !== false,
+            papel: ['admin', 'gerente', 'gp', 'analista', 'leitor'].includes(m.papel) ? m.papel : 'leitor'
+          })), 'os acessos da equipe');
       await emLotes(d.membros.filter(m => (m.email || m.id) && chaveEmail(m.id || m.email) !== eu),
-        m => ST.db.doc(dIndice(m.email || m.id)).set({ email: chaveEmail(m.email || m.id), orgId: orgAlvo }, { merge: true }).catch(() => { }));
+        m => ST.db.doc(dIndice(m.email || m.id)).set({ email: chaveEmail(m.email || m.id), orgId: orgAlvo }, { merge: true }),
+        'o índice de contas da equipe');
     }
   } else {
     const all = localLoad() || { projects: {} };
@@ -11709,8 +11739,10 @@ async function aplicarBackup(d, orgAlvo) {
       };
     }
     all.resources = (d.resources || []).slice();
+    feitos = d.projects.length;
     localStorage.setItem(LSKEY, JSON.stringify(all));
   }
+  return { projetos: feitos, de: (d.projects || []).length, falhas: falhas };
 }
 
 function restaurarBackup(orgAlvo, nomeAlvo) {
@@ -11752,7 +11784,31 @@ function restaurarBackup(orgAlvo, nomeAlvo) {
         const v = await verificarDestino(orgAlvo);
         if (!v.ok) { close(); avisarDestino(v); return; }
         close(); toast('Restaurando…');
-        try { await aplicarBackup(d, orgAlvo); toast('Backup restaurado. Recarregando…'); setTimeout(() => location.reload(), 1500); }
+        try {
+          const r = await aplicarBackup(d, orgAlvo);
+          if (r.falhas.length) {
+            /* Restauração pela metade não é sucesso. Dizer quantos projetos
+               entraram, quantos eram, e o que não foi gravado — a versão
+               antiga anunciava "Backup restaurado" com qualquer resultado. */
+            modal('Restauração incompleta', (body, close2) => {
+              body.appendChild(el('div', 'hint',
+                r.projetos + ' de ' + r.de + ' projeto(s) entraram. O que não foi gravado:'));
+              const ul = el('ul'); ul.style.cssText = 'margin:8px 0;padding-left:20px;font-size:13px;line-height:1.7';
+              for (const f of r.falhas.slice(0, 12)) ul.appendChild(el('li', '', f.oque + ' — ' + f.causa));
+              body.appendChild(ul);
+              if (r.falhas.length > 12) body.appendChild(el('div', 'hint', 'e mais ' + (r.falhas.length - 12) + ' item(ns).'));
+              body.appendChild(el('div', 'hint',
+                'A restauração regrava por cima: corrija a causa e rode de novo, que o que já entrou não duplica.'));
+              const l = el('div'); l.style.cssText = 'display:flex;justify-content:flex-end;margin-top:12px';
+              const b = el('button', 'btn primary', 'Entendi');
+              b.addEventListener('click', () => { close2(); location.reload(); });
+              l.appendChild(b); body.appendChild(l);
+            }, []);
+            return;
+          }
+          toast(r.projetos + ' projeto(s) restaurado(s). Recarregando…');
+          setTimeout(() => location.reload(), 1500);
+        }
         catch (e) {
           avisarDestino({ causa: 'A gravação parou no meio: ' + ((e && e.message) || 'erro') +
             ' Parte dos projetos pode ter entrado. Corrija a causa e restaure de novo — a restauração regrava por cima.' });
