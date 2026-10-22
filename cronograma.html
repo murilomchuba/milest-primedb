@@ -1071,6 +1071,19 @@ body.menufechado .topbar .brand{justify-content:center; margin:2px 0 16px}
   :root:not([data-theme="light"]) .pdbmarca{background:#fff; padding:3px 5px}
 }
 :root[data-theme="dark"] .pdbmarca{background:#fff; padding:3px 5px}
+
+/* ---- a tela de entrada em grafite ----
+   O azul era do MILEST e brigava com o vermelho do logotipo. O grafite imita
+   a própria assinatura: quase tudo escuro e cinza, com o vermelho guardado
+   para o que importa — os marcadores da lista e a curva S, que é a linha
+   que o olho segue. */
+.gateart{background:linear-gradient(155deg,#4C4C4C 0%,#272727 55%,#151515 100%)}
+.gatelist li{color:#C7C7C7}
+.gatelist li::before{background:#CD2F28}
+.gatesvg rect{fill:#BFBFBF}
+.gatesvg path[stroke="#7BE0C0"]{stroke:#CD2F28}
+.gatesvg circle{fill:#CD2F28}
+.gatesvg g[stroke="#8FC7DE"]{stroke:#9A9A9A}
 body.menufechado .topbar .projpick{display:none}
 /* Os botões da barra são emoji + palavra num texto só. Recolhido fica o
    emoji; por isso o rótulo vira um <span> à parte — é o que o sino já faz. */
@@ -1384,7 +1397,7 @@ body.menufechado .topbar > .navfechar{align-self:center; margin:0 0 8px}
 </style>
 <script>
 'use strict';
-const VERSAO = '2026-10-22.1125';
+const VERSAO = '2026-10-22.1134';
 const $ = s => document.querySelector(s);
 // a versão aparece na tela de entrada: confere de imediato se o deploy pegou
 setTimeout(() => {
