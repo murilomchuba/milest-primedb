@@ -1045,6 +1045,35 @@ body{
 .vgcard.forte .vgrot{color:var(--ink)}
 .vgcard.forte .vgsub{color:var(--ink-3)}
 
+/* ---- menu recolhido ----
+   Só a largura muda: `--lat` encolhe e o resto se arruma sozinho, porque a
+   coluna da grade já é essa variável. Os rótulos somem e ficam os ícones,
+   que é o que a referência da PrimeDB faz. */
+body.menufechado{--lat:64px}
+body.menufechado .topbar{padding:14px 8px 12px; align-items:center}
+body.menufechado .topbar .brand .mark,
+body.menufechado .topbar .brand .sub{display:none}
+body.menufechado .topbar .projpick{display:none}
+/* Os botões da barra são emoji + palavra num texto só. Recolhido fica o
+   emoji; por isso o rótulo vira um <span> à parte — é o que o sino já faz. */
+body.menufechado .rotbtn{display:none}
+body.menufechado .navgrupo{display:none}
+body.menufechado .tabs .tab{justify-content:center; padding:9px 0}
+body.menufechado .tabs .tab span{display:none}
+body.menufechado .topbar > .btn{justify-content:center}
+body.menufechado .topbar .syncdot{justify-content:center; padding:0}
+body.menufechado .topbar .syncdot span{display:none}
+body.menufechado .topbar .userchip{flex-direction:column; align-items:center; gap:4px}
+body.menufechado .topbar .userchip .org,
+body.menufechado .topbar .userchip .papel,
+body.menufechado .topbar #userEmail{display:none}
+/* `.topbar > .btn` vale mais que `.navfechar` sozinho e jogava o botão para o
+   fim da coluna, no meio das abas. Dois níveis de classe empatam, e o que vem
+   depois no arquivo ganha. */
+.topbar > .navfechar{order:-1; align-self:flex-end; width:30px; height:30px;
+  padding:0; margin:0 2px 8px; flex:none; justify-content:center}
+body.menufechado .topbar > .navfechar{align-self:center; margin:0 0 8px}
+
 /* Em tela estreita a barra deixa de ser coluna e volta a ser topo: 238px de
    menu num notebook de 1280 ainda cabe, num tablet não. */
 @media (max-width:900px){
@@ -1058,6 +1087,14 @@ body{
   .topbar > .btn, .topbar .syncdot, .topbar .userchip{order:0; margin:0; border-top:0; padding:0}
   #kpis,#toolbar,.view{grid-column:1}
   #kpis{grid-row:2} #toolbar{grid-row:3} .view{grid-row:4}
+  /* Barra deitada não se recolhe: não há largura para ganhar, e o botão
+     viraria um interruptor que não faz nada visível. */
+  .navfechar{display:none}
+  body.menufechado{--lat:auto}
+  body.menufechado .tabs .tab{justify-content:flex-start; padding:8px 11px}
+  body.menufechado .tabs .tab span{display:inline}
+  body.menufechado .topbar .brand .mark{display:inline}
+  body.menufechado .topbar .projpick{display:flex}
 }
 </style>
 
@@ -2269,7 +2306,11 @@ function atualizarBotaoHoras() {
   const b = $('#btnHoras'); if (!b) return;
   const off = semHoras();
   b.classList.toggle('oculto', off);
-  b.textContent = off ? '🙈 Horas ocultas' : '👁 Horas';
+  /* O rótulo sai num <span> próprio para o menu recolhido poder escondê-lo
+     sem levar junto o emoji. O texto final é o mesmo de antes. */
+  b.textContent = '';
+  b.appendChild(document.createTextNode(off ? '🙈' : '👁'));
+  b.appendChild(el('span', 'rotbtn', off ? ' Horas ocultas' : ' Horas'));
   b.title = off
     ? 'As horas estão escondidas da tela. Clique para mostrar de novo.'
     : 'Esconde o indicador HORAS e a aba Horas, para apresentar o cronograma ao cliente.';
@@ -9531,6 +9572,9 @@ function enfeitarAba(b) {
   if (b.dataset.enfeitada) return;
   b.dataset.enfeitada = '1';
   const texto = b.textContent;
+  /* O título serve ao menu recolhido, onde só o ícone aparece — e não atrapalha
+     quando o rótulo está visível. */
+  if (!b.title) b.title = texto;
   b.textContent = '';
   const d = ICONES_ABA[b.dataset.view];
   if (d) {
@@ -9540,6 +9584,30 @@ function enfeitarAba(b) {
     b.appendChild(s);
   }
   b.appendChild(el('span', '', texto));
+}
+
+/* A escolha de recolher o menu é de quem olha, não da empresa: fica no
+   navegador, como a ordem do painel de avanço. Um usuário recolher o menu
+   não deveria recolher o do colega. */
+const LS_LATERAL = 'milest.lateral.fechada';
+function lateralFechada() {
+  try { return localStorage.getItem(LS_LATERAL) === '1'; } catch (e) { return false; }
+}
+function aplicarLateral(fechada) {
+  document.body.classList.toggle('menufechado', !!fechada);
+  const b = document.getElementById('btnLateral');
+  if (b) {
+    b.setAttribute('aria-expanded', String(!fechada));
+    b.title = fechada ? 'Mostrar o menu' : 'Esconder o menu';
+  }
+  /* O Gantt desenha conforme a largura que mede. Sem redesenhar, ele fica com
+     a régua antiga até a próxima interação — e a barra some do lugar. */
+  try { if (VIEW === 'schedule') refresh(); } catch (e) { }
+}
+function alternarLateral() {
+  const nova = !document.body.classList.contains('menufechado');
+  try { localStorage.setItem(LS_LATERAL, nova ? '1' : '0'); } catch (e) { }
+  aplicarLateral(nova);
 }
 
 function montarLateral() {
@@ -9564,6 +9632,21 @@ function montarLateral() {
   for (const b of tira.querySelectorAll('.tab[data-view]')) {
     if (!b.dataset.enfeitada) { enfeitarAba(b); tira.appendChild(b); }
   }
+  /* O botão nasce aqui e não no HTML: manter o HTML igual ao do master é o
+     que permite que todo merge continue entrando sem conflito. */
+  const barra = document.querySelector('.topbar');
+  if (barra && !document.getElementById('btnLateral')) {
+    const b = el('button', 'btn icon navfechar');
+    b.id = 'btnLateral'; b.type = 'button';
+    const s2 = sv('svg', { viewBox: '0 0 24 24', width: 17, height: 17, fill: 'none',
+      stroke: 'currentColor', 'stroke-width': 1.8, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' });
+    for (const d of ['M3 5h18', 'M3 12h11', 'M3 19h18', 'M20 9l-3 3 3 3'])
+      s2.appendChild(sv('path', { d: d }));
+    b.appendChild(s2);
+    b.addEventListener('click', alternarLateral);
+    barra.insertBefore(b, barra.firstChild);
+  }
+  aplicarLateral(lateralFechada());
   ajustarGruposLaterais();
 }
 
